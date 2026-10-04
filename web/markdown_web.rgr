@@ -286,6 +286,13 @@ class MarkdownEdit {
         ; is the height of THIS page, so a deck turned to landscape does not
         ; draw its figures as tall as the portrait page was.
         layout.embeds.fitPage(layout.style.pageHeight layout.style.margin)
+        ; and which headings start a slide: a figure under a deeper one is a
+        ; part of its page, not the page (MdEmbedCache.figureRoom)
+        layout.embeds.splitLevel = 0
+        if ((sheetGap >= 0.0) && slideMode) {
+            layout.applySlideMeta(doc)
+            layout.embeds.splitLevel = layout.splitLevel
+        }
         MdDiagram.prepare(doc layout.embeds (this.contentWidth()) styleName)
         diagrams = (layout.embeds.count())
         layout.setDocSource(source)
@@ -1926,8 +1933,9 @@ class MarkdownWeb {
         ; or a template's `page` rule.
         def cw:double (deck.style.pageWidth - (deck.style.margin * 2.0))
         deck.embeds.fitPage(deck.style.pageHeight deck.style.margin)
-        MdDiagram.prepare(edit.doc deck.embeds cw styleName)
         deck.applySlideMeta(edit.doc)
+        deck.embeds.splitLevel = deck.splitLevel
+        MdDiagram.prepare(edit.doc deck.embeds cw styleName)
         deck.setDocSource(edit.source)
         deck.layoutSlides(edit.doc)
         def x (new MdToPptx())
@@ -2186,9 +2194,13 @@ class MarkdownWeb {
         }
         def cw:double (print.style.pageWidth - (print.style.margin * 2.0))
         print.embeds.fitPage(print.style.pageHeight print.style.margin)
-        MdDiagram.prepare(edit.doc print.embeds cw styleName)
+        print.embeds.splitLevel = 0
         if edit.slideMode {
             print.applySlideMeta(edit.doc)
+            print.embeds.splitLevel = print.splitLevel
+        }
+        MdDiagram.prepare(edit.doc print.embeds cw styleName)
+        if edit.slideMode {
             print.layoutSlides(edit.doc)
         } {
             print.layoutPaged(edit.doc)
