@@ -99,11 +99,18 @@ class MdFigureStyle {
     ; how far down a figure that does not stretch (```process, ```timeline)
     ; starts, to sit in the middle of `fillH` (MdFigure.sceneFit)
     def shiftY:double 0.0
+    ; how ```process and ```timeline go: 0 decide from the room (across
+    ; while every text fits its slot, else down), 1 across, 2 down
+    def stack:int 0
     ; set by the drawing: some text was set smaller than asked to fit its
     ; box (a word longer than its column), and the smallest size any text
     ; came out at (0: none drawn yet)
     def squeezed:boolean false
     def leastText:double 0.0
+    ; set by a strip (```process, ```timeline across): some text did not
+    ; fit its slot even at the smallest size (cut, or a word wider than
+    ; its column), or was set far under the size asked
+    def cramped:boolean false
 
     Constructor () {
         def c:[string] ([] _:string ("#1f6feb" "#0f9d8a" "#7c4dff" "#f08c00"))
@@ -123,11 +130,12 @@ class MdFigureStyle {
         o.lockedNote = lockedNote
         o.fillH = fillH
         o.shiftY = shiftY
+        o.stack = stack
         return o
     }
 
     fn key:string () {
-        def k:string (ink + "|" + muted + "|" + paper + "|" + font + "|" + (to_string size) + "|" + (to_string allowed))
+        def k:string (ink + "|" + muted + "|" + paper + "|" + font + "|" + (to_string size) + "|" + (to_string allowed) + "|" + (to_string stack))
         def i:int 0
         while (i < (array_length colors)) {
             k = (k + "|" + (itemAt colors i))

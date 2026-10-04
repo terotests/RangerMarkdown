@@ -469,16 +469,78 @@ class MdFigure {
         if ((array_length its) == 0) {
             return sc
         }
+        def down:boolean (MdFigure.stacks(word its st width pad))
         if (word == "process") {
-            MdFigure.process(sc its st width pad)
+            if down {
+                MdFigure.processDown(sc its st width pad)
+            } {
+                MdFigure.process(sc its st width pad)
+            }
         }
         if (word == "swot") {
             MdFigure.swot(sc its st width pad)
         }
         if (word == "timeline") {
-            MdFigure.timeline(sc its st width pad)
+            if down {
+                MdFigure.timelineDown(sc its st width pad)
+            } {
+                MdFigure.timeline(sc its st width pad)
+            }
         }
         return sc
+    }
+
+    ; A strip (```process, ```timeline) goes across its room while every
+    ; title and description fits its slot there. On a narrow room — a
+    ; portrait slide, a figure with text beside it — or with many steps,
+    ; the slots are too narrow: titles are cut, a long word runs into the
+    ; next column. Then the strip goes down the room instead, each item on
+    ; its own row with the full width for its text. `st.stack` set (by a
+    ; host, or by `sceneFitAt` once for every size it tries) decides it.
+    sfn stacks:boolean (word:string its:[MdFigureItem] st:MdFigureStyle width:double pad:double) {
+        if (st.stack == 1) {
+            return false
+        }
+        if (st.stack == 2) {
+            return true
+        }
+        if ((word != "process") && (word != "timeline")) {
+            return false
+        }
+        def probe:MdFigureStyle (st.sized(st.size))
+        probe.stack = 1
+        def sc (new FlowScene)
+        if (word == "process") {
+            MdFigure.process(sc its probe width pad)
+        } {
+            MdFigure.timeline(sc its probe width pad)
+        }
+        return probe.cramped
+    }
+
+    ; Some text in `lays` was cut, or is wider than `w` (a word longer than
+    ; its column, left standing over the next one).
+    sfn overflows:boolean (lays:[FlowTextLayout] w:double) {
+        def i:int 0
+        while (i < (array_length lays)) {
+            def l:FlowTextLayout (itemAt lays i)
+            if (l.truncated || (l.width > (w + 0.5))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; A strip's texts did not fit: cut, overflowing, or set under 0.85 of
+    ; the description size.
+    sfn markCramped:void (st:MdFigureStyle titles:[FlowTextLayout] titleW:double bodies:[FlowTextLayout] bodyW:double) {
+        if ((MdFigure.overflows(titles titleW)) || (MdFigure.overflows(bodies bodyW))) {
+            st.cramped = true
+        }
+        if ((st.leastText > 0.0) && (st.leastText < ((st.size * 0.82) * 0.85))) {
+            st.cramped = true
+        }
     }
 
     ; On a slide the figure takes its room, `maxH` tall: set larger while it
@@ -499,6 +561,13 @@ class MdFigure {
     ; starts at the top of the box.
     sfn sceneFitAt:FlowScene (word:string text:string st:MdFigureStyle width:double pad:double maxH:double center:boolean) {
         def base:MdFigureStyle (st.sized(st.size))
+        ; across or down is decided once, at the size asked: a larger size
+        ; tried below must not turn the figure the other way
+        def mode:int 1
+        if (MdFigure.stacks(word (MdFigure.items(text)) base width pad)) {
+            mode = 2
+        }
+        base.stack = mode
         def best:FlowScene (MdFigure.sceneOf(word text base width pad))
         if ((maxH <= 0.0) || (best.worldW <= 0.0)) {
             return best
@@ -510,6 +579,7 @@ class MdFigure {
         while (k <= 15) {
             def sz:double (st.size * (1.0 + (0.1 * (to_double k))))
             def big:MdFigureStyle (st.sized(sz))
+            big.stack = mode
             def sc:FlowScene (MdFigure.sceneOf(word text big width pad))
             def lags:boolean ((big.leastText < (least * 0.97)) || (big.leastText < ((sz * 0.82) * 0.7)))
             if ((sc.worldH > room) || lags) {
@@ -525,6 +595,7 @@ class MdFigure {
             return best
         }
         def tall:MdFigureStyle (st.sized(bestSize))
+        tall.stack = mode
         if (word == "swot") {
             tall.fillH = room
         } {
@@ -571,6 +642,7 @@ class MdFigure {
         }
         def titleLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.titlesOf(its)) size inner true (h - 12.0) 2))
         def bodyLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.textsOf(its)) small (cw - notch) false 0.0 99))
+        MdFigure.markCramped(st titleLays inner bodyLays (cw - notch))
         def tallest:double 0.0
         def i:int 0
         while (i < n) {
@@ -631,6 +703,103 @@ class MdFigure {
             hh = (hh + (size * 0.7) + tallest)
         }
         sc.worldH = ((hh + pad) + st.shiftY)
+    }
+
+    ; The same steps down the room, for a room too narrow for the strip:
+    ;
+    ;   ┌──────────────┐
+    ;   │    Plan      │   goals and schedule
+    ;   └──────╲╱──────┘
+    ;   ┌──────╲╱──────┐
+    ;   │    Build     │   code and tests
+    ;   └──────╲╱──────┘
+    ;
+    ; Chevrons pointing down, nested into each other with a gap, in a column
+    ; of their own; each description beside its chevron in the rest of the
+    ; width. Without descriptions the chevrons take the whole width.
+    sfn processDown:void (sc:FlowScene its:[MdFigureItem] st:MdFigureStyle width:double pad:double) {
+        def v:FlowView (MdFigure.viewFor(st))
+        def n:int (array_length its)
+        def W:double (width - (pad * 2.0))
+        def gap:double 6.0
+        def size:double st.size
+        def small:double (st.size * 0.82)
+        def notch:double (size * 0.8)
+        def hasText:boolean false
+        def i:int 0
+        while (i < n) {
+            if ((strlen ((itemAt its i).text())) > 0) {
+                hasText = true
+            }
+            i = (i + 1)
+        }
+        def cw:double W
+        if hasText {
+            cw = (W * 0.36)
+        }
+        def inner:double (cw - (size * 1.2))
+        if (inner < 20.0) {
+            inner = 20.0
+        }
+        def descX:double ((pad + cw) + (size * 0.9))
+        def descW:double ((W - cw) - (size * 0.9))
+        def titleLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.titlesOf(its)) size inner true 0.0 2))
+        def bodyLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.textsOf(its)) small descW false 0.0 99))
+        ; one row height for every step: the tallest title (with the notch
+        ; above it clear) or description
+        def rh:double (size * 2.4)
+        i = 0
+        while (i < n) {
+            def tl:FlowTextLayout (itemAt titleLays i)
+            if (((tl.height + notch) + (size * 0.6)) > rh) {
+                rh = ((tl.height + notch) + (size * 0.6))
+            }
+            if ((strlen ((itemAt its i).text())) > 0) {
+                def bl:FlowTextLayout (itemAt bodyLays i)
+                if ((bl.height + (size * 0.4)) > rh) {
+                    rh = (bl.height + (size * 0.4))
+                }
+            }
+            i = (i + 1)
+        }
+        def x:double pad
+        def y:double (pad + st.shiftY)
+        ; the middle of a row, between its flat top and its point
+        def mid:double ((rh + notch) * 0.5)
+        i = 0
+        while (i < n) {
+            def fill:string (MdFigure.rampAt(st i n))
+            def pts:[double]
+            push pts x
+            push pts y
+            if (i > 0) {
+                push pts (x + (cw * 0.5))
+                push pts (y + notch)
+            }
+            push pts (x + cw)
+            push pts y
+            push pts (x + cw)
+            push pts (y + rh)
+            push pts (x + (cw * 0.5))
+            push pts ((y + rh) + notch)
+            push pts x
+            push pts (y + rh)
+            def poly:SceneItem (sc.polygon(pts fill))
+            poly.tag = "figure"
+            def tl:FlowTextLayout (itemAt titleLays i)
+            def tx:double (x + ((cw - inner) * 0.5))
+            MdFigure.put(sc st tl tx ((y + mid) - (tl.height * 0.5)) inner (MdFigure.onColor(fill)) true "center")
+            if ((strlen ((itemAt its i).text())) > 0) {
+                def bl:FlowTextLayout (itemAt bodyLays i)
+                MdFigure.put(sc st bl descX ((y + mid) - (bl.height * 0.5)) descW st.ink false "left")
+            }
+            y = ((y + rh) + gap)
+            i = (i + 1)
+        }
+        sc.worldX = 0.0
+        sc.worldY = 0.0
+        sc.worldW = width
+        sc.worldH = (((y - gap) + notch) + pad)
     }
 
     ; ------------------------------------------------------------- swot --
@@ -773,6 +942,7 @@ class MdFigure {
         def textW:double (slot - 12.0)
         def titleLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.titlesOf(its)) (size * 1.1) textW true 0.0 99))
         def bodyLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.textsOf(its)) small textW false 0.0 99))
+        MdFigure.markCramped(st titleLays textW bodyLays textW)
         def titleH:double 0.0
         def bodyH:double 0.0
         def i:int 0
@@ -839,6 +1009,105 @@ class MdFigure {
             hh = ((hh + (size * 0.6)) + bodyH)
         }
         sc.worldH = ((hh + pad) + st.shiftY)
+    }
+
+    ; The same timeline down the room, for a room too narrow for it across:
+    ;
+    ;   (●) 2023
+    ;    │  Founded
+    ;   (●) 2024
+    ;    │  First product
+    ;    ▼
+    ;
+    ; The line down the left, a ringed dot per item, the title beside its
+    ; dot and the description under the title.
+    sfn timelineDown:void (sc:FlowScene its:[MdFigureItem] st:MdFigureStyle width:double pad:double) {
+        def v:FlowView (MdFigure.viewFor(st))
+        def n:int (array_length its)
+        def W:double (width - (pad * 2.0))
+        def size:double st.size
+        def small:double (st.size * 0.82)
+        def dot:double (size * 1.3)
+        def textX:double ((pad + dot) + (size * 0.8))
+        def textW:double ((pad + W) - textX)
+        def titleLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.titlesOf(its)) (size * 1.1) textW true 0.0 99))
+        def bodyLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.textsOf(its)) small textW false 0.0 99))
+        def rowGap:double (size * 0.9)
+        def lineX:double (pad + (dot * 0.5))
+        def lineCol:string (MdFigure.mix(st.muted st.paper 0.35))
+        def top:double (pad + st.shiftY)
+        ; where each row starts, then the line under them all
+        def tops:[double]
+        def y:double top
+        def i:int 0
+        while (i < n) {
+            push tops y
+            def tl:FlowTextLayout (itemAt titleLays i)
+            ; a title line lower than the dot starts as far down as its
+            ; middle meets the dot's
+            def rowH:double (tl.height + (MdFigure.dotDrop(tl dot)))
+            if ((strlen ((itemAt its i).text())) > 0) {
+                def bl:FlowTextLayout (itemAt bodyLays i)
+                rowH = ((rowH + (size * 0.3)) + bl.height)
+            }
+            if (rowH < dot) {
+                rowH = dot
+            }
+            y = ((y + rowH) + rowGap)
+            i = (i + 1)
+        }
+        def end:double (y + 4.0)
+        def axis:[double]
+        push axis lineX
+        push axis (top + (dot * 0.5))
+        push axis lineX
+        push axis (end - 10.0)
+        def ln:SceneItem (sc.path(axis "" lineCol 3.0))
+        ln.d = (FlowScene.polygonPath(ln.pts false))
+        ln.tag = "figure"
+        def head:[double]
+        push head (lineX - 8.0)
+        push head (end - 14.0)
+        push head lineX
+        push head end
+        push head (lineX + 8.0)
+        push head (end - 14.0)
+        def hd:SceneItem (sc.polygon(head lineCol))
+        hd.tag = "figure"
+        i = 0
+        while (i < n) {
+            def color:string (MdFigure.colorAt(st i))
+            def ry:double (itemAt tops i)
+            def tl:FlowTextLayout (itemAt titleLays i)
+            ; the dot on the title's first line
+            def cy:double ((ry + (MdFigure.dotDrop(tl dot))) + (tl.lineHeight * 0.5))
+            def ring:SceneItem (sc.rect((lineX - (dot * 0.5)) (cy - (dot * 0.5)) dot dot color))
+            ring.radius = (dot * 0.5)
+            ring.tag = "figure"
+            def core:double (dot * 0.42)
+            def hole:SceneItem (sc.rect((lineX - (core * 0.5)) (cy - (core * 0.5)) core core st.paper))
+            hole.radius = (core * 0.5)
+            hole.tag = "figure"
+            def ty:double (cy - (tl.lineHeight * 0.5))
+            def tcol:string (MdFigure.readableOn(color st.paper st.ink 4.5))
+            MdFigure.put(sc st tl textX ty textW tcol true "left")
+            if ((strlen ((itemAt its i).text())) > 0) {
+                def bl:FlowTextLayout (itemAt bodyLays i)
+                MdFigure.put(sc st bl textX ((ty + tl.height) + (size * 0.3)) textW st.ink false "left")
+            }
+            i = (i + 1)
+        }
+        sc.worldX = 0.0
+        sc.worldY = 0.0
+        sc.worldW = width
+        sc.worldH = (end + pad)
+    }
+
+    sfn dotDrop:double (tl:FlowTextLayout dot:double) {
+        if (tl.lineHeight < dot) {
+            return ((dot - tl.lineHeight) * 0.5)
+        }
+        return 0.0
     }
 
     ; ------------------------------------------------------------- art --
