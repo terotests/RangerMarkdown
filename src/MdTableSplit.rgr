@@ -1,0 +1,192 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdTableSplit.rgr — where a table too tall for its slide is cut.
+; ============================================================================
+;
+;   npm run markdown:tablesplit:test
+;
+; A table is a list of ROW GROUPS (one row each, or the rows a `rowspan`
+; ties together) under a header that is drawn again at the top of every
+; slide the table continues on. This decides which slide each group goes
+; to; it knows heights and nothing else, so the layout measures and draws
+; and this is tested without either.
+;
+; Filling each slide to the brim leaves the last one with whatever is left
+; — sixteen rows came out 6 + 8 + 2. The number of slides is the greedy one,
+; the fewest there can be; with `balance` the rows are then spread over that
+; many slides as evenly as their heights allow, so the same table is 5 + 6
+; + 5. The first slide may have less room (the table starts under text) and
+; gets fewer rows; it never gets more than fit.
+;
+; `greedyTail` is what the last slide would hold without balancing. A
+; balanced two-slide table whose greedy tail is short is the case the
+; slide shrinker exists for (a few rows over is better set a little smaller
+; than given a slide), and it reads this to judge the spill by what it
+; would have been rather than by the half a table balancing moved over.
+; ============================================================================
+
+class MdTablePlan {
+    ; per group: 0 the slide the table starts on, 1 the next, …
+    def slideOf:[int]
+    ; how many slides the table touches, the first counted even when the
+    ; table had to start on the next one
+    def slides:int 1
+    ; the height of the body rows on the last slide, balanced and greedy
+    def tail:double 0.0
+    def greedyTail:double 0.0
+
+    Constructor () {
+    }
+}
+
+class MdTableSplit {
+
+    ; groups: each group's height. headH: the header drawn on every slide the
+    ; table is on. firstRoom: what is left on the slide the table starts on;
+    ; nextRoom: what a continuation slide has under its title.
+    sfn plan:MdTablePlan (groups:[double] headH:double firstRoom:double nextRoom:double balance:boolean) {
+        def greedy:MdTablePlan (MdTableSplit.pack(groups headH firstRoom nextRoom 1000000000000.0))
+        greedy.greedyTail = greedy.tail
+        if ((greedy.slides < 2) || (balance == false)) {
+            return greedy
+        }
+        def even:MdTablePlan (MdTableSplit.evenly(groups headH firstRoom nextRoom greedy.slides))
+        if (even.slides == greedy.slides) {
+            even.greedyTail = greedy.tail
+            return even
+        }
+        ; heights too uneven for the even spread: the smallest per-slide cap
+        ; that still keeps the greedy count, found by halving
+        def lo:double 0.0
+        def hi:double (nextRoom - headH)
+        def g:int 0
+        while (g < (array_length groups)) {
+            if ((itemAt groups g) > lo) {
+                lo = (itemAt groups g)
+            }
+            g = (g + 1)
+        }
+        if (hi < lo) {
+            return greedy
+        }
+        def best:MdTablePlan greedy
+        def step:int 0
+        while (step < 40) {
+            def mid:double ((lo + hi) / 2.0)
+            def p:MdTablePlan (MdTableSplit.pack(groups headH firstRoom nextRoom mid))
+            if (p.slides <= greedy.slides) {
+                best = p
+                hi = mid
+            } {
+                lo = mid
+            }
+            step = (step + 1)
+        }
+        best.greedyTail = greedy.tail
+        return best
+    }
+
+    ; Fill each slide up to min(its room, cap), in order.
+    sfn pack:MdTablePlan (groups:[double] headH:double firstRoom:double nextRoom:double cap:double) {
+        def out:MdTablePlan (new MdTablePlan())
+        def slide:int 0
+        def sum:double 0.0
+        def i:int 0
+        def n:int (array_length groups)
+        while (i < n) {
+            def gh:double (itemAt groups i)
+            def limit:double (MdTableSplit.roomOf(slide headH firstRoom nextRoom))
+            if (cap < limit) {
+                limit = cap
+            }
+            if ((sum + gh) > (limit + 0.01)) {
+                if (sum > 0.0) {
+                    slide = (slide + 1)
+                    sum = 0.0
+                } {
+                    ; nothing on this slide yet and the group does not fit:
+                    ; the first slide is given up when a slide of its own
+                    ; would hold it, any other takes it and is drawn cut
+                    if ((slide == 0) && (gh <= ((nextRoom - headH) + 0.01))) {
+                        if (firstRoom < (nextRoom - 0.5)) {
+                            slide = 1
+                        }
+                    }
+                }
+            }
+            push out.slideOf slide
+            sum = (sum + gh)
+            i = (i + 1)
+        }
+        out.slides = (slide + 1)
+        out.tail = sum
+        return out
+    }
+
+    ; `k` slides, each holding as near the same height as the rest as group
+    ; boundaries allow, and never more than its room.
+    sfn evenly:MdTablePlan (groups:[double] headH:double firstRoom:double nextRoom:double k:int) {
+        def out:MdTablePlan (new MdTablePlan())
+        def n:int (array_length groups)
+        def left:double 0.0
+        def i:int 0
+        while (i < n) {
+            left = (left + (itemAt groups i))
+            i = (i + 1)
+        }
+        def slide:int 0
+        def sum:double 0.0
+        def target:double (left / (to_double k))
+        i = 0
+        while (i < n) {
+            def gh:double (itemAt groups i)
+            def room:double (MdTableSplit.roomOf(slide headH firstRoom nextRoom))
+            def fits:boolean ((sum + gh) <= (room + 0.01))
+            def nearer:boolean ((MdTableSplit.dist((sum + gh) target)) <= ((MdTableSplit.dist(sum target)) + 0.01))
+            def lastSlide:boolean (slide >= (k - 1))
+            if ((sum > 0.0) && (((fits == false) || (nearer == false)) && (lastSlide == false))) {
+                slide = (slide + 1)
+                sum = 0.0
+                def slidesLeft:int (k - slide)
+                target = (left / (to_double slidesLeft))
+            } {
+                if ((sum <= 0.0) && (fits == false)) {
+                    def own:boolean (gh <= ((nextRoom - headH) + 0.01))
+                    if (((slide == 0) && own) && ((firstRoom < (nextRoom - 0.5)) && (k > 1))) {
+                        ; the first slide has no room for even one group
+                        slide = 1
+                        target = (left / (to_double (k - 1)))
+                    }
+                }
+            }
+            push out.slideOf slide
+            sum = (sum + gh)
+            left = (left - gh)
+            i = (i + 1)
+        }
+        ; the last slide took what was left: over its room means the spread
+        ; failed, which the caller sees as one slide more
+        out.slides = (slide + 1)
+        out.tail = sum
+        def lastRoom:double (MdTableSplit.roomOf(slide headH firstRoom nextRoom))
+        if (sum > (lastRoom + 0.01)) {
+            out.slides = (out.slides + 1)
+        }
+        return out
+    }
+
+    sfn roomOf:double (slide:int headH:double firstRoom:double nextRoom:double) {
+        if (slide == 0) {
+            return (firstRoom - headH)
+        }
+        return (nextRoom - headH)
+    }
+
+    sfn dist:double (a:double b:double) {
+        if (a > b) {
+            return (a - b)
+        }
+        return (b - a)
+    }
+}
