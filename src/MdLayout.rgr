@@ -218,6 +218,9 @@ class MdBox {
     def segLen:int 0
     ; 1 a header's, 2 a footer's: page furniture, not the document's text
     def furniture:int 0
+    ; text struck through (`~~…~~`, `<s>`, `<del>`): drawn muted on purpose,
+    ; so a contrast check leaves it alone
+    def strike:boolean false
 
     Constructor () {
     }
@@ -250,6 +253,7 @@ class MdBox {
         b.segSrc = segSrc
         b.segLen = segLen
         b.furniture = furniture
+        b.strike = strike
         return b
     }
 
@@ -3974,6 +3978,7 @@ class MdLayout {
             b.italic = seg.italic
             b.color = seg.color
             b.link = seg.link
+            b.strike = seg.strike
             this.emit(b)
             if (seg.underline || seg.strike) {
                 def base:double (ty + (this.baselineAt(seg.family seg.bold seg.italic seg.size)))
