@@ -25,6 +25,7 @@ Import "../src/MdBlock.rgr"
 Import "../src/MdLayout.rgr"
 Import "../src/MdCss.rgr"
 Import "../src/MdDiagram.rgr"
+Import "../src/MdToEvg.rgr"
 
 class SlideCheck {
     def passed:int 0
@@ -613,8 +614,9 @@ class MdSlidesTest {
         return 0.0
     }
 
-    ; GROW: a slide of three bullets is set larger, title and all; a full
-    ; slide is left as it was; nothing spills; off means off.
+    ; GROW: a slide of three bullets has its text set larger, its title the
+    ; deck's title size like every other slide's; a full slide is left as it
+    ; was; nothing spills; off means off.
     fn grow:void (c:SlideCheck) {
         print "-- grow --"
         def css:string "deck { split-level: 2 } page { width: 720pt; height: 405pt; padding: 36pt } document { font-size: 16pt } h2 { font-size: 28pt }"
@@ -625,7 +627,13 @@ class MdSlidesTest {
         def body:double (MdSlidesTest.sizeOf(l "Kate"))
         def title:double (MdSlidesTest.sizeOf(l "Vähän"))
         c.ok(("the short list grew: " + (to_string body)) (body > 20.0))
-        c.ok("its title grew with it and is still the larger" ((title > 28.0) && (title > (body * 1.5))))
+        c.ok(("its title kept the deck's title size: " + (to_string title)) ((title > 27.9) && (title < 28.1)))
+        c.ok("the same size as the full slide's title" ((title - (MdSlidesTest.sizeOf(l "Paljon"))) == 0.0))
+        c.ok("and is still the larger" (title > body))
+        def h3:string "---\nslide-grow: 1.6\n---\n\n## Otsikko\n\n### Väliotsikko\n\nLyhyt.\n"
+        def hl:MdLayout (MdSlidesTest.asSlides(h3 css))
+        def sub:double (MdSlidesTest.sizeOf(hl "Väliotsikko"))
+        c.ok(("a heading inside the slide grows, never past the title: " + (to_string sub)) ((sub <= 28.0) && (sub > (MdSlidesTest.sizeOf((MdSlidesTest.asSlides((h3.replace("slide-grow: 1.6" "slide-grow: off")) css)) "Väliotsikko")))))
         c.ok("the full slide kept its size" ((MdSlidesTest.sizeOf(l "rivi kaksi")) < 16.5))
         c.eqInt("one slide grown" l.slidesGrown 1)
         def lowest:double 0.0
@@ -729,6 +737,108 @@ class MdSlidesTest {
         }
     }
 
+    sfn pictureVfs:Vfs () {
+        def v (new Vfs())
+        def mem (new VfsMemory())
+        mem.put("/small.png" (MdSlidesTest.png(160 90)))
+        mem.put("/big.png" (MdSlidesTest.png(2560 1280)))
+        v.mount("/" mem)
+        return v
+    }
+
+    sfn png:VfsBlob (w:int h:int) {
+        def blob (new VfsBlob())
+        def raw:string "PNGBYTES"
+        def buf:buffer (buffer_alloc (strlen raw))
+        def bi:int 0
+        while (bi < (strlen raw)) {
+            buffer_set buf bi (charAt raw bi)
+            bi = (bi + 1)
+        }
+        blob.bytes = buf
+        blob.contentType = "image/png"
+        blob.pixelW = w
+        blob.pixelH = h
+        return blob
+    }
+
+    sfn withPictures:MdLayout (src:string css:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        def c:MdCss (new MdCss())
+        c.addStyleSheet(css)
+        c.applyTo(l.style)
+        l.setStyleSheet(css)
+        l.applyMeta(doc)
+        l.applySlideMeta(doc)
+        l.setDocSource(src)
+        l.setImages((MdSlidesTest.pictureVfs()) "/")
+        def cw:double (l.style.pageWidth - (l.style.margin * 2.0))
+        MdDiagram.prepare(doc l.embeds cw "default")
+        l.layoutSlides(doc)
+        return l
+    }
+
+    sfn boxOfKind@(optional):MdBox (l:MdLayout kind:int) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == kind) {
+                def hit@(optional):MdBox b
+                return hit
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):MdBox
+        return miss
+    }
+
+    sfn textBox@(optional):MdBox (l:MdLayout want:string) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 0) && ((indexOf b.text want) == 0)) {
+                def hit@(optional):MdBox b
+                return hit
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):MdBox
+        return miss
+    }
+
+    ; PICTURES on a slide take their room: a small one is set larger, a
+    ; large one leaves the text under it on its slide; a narrow picture or
+    ; figure given a width has the text after it beside it (Tero's third
+    ; test deck, 2026-10-04).
+    fn pictures:void (c:SlideCheck) {
+        print "-- pictures and floats --"
+        def css:string "deck { split-level: 2 } page { width: 960pt; height: 540pt; padding: 54pt } document { font-size: 20pt } h2 { font-size: 36pt }"
+        def sl:MdLayout (MdSlidesTest.withPictures("## Kuva\n\n![Pieni](small.png)\n" css))
+        def sp:MdBox (unwrap (MdSlidesTest.boxOfKind(sl 4)))
+        c.ok(("a 160×90 picture is set larger: " + (to_string sp.w)) ((sp.w > 400.0) && (sp.w <= 640.0)))
+        c.ok("and stays inside the slide" ((sp.y + sp.h) <= (540.0 - 54.0 + 0.5)))
+        def bl:MdLayout (MdSlidesTest.withPictures("## SVG\n\n![Iso](big.png)\n\nTeksti kuvan alla.\n" css))
+        c.eqInt("a large picture and its caption: one slide" bl.pageCount 1)
+        def cap:MdBox (unwrap (MdSlidesTest.textBox(bl "Teksti")))
+        c.eqInt("the caption is on the picture's slide" cap.page 0)
+        def fl:MdLayout (MdSlidesTest.withPictures("## Rinnalla\n\n![Pieni](small.png)\n{width=40%}\n\nTeksti kuvan vieressä.\n" css))
+        def fp:MdBox (unwrap (MdSlidesTest.boxOfKind(fl 4)))
+        def ft:MdBox (unwrap (MdSlidesTest.textBox(fl "Teksti")))
+        c.ok("a picture given a width: the text beside it" ((ft.x >= (fp.x + fp.w)) && (ft.y < (fp.y + fp.h))))
+        def pr:string "## Kapea\n\n```process\n- Pyyntö: käyttäjä kirjoittaa\n- Esitys: tekoäly tekee\n- Tarkistus: renderöinti\n```\n{width=60%}\n\nKapea pohja jättää tilaa tälle selitykselle.\n\nToinen kappale.\n"
+        def pl:MdLayout (MdSlidesTest.withPictures(pr css))
+        def pe:MdBox (unwrap (MdSlidesTest.boxOfKind(pl 3)))
+        def pt:MdBox (unwrap (MdSlidesTest.textBox(pl "Kapea pohja")))
+        c.ok(("a figure at 60%: the text beside it: " + (to_string pt.x)) ((pt.x >= (pe.x + pe.w)) && (pt.y < (pe.y + pe.h))))
+        c.eqInt("on the same slide" pt.page pe.page)
+        def wide:MdLayout (MdSlidesTest.withPictures((pr.replace("{width=60%}\n" "")) css))
+        def wt:MdBox (unwrap (MdSlidesTest.textBox(wide "Kapea pohja")))
+        def we:MdBox (unwrap (MdSlidesTest.boxOfKind(wide 3)))
+        c.ok("a full-width figure: the text under it" (wt.y >= (we.y + we.h)))
+    }
+
     fn run:void () {
         def c:SlideCheck (new SlideCheck())
         print "== MdSlidesTest =="
@@ -742,6 +852,7 @@ class MdSlidesTest {
         this.oneDocument(c)
         this.grow(c)
         this.edges(c)
+        this.pictures(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {

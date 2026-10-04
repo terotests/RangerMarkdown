@@ -1529,6 +1529,7 @@ class MdLayout {
     }
 
     fn bodyPass:void (doc:MdNode mode:int) {
+        floatOn = false
         def placed:boolean (mode == 0)
         def i:int 0
         def n:int (doc.childCount())
@@ -1558,7 +1559,32 @@ class MdLayout {
             def fromBox:int (array_length boxes)
             def fromHead:int (array_length headText)
             push blockFirstPage page
-            this.blockCached(child docSource contentX contentW)
+            def bx:double contentX
+            def bw:double contentW
+            if floatOn {
+                if ((page == floatPage) && (MdLayout.besideable(child splitLevel))) {
+                    bx = floatX
+                    bw = floatW
+                } {
+                    this.endFloat()
+                }
+            }
+            followH = 0.0
+            if (slides && (child.kind == "paragraph")) {
+                if ((MdLayout.loneImage(child)).kind == "image") {
+                    followH = (this.heightAfter(doc i))
+                }
+            }
+            if floatOn {
+                this.block(child bx bw)
+                if ((page != floatPage) || (cursorY >= floatBottom)) {
+                    this.endFloat()
+                }
+            } {
+                this.blockCached(child docSource contentX contentW)
+                this.startFloat(doc i fromBox)
+            }
+            followH = 0.0
             if slides {
                 def isTitle:boolean (opensSlide && (child.kind == "heading"))
                 if (isTitle && (MdLayout.bodyFollows(doc i splitLevel))) {
@@ -1585,6 +1611,7 @@ class MdLayout {
             }
             i = (i + 1)
         }
+        this.endFloat()
     }
 
     ; ----------------------------------------------------------------------
@@ -1601,8 +1628,150 @@ class MdLayout {
     ; `pictureBlock`). A title with nothing under it — a section slide — keeps
     ; the size it was given.
     def slideTitleMax:double 0.6
+    ; On a slide, how tall the blocks after a lone picture are, down to the
+    ; slide's end: `pictureBlock` leaves them that room (see `heightAfter`).
+    def followH:double 0.0
+    ; FLOAT: a picture or a drawing narrower than the column, with `{width=…}`
+    ; under it, has the blocks after it set beside it, in the rest of the
+    ; column, down to its bottom (`startFloat`). While on: the page it is on,
+    ; where it ends, and the column the text beside it gets.
+    def floatOn:boolean false
+    def floatPage:int 0
+    def floatBottom:double 0.0
+    def floatX:double 0.0
+    def floatW:double 0.0
     ; The slide so far holds its title and nothing else.
     def slideTitleOnly:boolean false
+
+    ; ----------------------------------------------------------------------
+    ; Text beside a narrow picture or drawing (FLOAT)
+    ; ----------------------------------------------------------------------
+    ;
+    ; `{width=60%}` under a figure leaves 40% of the column empty, and the
+    ; paragraph after it went under it, so the slide was a narrow figure, a
+    ; gap and a line of text below. A figure that was given a width (or
+    ; that is narrower than the column anyway) and sits at a side of it
+    ; now has the paragraphs, lists and quotes after it set in the rest of
+    ; the column, beside it, while they start above its bottom — the way a
+    ; CSS float wraps. Under the figure the column is full width again.
+    sfn besideable:boolean (node:MdNode splitLevel:int) {
+        if ((node.kind == "paragraph") && ((MdLayout.loneImage(node)).kind != "image")) { return true }
+        if (node.kind == "list") { return true }
+        if (node.kind == "blockquote") { return true }
+        ; a heading starts something new: under the figure, full width
+        return false
+    }
+
+    fn startFloat:void (doc:MdNode i:int fromBox:int) {
+        if ((i + 1) >= (doc.childCount())) { return }
+        if (! (MdLayout.bodyFollows(doc i splitLevel))) { return }
+        def child:MdNode (doc.childAt(i))
+        def next:MdNode (doc.childAt((i + 1)))
+        if (! (MdLayout.besideable(next splitLevel))) { return }
+        ; the block's own picture or drawing, the last one it emitted
+        def k:int ((array_length boxes) - 1)
+        def at:int -1
+        while ((k >= fromBox) && (at < 0)) {
+            def c:MdBox (itemAt boxes k)
+            if ((c.kind == 3) || (c.kind == 4)) { at = k }
+            k = (k - 1)
+        }
+        if (at < 0) { return }
+        def b:MdBox (itemAt boxes at)
+        if (b.page != page) { return }
+        def side:string (this.floatSide(child b))
+        if ((strlen side) == 0) { return }
+        def gap:double (style.bodySize * 1.2)
+        def fx:double ((b.x + b.w) + gap)
+        def fw:double ((contentX + contentW) - fx)
+        if (side == "end") {
+            fx = contentX
+            fw = ((b.x - contentX) - gap)
+        }
+        if (fw < (contentW * 0.25)) { return }
+        floatOn = true
+        floatPage = page
+        floatBottom = cursorY
+        floatX = fx
+        floatW = fw
+        cursorY = b.y
+    }
+
+    ; Which side of the column box `b` (the drawing block `child` emitted)
+    ; sits at, for the text to go to the other: "start", "end", or "" when
+    ; it fills the column, is centred, or was not given a width.
+    fn floatSide:string (child:MdNode b:MdBox) {
+        def want:string (child.attrValue("width"))
+        if (child.kind == "paragraph") {
+            want = ((MdLayout.loneImage(child)).attrValue("width"))
+            if ((strlen want) == 0) {
+                want = (child.attrValue("width"))
+            }
+        }
+        if ((strlen want) == 0) { return "" }
+        if (b.w > (contentW * 0.75)) { return "" }
+        if (b.kind == 3) {
+            def kind:string (MdLayout.firstWord(child.info))
+            def ei:int (embeds.find(kind child.literal b.w))
+            if (ei >= 0) {
+                def e:MdEmbedEntry (embeds.entryAt(ei))
+                if (e.align == "center") { return "" }
+                if (e.align == "end") { return "end" }
+            }
+            return "start"
+        }
+        ; a picture: at the side it was put, a centred one to the start
+        if ((b.x + b.w) >= ((contentX + contentW) - 0.5)) {
+            if (b.x > (contentX + 0.5)) { return "end" }
+        }
+        b.x = contentX
+        return "start"
+    }
+
+    fn endFloat:void () {
+        if (floatOn && (page == floatPage) && (cursorY < floatBottom)) {
+            cursorY = floatBottom
+        }
+        floatOn = false
+    }
+
+    ; How tall the blocks after `i` that stay on its slide are, laid out
+    ; and taken back: the room a picture leaves under itself so that the
+    ; text written under it is on the same slide.
+    fn heightAfter:double (doc:MdNode i:int) {
+        def j:int (i + 1)
+        if (! (MdLayout.bodyFollows(doc i splitLevel))) { return 0.0 }
+        def savedBoxes:int (array_length boxes)
+        def savedY:double cursorY
+        def savedPage:int page
+        def savedPageCount:int pageCount
+        def savedOverflows:int slideOverflows
+        def savedHeads:int (array_length headText)
+        def wasPaginate:boolean paginate
+        paginate = false
+        cursorY = 0.0
+        def n:int (doc.childCount())
+        def going:boolean true
+        while (going && (j < n)) {
+            this.block((doc.childAt(j)) contentX contentW)
+            going = (MdLayout.bodyFollows(doc j splitLevel))
+            j = (j + 1)
+        }
+        def h:double cursorY
+        paginate = wasPaginate
+        this.truncate(savedBoxes)
+        while ((array_length headText) > savedHeads) {
+            removeLast headText
+            removeLast headLevel
+            removeLast headPage
+            removeLast headY
+        }
+        cursorY = savedY
+        page = savedPage
+        pageCount = savedPageCount
+        slideOverflows = savedOverflows
+        return h
+    }
 
     ; Whether the block after `i` stays on the slide `i` starts, rather than
     ; starting one of its own.
@@ -2268,7 +2437,7 @@ class MdLayout {
         def savedOverflows:int slideOverflows
         while (s > 1.04) {
             this.truncate(b0)
-            this.scaleStyle(saved s)
+            this.growStyle(saved s)
             page = p
             cursorY = contentTop
             def j:int 0
@@ -2384,6 +2553,48 @@ class MdLayout {
         style.cellPadX = ((itemAt v 18) * s)
         style.cellPadY = ((itemAt v 19) * s)
         style.embedSpacing = ((itemAt v 20) * s)
+    }
+
+    ; GROW's scale: everything on the slide larger except the slide titles
+    ; (the headings a slide breaks at, `splitLevel` and up) and the space
+    ; around headings. A title is the same size on every slide of the deck,
+    ; however much is under it; a heading inside the slide grows with its
+    ; text, never past the title's size.
+    fn growStyle:void (v:[double] s:double) {
+        this.scaleStyle(v s)
+        def titleSize:double (itemAt v 2)
+        def lv:int 1
+        while (lv <= 6) {
+            def was:double (itemAt v (lv + 1))
+            if (lv <= splitLevel) {
+                titleSize = was
+            }
+            lv = (lv + 1)
+        }
+        style.h1Size = (MdLayout.grownHeading((itemAt v 2) s 1 splitLevel titleSize))
+        style.h2Size = (MdLayout.grownHeading((itemAt v 3) s 2 splitLevel titleSize))
+        style.h3Size = (MdLayout.grownHeading((itemAt v 4) s 3 splitLevel titleSize))
+        style.h4Size = (MdLayout.grownHeading((itemAt v 5) s 4 splitLevel titleSize))
+        style.h5Size = (MdLayout.grownHeading((itemAt v 6) s 5 splitLevel titleSize))
+        style.h6Size = (MdLayout.grownHeading((itemAt v 7) s 6 splitLevel titleSize))
+        style.headingSpaceBefore = (itemAt v 8)
+        style.headingSpaceAfter = (itemAt v 9)
+    }
+
+    ; A level-`level` heading of size `was` on a slide grown by `s`: a title
+    ; (level up to `splitLevel`) as it was, any other at most `titleSize`.
+    sfn grownHeading:double (was:double s:double level:int splitLevel:int titleSize:double) {
+        if (level <= splitLevel) {
+            return was
+        }
+        def g:double (was * s)
+        if ((g > titleSize) && (was <= titleSize)) {
+            return titleSize
+        }
+        if (g < was) {
+            return was
+        }
+        return g
     }
 
     fn restoreStyle:void (v:[double]) {
@@ -4595,11 +4806,28 @@ class MdLayout {
             useW = (useW * (maxH / useH))
             useH = maxH
         }
+        ; On a slide a picture is shown at the size of its room: the column's
+        ; width and the height under its heading, less what is written under
+        ; it on the same slide (`followH`), so a large picture (an SVG is
+        ; drawn 2560 wide) leaves its caption on the slide and a small one
+        ; (a 160×90 PNG) is not a stamp in a corner. Set larger at most 4
+        ; times; a picture given a `width` or `height` is as asked. A
+        ; document page keeps a picture's own size.
+        if ((slides && paginate) && (((strlen wantAttr) == 0) && ((strlen hAttr) == 0))) {
+            def roomH:double ((contentBottom - cursorY) - followH)
+            def up:double (MdLayout.pictureScale(useW useH w roomH 4.0))
+            useW = (useW * up)
+            useH = (useH * up)
+        }
         ; On a slide a picture taller than the room under its heading is
         ; given that room (shrunk, its shape kept) rather than running off
-        ; the bottom; on a full slide it moves on as it did.
+        ; the bottom (and above the text under it, when there is room for
+        ; both); on a full slide it moves on as it did.
         if (slides && paginate) {
             def avail:double (contentBottom - cursorY)
+            if ((avail - followH) >= (fullH * 0.25)) {
+                avail = (avail - followH)
+            }
             def under:boolean (slideTitleOnly && (avail >= (fullH * 0.2)))
             if ((useH > avail) && ((avail >= (fullH * 0.35)) || under)) {
                 useW = (useW * (avail / useH))
@@ -4641,6 +4869,19 @@ class MdLayout {
         this.emit(b)
         cursorY = ((y + useH) + style.paraSpacing)
         return true
+    }
+
+    ; How much a `w`×`h` picture is set larger to fill a room `roomW` wide
+    ; and `roomH` high, at most `most` times; 1 when it is as large already
+    ; or the room is too low to show it larger (then the slide's own rules
+    ; shrink it or move it on).
+    sfn pictureScale:double (w:double h:double roomW:double roomH:double most:double) {
+        if ((w <= 0.0) || (h <= 0.0)) { return 1.0 }
+        def s:double (roomW / w)
+        if ((roomH / h) < s) { s = (roomH / h) }
+        if (s > most) { s = most }
+        if (s < 1.0) { return 1.0 }
+        return s
     }
 
     ; The one image a paragraph holds, when that is ALL it holds. A caption

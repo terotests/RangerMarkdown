@@ -54,6 +54,9 @@ class MdEmbedEntry {
     ; (`"usermeta": {"presAlign": "center"}`), so a host's chart rule and a
     ; heading's own reach it the way the rest of the chart defaults do.
     def align:string ""
+    ; the room a figure was fitted to (`MdEmbedCache.figureRoom`); another
+    ; room draws it again
+    def room:double -1.0
     def root@(optional):EVGElement
 
     Constructor () {
@@ -93,6 +96,14 @@ class MdFigureStyle {
     def lockedNote:string "this layout is not available here"
     ; a height a grid of cards (```swot) stretches its rows to, 0: none
     def fillH:double 0.0
+    ; how far down a figure that does not stretch (```process, ```timeline)
+    ; starts, to sit in the middle of `fillH` (MdFigure.sceneFit)
+    def shiftY:double 0.0
+    ; set by the drawing: some text was set smaller than asked to fit its
+    ; box (a word longer than its column), and the smallest size any text
+    ; came out at (0: none drawn yet)
+    def squeezed:boolean false
+    def leastText:double 0.0
 
     Constructor () {
         def c:[string] ([] _:string ("#1f6feb" "#0f9d8a" "#7c4dff" "#f08c00"))
@@ -111,6 +122,7 @@ class MdFigureStyle {
         o.allowed = allowed
         o.lockedNote = lockedNote
         o.fillH = fillH
+        o.shiftY = shiftY
         return o
     }
 
@@ -245,7 +257,36 @@ class MdEmbedCache {
 
     ; A heading of `level` read by the walk: its anchor, and the deeper
     ; levels' cleared.
+    ; The level slides break at (the layout's `splitLevel`), set by a host
+    ; that lays the document out as slides; 0: not known, and every figure's
+    ; room is the page's (`chartMaxH`).
+    def splitLevel:int 0
+    ; the level of the heading the walk is under, 0: none yet
+    def headLevel:int 0
+
+    ; The room a figure at the walk's place is fitted to, `width` wide: the
+    ; slide's (`chartMaxH`) under a heading that starts a slide; under a
+    ; deeper one (the editorial theme's `##` on an A4 page that holds
+    ; several sections) it is a part of a page, not the page, and is never
+    ; taller than 0.7 of its width.
+    fn inSection:boolean () {
+        return ((splitLevel > 0) && (headLevel > splitLevel))
+    }
+
+    fn figureRoom:double (width:double) {
+        if (this.inSection()) {
+            def cap:double (width * 0.7)
+            if ((chartMaxH <= 0.0) || (cap < chartMaxH)) {
+                return cap
+            }
+        }
+        return chartMaxH
+    }
+
     fn underHeading:void (level:int slug:string) {
+        if ((level >= 1) && (level <= 6)) {
+            headLevel = level
+        }
         while ((array_length headingSlugs) < 7) {
             push headingSlugs ""
         }
@@ -263,6 +304,7 @@ class MdEmbedCache {
     fn resetHeadings:void () {
         def none:[string]
         headingSlugs = none
+        headLevel = 0
     }
 
     ; The scoped defaults for where the walk is: the deepest heading that has

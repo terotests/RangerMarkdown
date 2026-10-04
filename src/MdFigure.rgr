@@ -50,6 +50,7 @@
 
 Import "MdEmbed.rgr"
 Import "MdNode.rgr"
+Import "MdLayout.rgr"
 Import "../../rangerflow/core/FlowScene.rgr"
 Import "../../rangerflow/core/FlowView.rgr"
 Import "pkg:evg/EVGColor.rgr"
@@ -282,12 +283,51 @@ class MdFigure {
         return (((r * 0.2126) + (g * 0.7152)) + (b * 0.0722))
     }
 
-    ; The text colour on a fill: white on a dark one, near black on a light.
+    ; WCAG's relative luminance (channels linearised), 0 … 1.
+    sfn wcagLum:double (hex:string) {
+        def c:EVGColor (EVGColor.parse(hex))
+        if (c.isSet == false) {
+            return 1.0
+        }
+        ; MdLayout.channel: the same linearisation the layout's colour
+        ; checks use
+        def r:double (MdLayout.channel((to_double (c.red()))))
+        def g:double (MdLayout.channel((to_double (c.green()))))
+        def b:double (MdLayout.channel((to_double (c.blue()))))
+        return (((0.2126 * r) + (0.7152 * g)) + (0.0722 * b))
+    }
+
+    ; WCAG's contrast ratio of two colours, 1 … 21.
+    sfn ratio:double (a:string b:string) {
+        def la:double (MdFigure.wcagLum(a))
+        def lb:double (MdFigure.wcagLum(b))
+        if (la < lb) {
+            return ((lb + 0.05) / (la + 0.05))
+        }
+        return ((la + 0.05) / (lb + 0.05))
+    }
+
+    ; The text colour on a fill: white or near black, whichever stands
+    ; further off it (a teal or a red disc reads better with dark letters).
     sfn onColor:string (fill:string) {
-        if ((MdFigure.lum(fill)) > 0.55) {
+        if ((MdFigure.ratio("#16181d" fill)) > (MdFigure.ratio("#ffffff" fill))) {
             return "#16181d"
         }
         return "#ffffff"
+    }
+
+    ; `color` as text over `bg`: as it is when it stands `need` off it
+    ; (WCAG), else taken towards `ink` (the page's text colour) until it
+    ; does, so a title keeps its hue and stays readable in a light theme
+    ; and a dark one.
+    sfn readableOn:string (color:string bg:string ink:string need:double) {
+        def t:double 0.0
+        def out:string color
+        while ((t <= 1.0) && ((MdFigure.ratio(out bg)) < need)) {
+            t = (t + 0.1)
+            out = (MdFigure.mix(color ink t))
+        }
+        return out
     }
 
     ; Colour i of the series. More items than colours: the colours come round
@@ -339,6 +379,68 @@ class MdFigure {
         return (v.layoutTextBold(t size w 0.0 99 bold))
     }
 
+    ; The texts laid out at one size: as `size` when every one fits its box,
+    ; else all at the size the tightest needed (a word longer than its
+    ; column), so one item's description is never smaller than the others'.
+    ; A text set smaller than asked marks the style `squeezed`.
+    sfn sameSize:[FlowTextLayout] (v:FlowView st:MdFigureStyle texts:[string] size:double w:double bold:boolean maxH:double maxLines:int) {
+        def lays:[FlowTextLayout]
+        def least:double size
+        def i:int 0
+        while (i < (array_length texts)) {
+            def t:string (itemAt texts i)
+            def l:FlowTextLayout (v.layoutTextBold(t size w maxH maxLines bold))
+            push lays l
+            if (((strlen t) > 0) && (l.size < least)) {
+                least = l.size
+            }
+            i = (i + 1)
+        }
+        if ((st.leastText <= 0.0) || (least < st.leastText)) {
+            st.leastText = least
+        }
+        if (least >= (size - 0.01)) {
+            return lays
+        }
+        st.squeezed = true
+        def again:[FlowTextLayout]
+        i = 0
+        while (i < (array_length texts)) {
+            def was:FlowTextLayout (itemAt lays i)
+            ; the tightest one is at that size already (laid out again from
+            ; it, it would be set smaller still)
+            if (was.size <= (least + 0.01)) {
+                push again was
+            } {
+                push again (v.layoutTextBold((itemAt texts i) least w maxH maxLines bold))
+            }
+            i = (i + 1)
+        }
+        return again
+    }
+
+    sfn titlesOf:[string] (its:[MdFigureItem]) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length its)) {
+            def it:MdFigureItem (itemAt its i)
+            push out it.title
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn textsOf:[string] (its:[MdFigureItem]) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length its)) {
+            def it:MdFigureItem (itemAt its i)
+            push out (it.text())
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; The lines of `lay`, one nowrap text item each, from `top`.
     sfn put:void (sc:FlowScene st:MdFigureStyle lay:FlowTextLayout x:double top:double w:double color:string bold:boolean align:string) {
         def i:int 0
@@ -379,34 +481,59 @@ class MdFigure {
         return sc
     }
 
-    ; On a slide: the figure set larger while there is room under it — up to
-    ; 1.6 times the style's size and `maxH` tall — and a card grid stretched
-    ; to the room as well, so a four-item SWOT is not a strip at the top of
-    ; an empty slide. `maxH` 0: as the style says.
+    ; On a slide the figure takes its room, `maxH` tall: set larger while it
+    ; fits — up to 2.5 times the style's size, and only while its smallest
+    ; text keeps up: it may not get smaller, nor fall under 0.7 of the size
+    ; descriptions are asked at (a long word in a narrow column stays the
+    ; size its column allows, and titles grown far over it stand off their
+    ; descriptions) — then a card grid (```swot) stretched
+    ; to the room, and a strip (```process, ```timeline) set in the middle of
+    ; it, so neither is a band at the top of an empty slide. `maxH` 0: as
+    ; the style says.
     sfn sceneFit:FlowScene (word:string text:string st:MdFigureStyle width:double pad:double maxH:double) {
-        def best:FlowScene (MdFigure.sceneOf(word text st width pad))
+        return (MdFigure.sceneFitAt(word text st width pad maxH true))
+    }
+
+    ; As `sceneFit`; `center` false: a strip stays at the top of its room —
+    ; a figure given a width has text beside it (MdLayout's float), which
+    ; starts at the top of the box.
+    sfn sceneFitAt:FlowScene (word:string text:string st:MdFigureStyle width:double pad:double maxH:double center:boolean) {
+        def base:MdFigureStyle (st.sized(st.size))
+        def best:FlowScene (MdFigure.sceneOf(word text base width pad))
         if ((maxH <= 0.0) || (best.worldW <= 0.0)) {
             return best
         }
+        def room:double (maxH * 0.85)
         def bestSize:double st.size
         def k:int 1
-        while (k <= 6) {
+        def least:double base.leastText
+        while (k <= 15) {
             def sz:double (st.size * (1.0 + (0.1 * (to_double k))))
-            def sc:FlowScene (MdFigure.sceneOf(word text (st.sized(sz)) width pad))
-            if (sc.worldH > (maxH * 0.85)) {
-                k = 7
+            def big:MdFigureStyle (st.sized(sz))
+            def sc:FlowScene (MdFigure.sceneOf(word text big width pad))
+            def lags:boolean ((big.leastText < (least * 0.97)) || (big.leastText < ((sz * 0.82) * 0.7)))
+            if ((sc.worldH > room) || lags) {
+                k = 16
             } {
                 best = sc
                 bestSize = sz
+                least = big.leastText
             }
             k = (k + 1)
         }
-        if ((word == "swot") && (best.worldH < (maxH * 0.85))) {
-            def tall:MdFigureStyle (st.sized(bestSize))
-            tall.fillH = (maxH * 0.85)
-            best = (MdFigure.sceneOf(word text tall width pad))
+        if (best.worldH >= room) {
+            return best
         }
-        return best
+        def tall:MdFigureStyle (st.sized(bestSize))
+        if (word == "swot") {
+            tall.fillH = room
+        } {
+            if (center == false) {
+                return best
+            }
+            tall.shiftY = ((room - best.worldH) * 0.5)
+        }
+        return (MdFigure.sceneOf(word text tall width pad))
     }
 
     sfn refusal:string (word:string text:string) {
@@ -442,24 +569,20 @@ class MdFigure {
         if (inner < 20.0) {
             inner = 20.0
         }
-        def titleLays:[FlowTextLayout]
-        def bodyLays:[FlowTextLayout]
+        def titleLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.titlesOf(its)) size inner true (h - 12.0) 2))
+        def bodyLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.textsOf(its)) small (cw - notch) false 0.0 99))
         def tallest:double 0.0
         def i:int 0
         while (i < n) {
-            def it:MdFigureItem (itemAt its i)
-            def tl:FlowTextLayout (v.layoutTextBold(it.title size inner (h - 12.0) 2 true))
-            push titleLays tl
-            def bl:FlowTextLayout (MdFigure.wrap(v (it.text()) small (cw - notch) false))
-            push bodyLays bl
-            if ((strlen (it.text())) > 0) {
+            def bl:FlowTextLayout (itemAt bodyLays i)
+            if ((strlen ((itemAt its i).text())) > 0) {
                 if (bl.height > tallest) {
                     tallest = bl.height
                 }
             }
             i = (i + 1)
         }
-        def top:double pad
+        def top:double (pad + st.shiftY)
         def x:double pad
         i = 0
         while (i < n) {
@@ -507,7 +630,7 @@ class MdFigure {
         if (tallest > 0.0) {
             hh = (hh + (size * 0.7) + tallest)
         }
-        sc.worldH = (hh + pad)
+        sc.worldH = ((hh + pad) + st.shiftY)
     }
 
     ; ------------------------------------------------------------- swot --
@@ -537,16 +660,14 @@ class MdFigure {
         def inPad:double (size * 0.8)
         def textX:double ((inPad + disc) + (size * 0.7))
         def textW:double ((cw - textX) - inPad)
-        def titleLays:[FlowTextLayout]
-        def bodyLays:[FlowTextLayout]
+        def titleLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.titlesOf(its)) (size * 1.05) textW true 0.0 99))
+        def bodyLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.textsOf(its)) small textW false 0.0 99))
         def heights:[double]
         def i:int 0
         while (i < n) {
             def it:MdFigureItem (itemAt its i)
-            def tl:FlowTextLayout (MdFigure.wrap(v it.title (size * 1.05) textW true))
-            def bl:FlowTextLayout (MdFigure.wrap(v (it.text()) small textW false))
-            push titleLays tl
-            push bodyLays bl
+            def tl:FlowTextLayout (itemAt titleLays i)
+            def bl:FlowTextLayout (itemAt bodyLays i)
             def ch:double (tl.height + (inPad * 2.0))
             if ((strlen (it.text())) > 0) {
                 ch = (ch + (size * 0.35) + bl.height)
@@ -616,10 +737,7 @@ class MdFigure {
                     def ll:FlowTextLayout (v.layoutTextBold(letter (size * 1.4) disc 0.0 1 true))
                     MdFigure.put(sc st ll dx (dy + ((disc - ll.height) * 0.5)) disc (MdFigure.onColor(color)) true "center")
                     def tl:FlowTextLayout (itemAt titleLays k)
-                    def tcol:string color
-                    if ((MdFigure.lum(color)) > 0.62) {
-                        tcol = (MdFigure.mix(color st.ink 0.5))
-                    }
+                    def tcol:string (MdFigure.readableOn(color (MdFigure.mix(color st.paper 0.86)) st.ink 4.5))
                     MdFigure.put(sc st tl (x + textX) (y + inPad) textW tcol true "left")
                     if ((strlen (it.text())) > 0) {
                         def bl:FlowTextLayout (itemAt bodyLays k)
@@ -653,17 +771,15 @@ class MdFigure {
         def small:double (st.size * 0.82)
         def slot:double (W / (to_double n))
         def textW:double (slot - 12.0)
-        def titleLays:[FlowTextLayout]
-        def bodyLays:[FlowTextLayout]
+        def titleLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.titlesOf(its)) (size * 1.1) textW true 0.0 99))
+        def bodyLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.textsOf(its)) small textW false 0.0 99))
         def titleH:double 0.0
         def bodyH:double 0.0
         def i:int 0
         while (i < n) {
             def it:MdFigureItem (itemAt its i)
-            def tl:FlowTextLayout (MdFigure.wrap(v it.title (size * 1.1) textW true))
-            def bl:FlowTextLayout (MdFigure.wrap(v (it.text()) small textW false))
-            push titleLays tl
-            push bodyLays bl
+            def tl:FlowTextLayout (itemAt titleLays i)
+            def bl:FlowTextLayout (itemAt bodyLays i)
             if (tl.height > titleH) {
                 titleH = tl.height
             }
@@ -675,7 +791,8 @@ class MdFigure {
             i = (i + 1)
         }
         def dot:double (size * 1.3)
-        def lineY:double (((pad + titleH) + (size * 0.6)) + (dot * 0.5))
+        def top:double (pad + st.shiftY)
+        def lineY:double (((top + titleH) + (size * 0.6)) + (dot * 0.5))
         def lineCol:string (MdFigure.mix(st.muted st.paper 0.35))
         def axis:[double]
         push axis pad
@@ -699,11 +816,8 @@ class MdFigure {
             def color:string (MdFigure.colorAt(st i))
             def cx:double ((pad + (slot * (to_double i))) + (slot * 0.5))
             def tl:FlowTextLayout (itemAt titleLays i)
-            def tcol:string color
-            if ((MdFigure.lum(color)) > 0.62) {
-                tcol = (MdFigure.mix(color st.ink 0.5))
-            }
-            MdFigure.put(sc st tl (cx - (textW * 0.5)) ((pad + titleH) - tl.height) textW tcol true "center")
+            def tcol:string (MdFigure.readableOn(color st.paper st.ink 4.5))
+            MdFigure.put(sc st tl (cx - (textW * 0.5)) ((top + titleH) - tl.height) textW tcol true "center")
             def ring:SceneItem (sc.rect((cx - (dot * 0.5)) (lineY - (dot * 0.5)) dot dot color))
             ring.radius = (dot * 0.5)
             ring.tag = "figure"
@@ -724,7 +838,7 @@ class MdFigure {
         if (bodyH > 0.0) {
             hh = ((hh + (size * 0.6)) + bodyH)
         }
-        sc.worldH = (hh + pad)
+        sc.worldH = ((hh + pad) + st.shiftY)
     }
 
     ; ------------------------------------------------------------- art --

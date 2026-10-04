@@ -109,6 +109,66 @@ class FigureCheck {
         return out
     }
 
+    ; the largest minus the smallest size of the plain (not bold) text
+    fn plainSpread:double (sc:FlowScene) {
+        def lo:double 9999.0
+        def hi:double 0.0
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def s:SceneItem (itemAt sc.items i)
+            if ((s.kind == 3) && (s.bold == false)) {
+                if (s.fontSize < lo) {
+                    lo = s.fontSize
+                }
+                if (s.fontSize > hi) {
+                    hi = s.fontSize
+                }
+            }
+            i = (i + 1)
+        }
+        if (hi <= 0.0) {
+            return 0.0
+        }
+        return (hi - lo)
+    }
+
+    ; the lowest WCAG ratio of any text over the last rectangle under its
+    ; middle drawn before it (the paper where there is none), as a share of
+    ; what it needs: 4.5:1, large text (24, or 18.66 bold) 3:1; 1 = enough
+    fn lowestContrast:double (sc:FlowScene paper:string) {
+        def low:double 99.0
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def s:SceneItem (itemAt sc.items i)
+            if ((s.kind == 1) && ((strlen (trim s.text)) > 0)) {
+                def px:double (s.x + (s.fontSize * 0.4))
+                if (s.align == "center") {
+                    px = (s.x + (s.w * 0.5))
+                }
+                def py:double (s.y + (s.fontSize * 0.6))
+                def under:string paper
+                def k:int 0
+                while (k < i) {
+                    def r:SceneItem (itemAt sc.items k)
+                    if ((r.kind == 0) && ((((px >= r.x) && (px <= (r.x + r.w))) && (py >= r.y)) && (py <= (r.y + r.h)))) {
+                        under = r.fill
+                    }
+                    k = (k + 1)
+                }
+                def need:double 4.5
+                if ((s.fontSize >= 24.0) || (s.bold && (s.fontSize >= 18.66))) {
+                    need = 3.0
+                }
+                def q:double ((MdFigure.ratio(s.fill under)) / need)
+                if (q < low) {
+                    low = q
+                }
+            }
+            i = (i + 1)
+        }
+        return low
+    }
+
     fn hasFill:boolean (sc:FlowScene fill:string) {
         def i:int 0
         while (i < (array_length sc.items)) {
@@ -194,6 +254,45 @@ class MdFigureTest {
         def pf:FlowScene (MdFigure.sceneFit("process" "- A: a\n- B: b" st 960.0 10.0 500.0))
         def p0:FlowScene (MdFigure.sceneOf("process" "- A: a\n- B: b" st 960.0 10.0))
         c.ok("fit: steps set larger" ((pf.worldH > p0.worldH) && (pf.worldH <= 425.0)))
+        ; a slide's room (Tero's test deck: 852 wide, 312 high) is filled,
+        ; not left as a strip at the top
+        def tlText:string "- 2024: Ranger-kääntäjä ja EVG\n- 2025: Ensimmäinen Sliqtly-versio\n- 2026 kevät: MCP-palvelin\n- 2026 syksy: SmartArt ja yrityspalvelin"
+        def tf:FlowScene (MdFigure.sceneFit("timeline" tlText st 852.0 10.0 312.0))
+        c.ok(("fit: the timeline takes its room: " + (to_string tf.worldH)) (tf.worldH >= ((312.0 * 0.85) - 1.0)))
+        c.inside("timeline fitted" tf)
+        c.ok(("timeline: every description one size: " + (to_string (c.plainSpread(tf)))) ((c.plainSpread(tf)) < 0.01))
+        def t0:FlowScene (MdFigure.sceneOf("timeline" tlText st 852.0 10.0))
+        c.ok("timeline unfitted: every description one size" ((c.plainSpread(t0)) < 0.01))
+        def prText:string "- Suunnittele: tavoitteet ja aikataulu\n- Rakenna: koodi ja sisältö\n- Testaa: asettelu ja data\n- Julkaise: linkki jakoon"
+        def pr:FlowScene (MdFigure.sceneFit("process" prText st 852.0 10.0 312.0))
+        c.ok(("fit: the steps take their room: " + (to_string pr.worldH)) (pr.worldH >= ((312.0 * 0.85) - 1.0)))
+        c.inside("process fitted" pr)
+        ; every text reads over what is under it (WCAG), in a dark
+        ; theme and a light one, with Tero's colours and aurora's: a swot's
+        ; letters on their discs, its titles on their cards, a timeline's
+        ; years on the page
+        def swText:string "- Vahvuudet: tekstipohjainen\n- Heikkoudet: pieni käyttäjäkunta\n- Mahdollisuudet: yrityskäyttö\n- Uhat: isot toimijat"
+        def palettes:[string] ([] _:string ("#e63946 #2a9d8f #e9c46a #8d5cf6" "#B96926 #59C3C4 #A321D9 #59C339 #C2291B #C6C640 #4949FF"))
+        def papers:[string] ([] _:string ("#0b1030" "#ffffff"))
+        def inks:[string] ([] _:string ("#e8ecff" "#16202c"))
+        def pi:int 0
+        while (pi < 2) {
+            def qi:int 0
+            while (qi < 2) {
+                def cs (new MdFigureStyle)
+                def cols:[string] (strsplit (itemAt palettes pi) " ")
+                cs.colors = cols
+                cs.paper = (itemAt papers qi)
+                cs.ink = (itemAt inks qi)
+                def tag:string ((itemAt palettes pi) + " on " + cs.paper)
+                def sw:FlowScene (MdFigure.sceneOf("swot" swText cs 852.0 10.0))
+                c.ok(("swot reads, " + tag + ": " + (to_string (c.lowestContrast(sw cs.paper)))) ((c.lowestContrast(sw cs.paper)) >= 1.0))
+                def tli:FlowScene (MdFigure.sceneOf("timeline" tlText cs 852.0 10.0))
+                c.ok(("timeline reads, " + tag + ": " + (to_string (c.lowestContrast(tli cs.paper)))) ((c.lowestContrast(tli cs.paper)) >= 1.0))
+                qi = (qi + 1)
+            }
+            pi = (pi + 1)
+        }
         def none0:FlowScene (MdFigure.sceneFit("process" "- A: a" st 960.0 10.0 0.0))
         c.ok("fit: no room given, as asked" (none0.worldH == (MdFigure.sceneOf("process" "- A: a" st 960.0 10.0)).worldH))
 
@@ -254,6 +353,22 @@ class MdFigureTest {
         ; the same width, a shorter page: drawn again, not kept
         MdDiagram.prepare(rd rc 460.0 "default")
         c.ok("room: same width, shorter page, drawn again" ((rc.heightFor("swot" rf.literal 460.0)) < tallH))
+        ; under a heading below the split level (the editorial theme: `##`
+        ; on an A4 page with several sections) a figure is a part of its
+        ; page: at most 0.7 of its width tall, not the page's room
+        def sec (new MdEmbedCache())
+        sec.chartRoomKept = 120.0
+        sec.fitPage(842.0 64.0)
+        def sd:MdNode (MdBlock.parseText("# Title\n\n## Section\n\n```swot\nStrengths: strong brand\nWeaknesses: small team\nOpportunities: new markets\nThreats: competitors\n```\n"))
+        def sf:MdNode (sd.childAt(2))
+        sec.splitLevel = 1
+        MdDiagram.prepare(sd sec 467.0 "default")
+        def inSection:double (sec.heightFor("swot" sf.literal 467.0))
+        c.ok(("section: a part of the page: " + (to_string inSection)) ((inSection > 0.0) && (inSection <= ((467.0 * 0.7) + 20.5))))
+        sec.splitLevel = 2
+        MdDiagram.prepare(sd sec 467.0 "default")
+        def onSlide:double (sec.heightFor("swot" sf.literal 467.0))
+        c.ok(("slide: the slide's room, drawn again: " + (to_string onSlide)) (onSlide > (inSection + 50.0)))
         def hc (new MdEmbedCache())
         hc.chartMaxH = 300.0
         hc.fitPage(960.0 40.0)
@@ -292,6 +407,8 @@ class MdFigureTest {
             MdFigureTest.save(outDir "waves" w1 "#ffffff")
             MdFigureTest.save(outDir "waves-dark" (MdFigure.art("waves" dark 1280.0 720.0 3)) "#0b1030")
             MdFigureTest.save(outDir "process" p "#ffffff")
+            MdFigureTest.save(outDir "timeline-fitted" tf "#ffffff")
+            MdFigureTest.save(outDir "process-fitted" pr "#ffffff")
             MdFigureTest.save(outDir "swot" s "#ffffff")
             MdFigureTest.save(outDir "timeline" t "#ffffff")
             MdFigureTest.save(outDir "swot-dark" (MdFigure.sceneOf("swot" "Strengths: strong brand\nWeaknesses: small team\nOpportunities: new markets\n  - Nordics\n  - Germany\nThreats: competitors" dark 960.0 10.0)) "#0b1030")

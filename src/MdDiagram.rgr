@@ -147,6 +147,14 @@ class MdDiagram {
     sfn render:void (node:MdNode cache:MdEmbedCache width:double styleName:string word:string notation:string) {
         def already:int (cache.find(word node.literal width))
         def wanted:boolean (cache.wanted(node.srcStart))
+        ; a figure fitted to another room (moved under a heading of another
+        ; level) is drawn again
+        if ((already >= 0) && (notation == "figure")) {
+            def had:MdEmbedEntry (cache.entryAt(already))
+            if ((had.deferred == false) && (had.room != (cache.figureRoom(width)))) {
+                had.stale = true
+            }
+        }
         if (already >= 0) {
             def was:MdEmbedEntry (cache.entryAt(already))
             was.at = node.srcStart
@@ -212,7 +220,13 @@ class MdDiagram {
             }
             ; a slide's figure fills its room (`chartMaxH`, the same limit
             ; a grown chart has)
-            def fs:FlowScene (MdFigure.sceneFit(word text cache.figure width pad cache.chartMaxH))
+            def room:double (cache.figureRoom(width))
+            e.room = room
+            ; set in the middle of a slide's room; at the top of a section's
+            ; (the text goes on under it) and of a figure given a width (the
+            ; text goes beside it)
+            def center:boolean (((strlen (node.attrValue("width"))) == 0) && ((cache.inSection()) == false))
+            def fs:FlowScene (MdFigure.sceneFitAt(word text cache.figure width pad room center))
             if (fs.worldW <= 0.0) {
                 e.note = (MdFigure.refusal(word text))
                 cache.add(e)
