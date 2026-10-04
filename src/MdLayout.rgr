@@ -3695,9 +3695,20 @@ class MdLayout {
             def all:boolean true
             def hr:int (itemAt gFrom heads)
             while (hr < (itemAt gTo heads)) {
+                ; a `<thead>` row, or one of `<th>` cells only
                 def hrow:MdHtmlRow (itemAt t.rows hr)
                 if (hrow.head == false) {
-                    all = false
+                    def hk:int 0
+                    while (hk < (array_length hrow.cells)) {
+                        def hc:MdHtmlCell (itemAt hrow.cells hk)
+                        if (hc.header == false) {
+                            all = false
+                        }
+                        hk = (hk + 1)
+                    }
+                    if ((array_length hrow.cells) == 0) {
+                        all = false
+                    }
                 }
                 hr = (hr + 1)
             }
