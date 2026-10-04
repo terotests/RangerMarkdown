@@ -47,6 +47,7 @@ Import "pkg:evg/EVGTextEngine.rgr"
 Import "../../math/src/MathLayout.rgr"
 Import "MdHtml.rgr"
 Import "MdBlock.rgr"
+Import "MdTableSplit.rgr"
 
 ; ----------------------------------------------------------------------------
 ; What the document looks like. Not a stylesheet yet — the values a stylesheet
@@ -217,6 +218,9 @@ class MdBox {
     def segLen:int 0
     ; 1 a header's, 2 a footer's: page furniture, not the document's text
     def furniture:int 0
+    ; text struck through (`~~…~~`, `<s>`, `<del>`): drawn muted on purpose,
+    ; so a contrast check leaves it alone
+    def strike:boolean false
 
     Constructor () {
     }
@@ -249,6 +253,7 @@ class MdBox {
         b.segSrc = segSrc
         b.segLen = segLen
         b.furniture = furniture
+        b.strike = strike
         return b
     }
 
@@ -693,6 +698,7 @@ class MdLayout {
         slidesGrown = 0
         slidesShrunk = 0
         slideTitleOnly = false
+        clear spillExcess
         this.layoutBody(doc)
         slideTitleOnly = false
         if (slides && (tocLines == 0)) {
@@ -1736,7 +1742,9 @@ class MdLayout {
         b.family = style.headingFamily
         b.size = size
         b.bold = true
-        b.color = style.mutedColor
+        ; the heading's own ink: it is the same title, and a dimmed one is
+        ; text a reader at the back cannot make out
+        b.color = (style.headingInk(slideTitleLevel))
         this.emit(b)
         cursorY = ((cursorY + h) + style.headingSpaceAfter)
     }
@@ -2014,7 +2022,10 @@ class MdLayout {
     ; ----------------------------------------------------------------------
     ;
     ; A slide whose last block runs over by a line or an item gets a slide of
-    ; its own for that remainder: the title again and one bullet.
+    ; its own for that remainder: the title again and one bullet. Or the
+    ; last row of a table and the sentence after it: blocks that START on
+    ; the continuation and end there are part of the spill too, as long as
+    ; none of them would have started a slide of its own anyway.
     ; When the spill is short — at most `slideShrinkSpill` of a slide — and
     ; that continuation holds nothing else, the slide is laid out again a step
     ; smaller, down to `slideShrinkMin`, and kept at the first size where it
@@ -2036,10 +2047,11 @@ class MdLayout {
 
     fn shrinkSlide:boolean (doc:MdNode p:int) {
         def n:int (doc.childCount())
-        ; the blocks that start on p; the last of them, and only it, runs on
-        ; to p + 1, and nothing starts there
+        ; the blocks that start on p (the last of them may run on to p + 1),
+        ; then those that start on p + 1 and end there
         def members:[int]
         def spanning:int -1
+        def extras:int 0
         def i:int 0
         while (i < n) {
             def fp:int (itemAt blockFirstPage i)
@@ -2048,9 +2060,24 @@ class MdLayout {
                 return false
             }
             if (fp == (p + 1)) {
-                return false
+                def ex:MdNode (doc.childAt(i))
+                if (lp != (p + 1)) {
+                    return false
+                }
+                if (ex.hasClass("slide")) {
+                    return false
+                }
+                ; a heading there may have been a break the rules chose
+                if (ex.kind == "heading") {
+                    return false
+                }
+                push members i
+                extras = (extras + 1)
             }
             if (fp == p) {
+                if (extras > 0) {
+                    return false
+                }
                 push members i
                 if (lp == (p + 1)) {
                     spanning = i
@@ -2062,11 +2089,16 @@ class MdLayout {
             }
             i = (i + 1)
         }
-        if ((spanning < 0) || ((array_length members) == 0)) {
+        if ((array_length members) == extras) {
             return false
         }
-        if ((itemAt members ((array_length members) - 1)) != spanning) {
+        if ((spanning < 0) && (extras == 0)) {
             return false
+        }
+        if (spanning >= 0) {
+            if ((itemAt members (((array_length members) - extras) - 1)) != spanning) {
+                return false
+            }
         }
         ; how much went over, and where the two slides' boxes are
         ; what spilled, not counting the title said again above it
@@ -2091,7 +2123,9 @@ class MdLayout {
             }
             k = (k + 1)
         }
-        def spill:double (spillBottom - spillTop)
+        ; a table spread evenly over the two slides put more on the second
+        ; than filling the first would have: what would have spilled
+        def spill:double ((spillBottom - spillTop) - (this.spillExcessAt((p + 1))))
         def room:double (contentBottom - contentTop)
         if ((b0 < 0) || (spill > (room * slideShrinkSpill))) {
             return false
@@ -2153,6 +2187,7 @@ class MdLayout {
                     }
                     q = (q + 1)
                 }
+                this.dropSpillExcess((p + 1))
                 page = (savedPage - 1)
                 pageCount = (savedPageCount - 1)
                 cursorY = savedCursor
@@ -3621,7 +3656,11 @@ class MdLayout {
             spanPass = (spanPass + 1)
         }
         ; drawn a group of rows at a time: rows a span ties together go onto
-        ; the same page
+        ; the same slide, and the header groups (`<thead>` rows) are drawn
+        ; again at the top of every slide the table continues on
+        def gFrom:[int]
+        def gTo:[int]
+        def gH:[double]
         def g0:int 0
         while (g0 < rows) {
             def g1:int (g0 + 1)
@@ -3639,55 +3678,131 @@ class MdLayout {
                 }
             }
             def gh:double 0.0
-            def rowY:[double]
             def rq:int g0
             while (rq < g1) {
-                push rowY gh
                 gh = (gh + (itemAt rowH rq))
                 rq = (rq + 1)
             }
-            def y0:double (this.reserve(gh))
-            def m:int 0
-            while (m < (array_length cells)) {
-                def cm:MdHtmlCell (itemAt cells m)
-                if ((cm.row >= g0) && (cm.row < g1)) {
-                    def cy:double (y0 + (itemAt rowY (cm.row - g0)))
-                    def ch:double 0.0
-                    def rs:int cm.row
-                    while (rs < (cm.row + cm.rowspan)) {
-                        ch = (ch + (itemAt rowH rs))
-                        rs = (rs + 1)
-                    }
-                    def cxm:double (itemAt colX cm.col)
-                    def cwm:double (itemAt cellW m)
-                    if cm.header {
-                        this.emit((MdBox.rect(cxm cy cwm ch style.tableHeadBackground)))
-                    }
-                    this.emit((MdBox.outline(cxm cy cwm ch style.tableBorder 1.0)))
-                    def lines2:[MdLine] (itemAt cellLines m)
-                    def inner:double (cwm - (padX * 2.0))
-                    def ty:double (cy + ((ch - (this.linesHeight(lines2))) / 2.0))
-                    def li:int 0
-                    while (li < (array_length lines2)) {
-                        def ln:MdLine (itemAt lines2 li)
-                        def lx:double (cxm + padX)
-                        if (cm.align == "right") {
-                            lx = (((cxm + cwm) - padX) - ln.width)
-                        }
-                        if (cm.align == "center") {
-                            lx = ((cxm + padX) + ((inner - ln.width) / 2.0))
-                        }
-                        this.emitLine(ln lx ty)
-                        ty = (ty + ln.height)
-                        li = (li + 1)
-                    }
-                }
-                m = (m + 1)
-            }
-            cursorY = (y0 + gh)
+            push gFrom g0
+            push gTo g1
+            push gH gh
             g0 = g1
         }
+        def heads:int 0
+        def headH:double 0.0
+        def more:boolean true
+        while (more && (heads < (array_length gFrom))) {
+            def all:boolean true
+            def hr:int (itemAt gFrom heads)
+            while (hr < (itemAt gTo heads)) {
+                ; a `<thead>` row, or one of `<th>` cells only
+                def hrow:MdHtmlRow (itemAt t.rows hr)
+                if (hrow.head == false) {
+                    def hk:int 0
+                    while (hk < (array_length hrow.cells)) {
+                        def hc:MdHtmlCell (itemAt hrow.cells hk)
+                        if (hc.header == false) {
+                            all = false
+                        }
+                        hk = (hk + 1)
+                    }
+                    if ((array_length hrow.cells) == 0) {
+                        all = false
+                    }
+                }
+                hr = (hr + 1)
+            }
+            if all {
+                headH = (headH + (itemAt gH heads))
+                heads = (heads + 1)
+            } {
+                more = false
+            }
+        }
+        def body:[double]
+        def bi:int heads
+        while (bi < (array_length gH)) {
+            push body (itemAt gH bi)
+            bi = (bi + 1)
+        }
+        def plan:MdTablePlan (this.tablePlan(body headH))
+        def on:int -1
+        def gi:int heads
+        while (gi < (array_length gFrom)) {
+            def s:int (itemAt plan.slideOf (gi - heads))
+            if (s != on) {
+                if ((on >= 0) || (s > 0)) {
+                    this.tableBreak()
+                }
+                on = s
+                def hg:int 0
+                while (hg < heads) {
+                    this.htmlGroup(cells cellLines cellW colX rowH (itemAt gFrom hg) (itemAt gTo hg) (itemAt gH hg) padX)
+                    hg = (hg + 1)
+                }
+            }
+            this.htmlGroup(cells cellLines cellW colX rowH (itemAt gFrom gi) (itemAt gTo gi) (itemAt gH gi) padX)
+            gi = (gi + 1)
+        }
+        if (heads == (array_length gFrom)) {
+            def hg2:int 0
+            while (hg2 < heads) {
+                this.htmlGroup(cells cellLines cellW colX rowH (itemAt gFrom hg2) (itemAt gTo hg2) (itemAt gH hg2) padX)
+                hg2 = (hg2 + 1)
+            }
+        }
         cursorY = (cursorY + style.paraSpacing)
+    }
+
+    ; Rows g0..g1 of an HTML table, `gh` tall, at the cursor.
+    fn htmlGroup:void (cells:[MdHtmlCell] cellLines:[[MdLine]] cellW:[double] colX:[double] rowH:[double] g0:int g1:int gh:double padX:double) {
+        def rowY:[double]
+        def acc:double 0.0
+        def rq:int g0
+        while (rq < g1) {
+            push rowY acc
+            acc = (acc + (itemAt rowH rq))
+            rq = (rq + 1)
+        }
+        def y0:double (this.reserve(gh))
+        def m:int 0
+        while (m < (array_length cells)) {
+            def cm:MdHtmlCell (itemAt cells m)
+            if ((cm.row >= g0) && (cm.row < g1)) {
+                def cy:double (y0 + (itemAt rowY (cm.row - g0)))
+                def ch:double 0.0
+                def rs:int cm.row
+                while (rs < (cm.row + cm.rowspan)) {
+                    ch = (ch + (itemAt rowH rs))
+                    rs = (rs + 1)
+                }
+                def cxm:double (itemAt colX cm.col)
+                def cwm:double (itemAt cellW m)
+                if cm.header {
+                    this.emit((MdBox.rect(cxm cy cwm ch style.tableHeadBackground)))
+                }
+                this.emit((MdBox.outline(cxm cy cwm ch style.tableBorder 1.0)))
+                def lines2:[MdLine] (itemAt cellLines m)
+                def inner:double (cwm - (padX * 2.0))
+                def ty:double (cy + ((ch - (this.linesHeight(lines2))) / 2.0))
+                def li:int 0
+                while (li < (array_length lines2)) {
+                    def ln:MdLine (itemAt lines2 li)
+                    def lx:double (cxm + padX)
+                    if (cm.align == "right") {
+                        lx = (((cxm + cwm) - padX) - ln.width)
+                    }
+                    if (cm.align == "center") {
+                        lx = ((cxm + padX) + ((inner - ln.width) / 2.0))
+                    }
+                    this.emitLine(ln lx ty)
+                    ty = (ty + ln.height)
+                    li = (li + 1)
+                }
+            }
+            m = (m + 1)
+        }
+        cursorY = (y0 + gh)
     }
 
     ; The markdown table's width algorithm over given min- and max-content
@@ -3874,6 +3989,7 @@ class MdLayout {
             b.italic = seg.italic
             b.color = seg.color
             b.link = seg.link
+            b.strike = seg.strike
             this.emit(b)
             if (seg.underline || seg.strike) {
                 def base:double (ty + (this.baselineAt(seg.family seg.bold seg.italic seg.size)))
@@ -4510,13 +4626,138 @@ class MdLayout {
         def cols:int (head.childCount())
         if (cols == 0) { return }
         def widths:[double] (this.tableWidths(node w))
-        def r2:int 0
+        ; the header rows, said again on every slide the table continues on
+        def heads:int 0
+        while ((heads < rows) && (MdLayout.isHeadRow((node.childAt(heads))))) {
+            heads = (heads + 1)
+        }
+        def heights:[double]
+        def headH:double 0.0
+        def r0:int 0
+        while (r0 < rows) {
+            def rh:double (this.tableRowHeight((node.childAt(r0)) widths cols))
+            if (r0 < heads) {
+                headH = (headH + rh)
+            } {
+                push heights rh
+            }
+            r0 = (r0 + 1)
+        }
+        def plan:MdTablePlan (this.tablePlan(heights headH))
+        def on:int -1
+        def r2:int heads
         while (r2 < rows) {
-            def row:MdNode (node.childAt(r2))
-            this.tableRow(row x widths cols)
+            def s:int (itemAt plan.slideOf (r2 - heads))
+            if (s != on) {
+                if (on >= 0) {
+                    this.tableBreak()
+                } {
+                    if (s > 0) {
+                        this.tableBreak()
+                    }
+                }
+                on = s
+                def hr:int 0
+                while (hr < heads) {
+                    this.tableRow((node.childAt(hr)) x widths cols)
+                    hr = (hr + 1)
+                }
+            }
+            this.tableRow((node.childAt(r2)) x widths cols)
             r2 = (r2 + 1)
         }
+        if (heads == rows) {
+            def hr2:int 0
+            while (hr2 < heads) {
+                this.tableRow((node.childAt(hr2)) x widths cols)
+                hr2 = (hr2 + 1)
+            }
+        }
         cursorY = (cursorY + style.paraSpacing)
+    }
+
+    sfn isHeadRow:boolean (row:MdNode) {
+        if ((row.childCount()) == 0) { return false }
+        def c:MdNode (row.childAt(0))
+        return c.isHeader
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A table cut across slides
+    ; ----------------------------------------------------------------------
+    ;
+    ; Which slide each row group goes to is `MdTableSplit`'s answer, from
+    ; heights alone; the room it is given is what is left here and what a
+    ; continuation slide has under the title said again. Rows are spread
+    ; evenly on a deck, filled to the bottom on a printed page.
+    ;
+    ; Per slide: how much more of a balanced table sits on it (its repeated
+    ; header, and the rows balancing moved over) than filling the slide
+    ; before it would have left there. The slide shrinker
+    ; judges a spill by what it would have been (`shrinkSlide`).
+    def spillExcess:[double]
+
+    fn tablePlan:MdTablePlan (groups:[double] headH:double) {
+        if ((paginate == false) || (page >= (MdCssLimits.pageBudget()))) {
+            def flat:MdTablePlan (new MdTablePlan())
+            def i:int 0
+            while (i < (array_length groups)) {
+                push flat.slideOf 0
+                i = (i + 1)
+            }
+            return flat
+        }
+        def titleH:double 0.0
+        if (slides && ((strlen slideTitle) > 0)) {
+            titleH = (((style.headingSize(slideTitleLevel)) * style.lineHeight) + style.headingSpaceAfter)
+        }
+        def firstRoom:double (contentBottom - cursorY)
+        def nextRoom:double ((contentBottom - contentTop) - titleH)
+        def plan:MdTablePlan (MdTableSplit.plan(groups headH firstRoom nextRoom slides))
+        if (slides && (plan.slides == 2)) {
+            ; the header said again is there because of the cut, like the
+            ; title over it
+            this.setSpillExcess((page + 1) ((plan.tail - plan.greedyTail) + headH))
+        }
+        return plan
+    }
+
+    ; A table's own break: the next slide, the title again, and the count a
+    ; cut block adds to, exactly as `reserve` does when a block runs over.
+    fn tableBreak:void () {
+        if (page >= (MdCssLimits.pageBudget())) { return }
+        page = (page + 1)
+        pageCount = (page + 1)
+        cursorY = contentTop
+        if slides {
+            slideOverflows = (slideOverflows + 1)
+            this.emitSlideTitle()
+        }
+    }
+
+    fn setSpillExcess:void (p:int v:double) {
+        while ((array_length spillExcess) <= p) {
+            push spillExcess 0.0
+        }
+        set_at spillExcess p v
+    }
+
+    fn spillExcessAt:double (p:int) {
+        if ((p < 0) || (p >= (array_length spillExcess))) { return 0.0 }
+        return (itemAt spillExcess p)
+    }
+
+    ; the slide `p` went: what was recorded for the slides after it moves up
+    fn dropSpillExcess:void (p:int) {
+        def kept:[double]
+        def i:int 0
+        while (i < (array_length spillExcess)) {
+            if (i != p) {
+                push kept (itemAt spillExcess i)
+            }
+            i = (i + 1)
+        }
+        spillExcess = kept
     }
 
     ; ----------------------------------------------------------------------
@@ -4788,6 +5029,27 @@ class MdLayout {
             i = (i + 1)
         }
         return total
+    }
+
+    fn tableRowHeight:double (row:MdNode widths:[double] cols:int) {
+        def rowH:double 0.0
+        def c:int 0
+        def rc:int (row.childCount())
+        while (c < cols) {
+            def h:double ((style.bodySize * style.lineHeight) + (style.cellPadY * 2.0))
+            if (c < rc) {
+                def cell:MdNode (row.childAt(c))
+                def base:MdRun (this.baseRun())
+                if cell.isHeader { base.bold = true }
+                def runs:[MdRun] (this.inlineRuns(cell base))
+                def inner:double ((itemAt widths c) - (style.cellPadX * 2.0))
+                def lines:[MdLine] (this.breakRuns(runs inner))
+                h = ((this.linesHeight(lines)) + (style.cellPadY * 2.0))
+            }
+            if (h > rowH) { rowH = h }
+            c = (c + 1)
+        }
+        return rowH
     }
 
     fn tableRow:void (row:MdNode x:double widths:[double] cols:int) {
