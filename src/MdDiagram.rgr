@@ -279,6 +279,28 @@ class MdDiagram {
         return (MermaidRender.sceneWrapped(text styleName width pad aspect))
     }
 
+    ; The scene for a slide: the labels set as large as their boxes hold, up
+    ; to `textFill` times the look's sizes (`FlowView.fillText`), and a long
+    ; top-to-bottom flow cut into columns for a room of `aspect` when it is
+    ; above 0 (Mermaid flowcharts and Graphviz).
+    sfn sceneForSlide:FlowScene (notation:string text:string styleName:string width:double pad:double aspect:double textFill:double) {
+        def st:FlowStyle (FlowStyle.named(styleName))
+        st.textFill = textFill
+        if (notation == "graphviz") {
+            return (DotRender.sceneWrappedStyled(text st width pad aspect))
+        }
+        if (notation == "plantuml") {
+            return (PlantUmlRender.sceneStyled(text st width pad))
+        }
+        if (notation == "d2") {
+            return (D2Render.sceneStyled(text st width pad))
+        }
+        if (notation == "vega") {
+            return (MdDiagram.sceneFor(notation text styleName width pad))
+        }
+        return (MermaidRender.sceneWrappedStyled(text st width pad aspect))
+    }
+
     sfn sceneFor:FlowScene (notation:string text:string styleName:string width:double pad:double) {
         if (notation == "plantuml") {
             return (PlantUmlRender.sceneOf(text styleName width pad))
