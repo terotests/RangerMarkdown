@@ -361,6 +361,33 @@ class MdSlidesTest {
         c.ok("a title alone on its slide keeps its size" ((MdSlidesTest.biggestTextOn(sl 0)) > 89.0))
     }
 
+    ; A diagram taller than the room under its title is given exactly that
+    ; room: its height is `contentBottom - cursorY`. `reserve` then asked
+    ; whether `cursorY + h` ran past `contentBottom`, and for some paddings
+    ; that sum, in floating point, came out one rounding step past it — so
+    ; the diagram went to a slide of its own, and the title's slide was
+    ; empty. In Sliqtly dragging the page padding made the diagram vanish
+    ; and come back every other value (0.54in drawn, 0.56in empty).
+    fn exactFit:void (c:SlideCheck) {
+        print "-- a diagram squeezed to the room left stays on its slide --"
+        def dia:string "```mermaid\nflowchart TD\n  A[Boy meets girl] -->|musters up the courage| B((Boy asks girl on a date))\n  B --> C[They kiss]\n  C -->|both feel a spark| D((Start talking every day))\n  D --> E[Girl says yes]\n  E --> F((Save the date))\n```\n"
+        def src:string ("## Romantic\n\n" + dia)
+        def moved:int 0
+        def firstBad:string ""
+        def pad:double 20.0
+        while (pad <= 90.0) {
+            def css:string ("deck { split-level: 2 } page { width: 960pt; height: 540pt; padding: " + (to_string pad) + "pt }")
+            def l:MdLayout (MdSlidesTest.asSlidesWithDiagrams(src css))
+            if ((l.pageCount != 1) || ((MdSlidesTest.slideOfEmbed(l)) != 0)) {
+                moved = (moved + 1)
+                if ((strlen firstBad) == 0) { firstBad = (to_string pad) }
+            }
+            pad = (pad + 0.36)
+        }
+        if (moved > 0) { print ("   first padding that moved it: " + firstBad + "pt") }
+        c.eqInt("no padding sends the diagram to a slide of its own" moved 0)
+    }
+
     sfn embedBottom:double (l:MdLayout) {
         def i:int 0
         while (i < (array_length l.boxes)) {
@@ -994,6 +1021,7 @@ class MdSlidesTest {
         this.breaks(c)
         this.keepWithNext(c)
         this.bigTitle(c)
+        this.exactFit(c)
         this.overflow(c)
         this.wholeItems(c)
         this.shrinkToFit(c)
