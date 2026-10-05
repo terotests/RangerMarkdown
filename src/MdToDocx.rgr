@@ -42,10 +42,12 @@ class MdDocResult {
     def listItems:int 0
     def codeBlocks:int 0
     def quotes:int 0
+    ; Tables, as Word tables: a row per row, a cell per cell, the header row
+    ; shaded and bold, each column aligned as the markdown said.
+    def tables:int 0
     ; Blocks a stream of paragraphs has no shape for. Named rather than
-    ; dropped: a `RichDocument` has tables, and this does not build them yet,
-    ; and a reader who cannot see that has lost a table without being told.
-    def tablesAsText:int 0
+    ; dropped: a reader who cannot see that has lost a drawing without being
+    ; told.
     def drawingsAsText:int 0
     ; Diagrams carried as drawings — geometry, the same tree the preview
     ; draws.
@@ -82,8 +84,8 @@ class MdDocResult {
         if (quotes > 0) {
             out = (out + ", " + (to_string quotes) + " quote(s)")
         }
-        if (tablesAsText > 0) {
-            out = (out + " — " + (to_string tablesAsText) + " table(s) as text")
+        if (tables > 0) {
+            out = (out + ", " + (to_string tables) + " table(s)")
         }
         if (drawings > 0) {
             out = (out + " — " + (to_string drawings) + " drawing(s) placed")
@@ -268,31 +270,7 @@ class MdToDocx {
             return
         }
         if (kind == "table") {
-            ; A `RichDocument` has tables and this does not build one yet, so
-            ; the rows go in as tab-separated paragraphs and the cost is said
-            ; out loud. A table silently flattened is a table a reader finds
-            ; missing later.
-            def r:int 0
-            while (r < (node.childCount())) {
-                def row:MdNode (node.childAt(r))
-                def rp:Paragraph (doc.addParagraph())
-                rp.spaceAfterPt = 0.0
-                def cIdx:int 0
-                while (cIdx < (row.childCount())) {
-                    def cell:MdNode (row.childAt(cIdx))
-                    if (cIdx > 0) {
-                        def tabSpan:TextSpan (this.spanFor(false false false ""))
-                        rp.appendText("\t" tabSpan)
-                    }
-                    def cellSpan:TextSpan (this.spanFor(row.isHeader false false ""))
-                    def txt:string (cell.plainText())
-                    rp.appendText(txt cellSpan)
-                    cIdx = (cIdx + 1)
-                }
-                r = (r + 1)
-            }
-            result.tablesAsText = (result.tablesAsText + 1)
-            result.note("a table went in as tab-separated paragraphs: this converter does not build a Word table yet")
+            this.table(node)
             return
         }
         if (kind == "embed") {
@@ -339,6 +317,73 @@ class MdToDocx {
         if ((node.childCount()) > 0) {
             this.blocks(node listKind level)
         }
+    }
+
+    ; A markdown table, as a Word table. The columns share the text column
+    ; evenly — markdown says nothing about widths, and Word re-fits them when
+    ; a reader drags a border. The header row is bold on the style's header
+    ; shade, and every cell keeps its column's alignment (`:--:`, `--:`).
+    fn table:void (node:MdNode) {
+        def cols:int 0
+        def r:int 0
+        while (r < (node.childCount())) {
+            def rn:int ((node.childAt(r)).childCount())
+            if (rn > cols) { cols = rn }
+            r = (r + 1)
+        }
+        if (cols < 1) { return }
+        def t:DocumentTable (doc.addTable())
+        def sec:DocSection doc.section
+        def text:int ((sec.pageWTwips - sec.marginLeftTwips) - sec.marginRightTwips)
+        def colW:int (idiv text cols)
+        def ci:int 0
+        while (ci < cols) {
+            push t.colWidthsTwips colW
+            ci = (ci + 1)
+        }
+        def line:string (MdToDocx.hexOf(style.tableBorder))
+        t.borderColor = line
+        def shade:string (MdToDocx.hexOf(style.tableHeadBackground))
+        r = 0
+        while (r < (node.childCount())) {
+            def rowNode:MdNode (node.childAt(r))
+            def row (new DocTableRow())
+            def c:int 0
+            while (c < cols) {
+                def cell (new DocTableCell())
+                cell.borderTop.colorHex = line
+                cell.borderLeft.colorHex = line
+                cell.borderBottom.colorHex = line
+                cell.borderRight.colorHex = line
+                if rowNode.isHeader {
+                    cell.fillHex = shade
+                }
+                def p:Paragraph (doc.addParagraphOnly())
+                p.spaceBeforePt = 0.0
+                p.spaceAfterPt = 0.0
+                p.lineSpacing = 1.0
+                def base:TextSpan (this.spanFor(rowNode.isHeader false false ""))
+                ; a short row leaves its last cells empty rather than shifting
+                if (c < (rowNode.childCount())) {
+                    def cellNode:MdNode (rowNode.childAt(c))
+                    p.align = (MdToDocx.alignOf(cellNode.align))
+                    this.inline(cellNode p base)
+                }
+                push cell.paragraphs p
+                push row.cells cell
+                c = (c + 1)
+            }
+            push t.rows row
+            r = (r + 1)
+        }
+        result.tables = (result.tables + 1)
+    }
+
+    ; a table column's markdown alignment, as `Paragraph.align`
+    sfn alignOf:int (a:string) {
+        if (a == "center") { return 1 }
+        if (a == "right") { return 2 }
+        return 0
     }
 
     ; The inline tree, flattened into spans. One span per run of one format,

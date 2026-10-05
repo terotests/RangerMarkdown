@@ -91,6 +91,7 @@ class MdDocxTest {
         this.formatting(c)
         this.lists(c)
         this.costs(c)
+        this.tables(c)
         this.drawn(c)
         this.drawings(c)
         this.pictures(c)
@@ -223,25 +224,12 @@ class MdDocxTest {
     ; ----------------------------------------------------------------------
     fn costs:void (c:DocCheck) {
         print "-- and what it could not carry, said out loud --"
-        def src:string "| A | B |\n| --- | --- |\n| 1 | 2 |\n\n```mermaid\nflowchart LR\n  A --> B\n```\n"
+        def src:string "```mermaid\nflowchart LR\n  A --> B\n```\n"
         def d:RichDocument (this.make(src))
-        c.eqInt("the table went in as text" maker.result.tablesAsText 1)
-        c.eqInt("…and the diagram as its name" maker.result.drawingsAsText 1)
-        c.ok("…and both were said out loud" ((maker.result.noteCount()) >= 2))
+        c.eqInt("the diagram went in as its name" maker.result.drawingsAsText 1)
+        c.ok("…and that was said out loud" ((maker.result.noteCount()) >= 1))
         c.ok("…and the summary says so too"
-            (MdDocxTest.hasSub((maker.result.describe()) "table(s) as text")))
-
-        ; The table's words are still in the document, tab separated. Lost
-        ; formatting is a cost; lost CONTENT would be a bug.
-        def all:string ""
-        def i:int 0
-        while (i < (array_length d.paragraphs)) {
-            def p:Paragraph (itemAt d.paragraphs i)
-            all = ((all + (p.plainText())) + "|")
-            i = (i + 1)
-        }
-        c.ok("the table's words are all still there"
-            ((MdDocxTest.hasSub(all "A")) && (MdDocxTest.hasSub(all "2"))))
+            (MdDocxTest.hasSub((maker.result.describe()) "drawing(s) as their name")))
 
         def codeSrc:string "```js\nconst a = 1;\nconst b = 2;\n```\n"
         def cd:RichDocument (this.make(codeSrc))
@@ -249,6 +237,65 @@ class MdDocxTest {
         c.eqInt("…of one paragraph per line" (array_length cd.paragraphs) 2)
         def c0:Paragraph (itemAt cd.paragraphs 0)
         c.eqStr("…with the line in it" (c0.plainText()) "const a = 1;")
+    }
+
+    ; A markdown table is a Word table: rows, cells, the header row shaded and
+    ; bold, the column alignment on each cell's paragraph, inline formatting
+    ; kept, and the columns sharing the text column.
+    fn tables:void (c:DocCheck) {
+        print "-- a table is a Word table --"
+        def src:string "| Nimi | Määrä |\n| :--- | ---: |\n| **omena** | 3 |\n| päärynä |\n"
+        def d:RichDocument (this.make(src))
+        c.eqInt("one table counted" maker.result.tables 1)
+        c.eqInt("…in the document" (array_length d.tables) 1)
+        c.eqInt("…as one body block" (array_length d.blocks) 1)
+        def t:DocumentTable (itemAt d.tables 0)
+        c.eqInt("three rows" (t.rowCount()) 3)
+        c.eqInt("two columns" (t.columnCount()) 2)
+        def sec:DocSection d.section
+        def text:int ((sec.pageWTwips - sec.marginLeftTwips) - sec.marginRightTwips)
+        def w0:int (itemAt t.colWidthsTwips 0)
+        c.eqInt("the columns share the text column" w0 (idiv text 2))
+        def head:DocTableRow (itemAt t.rows 0)
+        def h0:DocTableCell (itemAt head.cells 0)
+        c.ok("the header row is shaded" ((strlen h0.fillHex) == 6))
+        def hp:Paragraph (itemAt h0.paragraphs 0)
+        c.eqStr("…and holds its words" (hp.plainText()) "Nimi")
+        c.ok("…in bold" (d.paraHasBold(hp)))
+        def h1:DocTableCell (itemAt head.cells 1)
+        def h1p:Paragraph (itemAt h1.paragraphs 0)
+        c.eqInt("a right-aligned column is right-aligned" h1p.align 2)
+        def body:DocTableRow (itemAt t.rows 1)
+        def b0:DocTableCell (itemAt body.cells 0)
+        c.ok("a body cell is not shaded" ((strlen b0.fillHex) == 0))
+        def bp:Paragraph (itemAt b0.paragraphs 0)
+        c.eqStr("…its bold word kept" (bp.plainText()) "omena")
+        c.ok("…as bold" (d.paraHasBold(bp)))
+        def short:DocTableRow (itemAt t.rows 2)
+        c.eqInt("a short row still has every cell" (array_length short.cells) 2)
+        def gap:DocTableCell (itemAt short.cells 1)
+        def gp:Paragraph (itemAt gap.paragraphs 0)
+        c.eqStr("…the missing one empty" (gp.plainText()) "")
+        c.ok("the summary names the table" (MdDocxTest.hasSub((maker.result.describe()) "1 table(s)")))
+
+        ; …and the Word viewer draws the cells' words
+        def view (new DocxView())
+        view.init("gallery/pdf_writer/assets/fonts")
+        def nums (new WordNumbering())
+        def ed (new DocxEditController())
+        ed.bindDocument(d)
+        def dl:EVGDisplayList (view.buildDisplayList(d 0 nums ed false))
+        def said:string ""
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 3) {
+                said = ((said + cmd.text) + "|")
+            }
+            i = (i + 1)
+        }
+        c.ok("the viewer draws the cells' words"
+            ((MdDocxTest.hasSub(said "omena")) && (MdDocxTest.hasSub(said "Määrä"))))
     }
 
     ; ----------------------------------------------------------------------
