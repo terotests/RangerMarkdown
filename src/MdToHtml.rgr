@@ -25,14 +25,56 @@
 
 Import "MdNode.rgr"
 Import "MdChar.rgr"
+Import "MdAnchor.rgr"
 Import "../../math/src/MathRender.rgr"
+Import "../../vfs/src/Vfs.rgr"
 
 class MdToHtml {
     ; A tight list's items hold their paragraphs' contents without the <p>.
     def tight:boolean false
     def out:string ""
 
+    ; --- a page someone opens, not a spec answer --------------------------
+    ;
+    ; Off, the output is the specification's, byte for byte. A document
+    ; export turns these on:
+    ;   `standalone` — the file is opened by whoever it is sent to, so raw
+    ;     HTML is shown as text (as the viewer shows it) and a link or
+    ;     picture that would run script (`javascript:`, `vbscript:`,
+    ;     `data:` other than a picture) loses its address; headings get
+    ;     ids (`{#id}` or the GitHub slug) so in-page links land.
+    ;   `setImages` — a picture the store has is written into the page as a
+    ;     data: URL, so the one file carries its pictures.
+    def standalone:boolean false
+    def images:Vfs (new Vfs())
+    def haveImages:boolean false
+    def docDir:string ""
+    def ids:[string]
+    ; pictures written in, and pictures asked for that the store lacked
+    def pictures:int 0
+    def missedPictures:int 0
+
     Constructor () {
+    }
+
+    fn setImages:void (v:Vfs dir:string) {
+        images = v
+        haveImages = true
+        docDir = dir
+    }
+
+    ; One block (or a whole document) with this renderer's settings; the
+    ; heading ids it handed out are remembered, so a later block's same
+    ; heading gets another.
+    fn node:string (n:MdNode) {
+        out = ""
+        tight = false
+        if (n.kind == "document") {
+            this.walkChildren(n)
+        } {
+            this.walk(n)
+        }
+        return out
     }
 
     sfn render:string (doc:MdNode) {
@@ -110,6 +152,10 @@ class MdToHtml {
             return
         }
         if (kind == "html_inline") {
+            if standalone {
+                this.lit((MdToHtml.escape(node.literal)))
+                return
+            }
             this.lit(node.literal)
             return
         }
@@ -132,6 +178,12 @@ class MdToHtml {
             return
         }
         if (kind == "link") {
+            if (standalone && (MdToHtml.runsScript(node.destination false))) {
+                this.lit("<a>")
+                this.walkChildren(node)
+                this.lit("</a>")
+                return
+            }
             def href:string (MdToHtml.escapeUrl(node.destination))
             this.lit((("<a href=\"" + href) + "\""))
             def tlen:int (strlen node.title)
@@ -145,6 +197,14 @@ class MdToHtml {
         }
         if (kind == "image") {
             def src:string (MdToHtml.escapeUrl(node.destination))
+            def inlined:string (this.dataUrl(node.destination))
+            if ((strlen inlined) > 0) {
+                src = inlined
+            } {
+                if (standalone && (MdToHtml.runsScript(node.destination true))) {
+                    src = ""
+                }
+            }
             def alt:string (node.plainText())
             this.lit((((("<img src=\"" + src) + "\" alt=\"") + (MdToHtml.escape(alt))) + "\""))
             def tlen2:int (strlen node.title)
@@ -170,7 +230,11 @@ class MdToHtml {
         if (kind == "heading") {
             def lv:string (to_string node.level)
             this.cr()
-            this.lit((("<h" + lv) + ">"))
+            if standalone {
+                this.lit((((("<h" + lv) + " id=\"") + (MdToHtml.escape((this.headingId(node))))) + "\">"))
+            } {
+                this.lit((("<h" + lv) + ">"))
+            }
             this.walkChildren(node)
             this.lit((("</h" + lv) + ">"))
             this.cr()
@@ -184,7 +248,11 @@ class MdToHtml {
         }
         if (kind == "html_block") {
             this.cr()
-            this.lit(node.literal)
+            if standalone {
+                this.lit((("<pre>" + (MdToHtml.escape(node.literal))) + "</pre>"))
+            } {
+                this.lit(node.literal)
+            }
             this.cr()
             return
         }
@@ -322,6 +390,116 @@ class MdToHtml {
         this.walkChildren(cell)
         this.lit((("</" + tag) + ">"))
         this.cr()
+    }
+
+    ; `{#id}` when the heading has one, else the slug of its words; a name
+    ; already given gets -2, -3, … so every heading can be linked to.
+    fn headingId:string (h:MdNode) {
+        def base:string (trim h.nodeId)
+        if ((strlen base) == 0) {
+            base = (MdAnchor.slug((h.plainText())))
+        }
+        if ((strlen base) == 0) {
+            base = "section"
+        }
+        def id:string base
+        def k:int 2
+        while ((indexOf ids id) >= 0) {
+            id = ((base + "-") + (to_string k))
+            k = (k + 1)
+        }
+        push ids id
+        return id
+    }
+
+    ; The picture as a data: URL when the store has it, else "".
+    fn dataUrl:string (dest:string) {
+        if (! haveImages) {
+            return ""
+        }
+        def path:string (images.resolve(dest docDir))
+        if ((strlen path) == 0) {
+            missedPictures = (missedPictures + 1)
+            return ""
+        }
+        def st:VfsStat (images.stat(path))
+        if (! st.found) {
+            missedPictures = (missedPictures + 1)
+            return ""
+        }
+        def type:string st.contentType
+        if ((strlen type) == 0) {
+            type = "application/octet-stream"
+        }
+        pictures = (pictures + 1)
+        return ((("data:" + type) + ";base64,") + (MdToHtml.base64((images.read(path)))))
+    }
+
+    ; Would following this address run script? `javascript:` and `vbscript:`
+    ; always; `data:` unless a picture is asked for and it is one. Browsers ignore case and leading blanks and controls, so this does.
+    sfn runsScript:boolean (dest:string picture:boolean) {
+        def d:string ""
+        def i:int 0
+        def n:int (strlen dest)
+        while (i < n) {
+            def c:int (charAt dest i)
+            if (c > 32) {
+                d = (d + (substring dest i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        d = (MdChar.lower(d))
+        if (((indexOf d "javascript:") == 0) || ((indexOf d "vbscript:") == 0)) {
+            return true
+        }
+        if ((indexOf d "data:") == 0) {
+            ; a picture's own script does not run inside <img>
+            return ((picture && ((indexOf d "data:image/") == 0)) == false)
+        }
+        return false
+    }
+
+    ; Bytes as base64, in short pieces joined once: one long string grown a
+    ; character at a time costs its length squared on targets that copy.
+    sfn base64:string (b:buffer) {
+        def abc:string "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        def parts:[string]
+        def piece:string ""
+        def n:int (buffer_length b)
+        def i:int 0
+        while (i < n) {
+            def b0:int (buffer_get b i)
+            def b1:int 0
+            def b2:int 0
+            if ((i + 1) < n) {
+                b1 = (buffer_get b (i + 1))
+            }
+            if ((i + 2) < n) {
+                b2 = (buffer_get b (i + 2))
+            }
+            def c0:int (idiv b0 4)
+            def c1:int (((b0 % 4) * 16) + (idiv b1 16))
+            def c2:int (((b1 % 16) * 4) + (idiv b2 64))
+            def c3:int (b2 % 64)
+            piece = (piece + (substring abc c0 (c0 + 1)) + (substring abc c1 (c1 + 1)))
+            if ((i + 1) < n) {
+                piece = (piece + (substring abc c2 (c2 + 1)))
+            } {
+                piece = (piece + "=")
+            }
+            if ((i + 2) < n) {
+                piece = (piece + (substring abc c3 (c3 + 1)))
+            } {
+                piece = (piece + "=")
+            }
+            if ((strlen piece) >= 64) {
+                push parts piece
+                piece = ""
+            }
+            i = (i + 3)
+        }
+        push parts piece
+        return (join parts "")
     }
 
     sfn firstWord:string (info:string) {

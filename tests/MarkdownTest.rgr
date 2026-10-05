@@ -76,6 +76,51 @@ class MarkdownTest {
         }
     }
 
+    ; HTML for a page someone opens: raw HTML shown, script addresses dropped,
+    ; heading ids, pictures written in. Off, the spec output is untouched.
+    fn standaloneHtml:void () {
+        def src:string "# Alku {#start}\n\n## Mihin raha menee?\n\n## Mihin raha menee?\n\n<script>alert(1)</script>\n\nHei <b>x</b> [ok](https://a.fi/?a=1&b=2) [bad]( JavaScript:alert(1)) ![p](pic.png) ![q](data:image/png;base64,AA==) ![r](data:text/html,x)\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def spec:string (MdToHtml.render(doc))
+        this.ok("spec output keeps raw html" ((indexOf spec "<script>alert(1)</script>") >= 0))
+        this.ok("spec output has no heading ids" ((indexOf spec "<h1>") >= 0))
+        def v (new Vfs())
+        def mem (new VfsMemory())
+        def blob (new VfsBlob())
+        def buf:buffer (buffer_alloc 5)
+        buffer_set buf 0 77
+        buffer_set buf 1 97
+        buffer_set buf 2 110
+        buffer_set buf 3 255
+        buffer_set buf 4 0
+        blob.bytes = buf
+        blob.contentType = "image/png"
+        blob.pixelW = 2
+        blob.pixelH = 2
+        mem.put("/pic.png" blob)
+        v.mount("/" mem)
+        def r (new MdToHtml())
+        r.standalone = true
+        r.setImages(v "/")
+        def h:string (r.node(doc))
+        this.ok("raw html block shown as text" ((indexOf h "&lt;script&gt;alert(1)&lt;/script&gt;") >= 0))
+        this.ok("no script tag" ((indexOf h "<script") < 0))
+        this.ok("inline html shown as text" ((indexOf h "&lt;b&gt;x&lt;/b&gt;") >= 0))
+        this.ok("explicit id" ((indexOf h "<h1 id=\"start\">") >= 0))
+        this.ok("slug id" ((indexOf h "<h2 id=\"mihin-raha-menee\">") >= 0))
+        this.ok("repeated heading gets -2" ((indexOf h "<h2 id=\"mihin-raha-menee-2\">") >= 0))
+        this.ok("safe link kept" ((indexOf h "href=\"https://a.fi/?a=1&amp;b=2\"") >= 0))
+        this.ok("javascript link loses its address" ((indexOf h "<a>bad</a>") >= 0))
+        this.ok("no javascript anywhere in an href" ((indexOf (MdChar.lower(h)) "href=\"javascript") < 0))
+        this.eq("picture written in" (MdToHtml.base64(buf)) "TWFu/wA=")
+        this.ok("…as a data url" ((indexOf h "src=\"data:image/png;base64,TWFu/wA=\"") >= 0))
+        this.ok("data picture kept" ((indexOf h "src=\"data:image/png;base64,AA==\"") >= 0))
+        this.ok("data html dropped" ((indexOf h "src=\"\" alt=\"r\"") >= 0))
+        this.ok("counted" (r.pictures == 1))
+        this.eq("base64 of 1 byte" (MdToHtml.base64((buffer_alloc 1))) "AA==")
+        this.eq("base64 of nothing" (MdToHtml.base64((buffer_alloc 0))) "")
+    }
+
     fn html:string (src:string) {
         def doc:MdNode (MdBlock.parseText(src))
         return (MdToHtml.render(doc))
@@ -205,6 +250,7 @@ class MarkdownTest {
         this.lists()
         this.presized()
         this.textEngine()
+        this.standaloneHtml()
         print ""
         def p:string (to_string passed)
         def f:string (to_string failed)
