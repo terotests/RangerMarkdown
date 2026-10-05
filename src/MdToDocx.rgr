@@ -35,6 +35,7 @@ Import "../../docx_viewer/src/RichDocument.rgr"
 Import "../../vfs/src/Vfs.rgr"
 Import "MdDocSync.rgr"
 Import "../../math/src/MathRender.rgr"
+Import "../../math/src/MathOmml.rgr"
 
 class MdDocResult {
     def paragraphs:int 0
@@ -399,10 +400,12 @@ class MdToDocx {
                 p.appendText(c.literal base)
             }
             if (kind == "math") {
-                ; a formula in a line goes in as its source, in italics
+                ; a formula in a line: an equation a writer can make Word's
+                ; own (`TextSpan.math`), drawn meanwhile as one line of
+                ; Unicode rather than as its TeX source
                 def ms:TextSpan (base.copy())
-                ms.italic = true
-                p.appendText(c.literal ms)
+                ms.math = c.literal
+                p.appendText((MathOmml.linear(c.literal)) ms)
             }
             if (kind == "code") {
                 def cs:TextSpan (base.copy())
