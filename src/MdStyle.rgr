@@ -66,7 +66,7 @@ class MdStyle {
     ; stylesheet will set, in one place.
     def codeKeyword:string "#cf222e"
     def codeString:string "#0a3069"
-    def codeComment:string "#6e7781"
+    def codeComment:string "#57606a"
     def codeNumber:string "#0550ae"
     def codePlain:string "#1f2328"
     def highlightCode:boolean true

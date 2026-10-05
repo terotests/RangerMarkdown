@@ -87,6 +87,8 @@ class MdRun {
     ; size of the text it sits in.
     def underline:boolean false
     def strike:boolean false
+    ; drawn muted on purpose: the stand-in for a picture with no bytes
+    def quiet:boolean false
     def mark:boolean false
     def kbd:boolean false
     def shift:int 0
@@ -109,6 +111,7 @@ class MdRun {
         r.link = link
         r.underline = underline
         r.strike = strike
+        r.quiet = quiet
         r.mark = mark
         r.kbd = kbd
         r.shift = shift
@@ -138,6 +141,8 @@ class MdSeg {
     def mathDisplay:boolean false
     def underline:boolean false
     def strike:boolean false
+    ; drawn muted on purpose: the stand-in for a picture with no bytes
+    def quiet:boolean false
     def mark:boolean false
     def kbd:boolean false
     def shift:int 0
@@ -222,6 +227,10 @@ class MdBox {
     ; text struck through (`~~…~~`, `<s>`, `<del>`): drawn muted on purpose,
     ; so a contrast check leaves it alone
     def strike:boolean false
+    ; drawn muted on purpose for another reason: the "[alt]" standing in for
+    ; a picture the layout has no bytes for (the missing picture is the
+    ; thing to report, not its stand-in's contrast)
+    def quiet:boolean false
     ; a code block's highlight that a build step reveals (`lines=3-5|8`
     ; with `{.build}`): the step among the block's own, 0 = with the block
     def buildStep:int 0
@@ -258,6 +267,7 @@ class MdBox {
         b.segLen = segLen
         b.furniture = furniture
         b.strike = strike
+        b.quiet = quiet
         b.buildStep = buildStep
         return b
     }
@@ -2958,7 +2968,7 @@ class MdLayout {
         ; a highlight is a lighter (darker) band, its bar an accent blue
         def markBand:string (MdLayout.tint(style.codeBackground "#1f2328" 0.08))
         def markBar:string "#0969da"
-        def numInk:string "#6e7781"
+        def numInk:string "#57606a"
         if dark {
             markBand = (MdLayout.tint(style.codeBackground "#e6edf3" 0.13))
             markBar = "#79c0ff"
@@ -3540,6 +3550,7 @@ class MdLayout {
                 def ir:MdRun (cur.copyStyle())
                 ir.italic = true
                 ir.color = style.mutedColor
+                ir.quiet = true
                 def alt:string (c.plainText())
                 ir.text = (("[" + alt) + "]")
                 ir.srcStart = c.srcStart
@@ -4323,6 +4334,7 @@ class MdLayout {
             b.color = seg.color
             b.link = seg.link
             b.strike = seg.strike
+            b.quiet = seg.quiet
             this.emit(b)
             if (seg.underline || seg.strike) {
                 def base:double (ty + (this.baselineAt(seg.family seg.bold seg.italic seg.size)))
@@ -4837,6 +4849,7 @@ class MdLayout {
         seg.mathDisplay = run.mathDisplay
         seg.underline = run.underline
         seg.strike = run.strike
+        seg.quiet = run.quiet
         seg.mark = run.mark
         seg.kbd = run.kbd
         seg.shift = run.shift
