@@ -92,6 +92,7 @@ class MdDocxTest {
         this.lists(c)
         this.costs(c)
         this.tables(c)
+        this.inlineMath(c)
         this.drawn(c)
         this.drawings(c)
         this.pictures(c)
@@ -237,6 +238,31 @@ class MdDocxTest {
         c.eqInt("…of one paragraph per line" (array_length cd.paragraphs) 2)
         def c0:Paragraph (itemAt cd.paragraphs 0)
         c.eqStr("…with the line in it" (c0.plainText()) "const a = 1;")
+    }
+
+    ; A formula in a line is an equation span: its TeX for the writer, one
+    ; line of Unicode as its text, never merged with its neighbours.
+    fn inlineMath:void (c:DocCheck) {
+        print "-- a formula in a line is an equation --"
+        def d:RichDocument (this.make("Kun $a^2 + b^2 = c^2$ ja $x$ on.\n"))
+        def p:Paragraph (itemAt d.paragraphs 0)
+        def eqs:int 0
+        def first:string ""
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            def sp:TextSpan (itemAt p.spans i)
+            if ((strlen sp.math) > 0) {
+                if (eqs == 0) {
+                    first = sp.math
+                }
+                eqs = (eqs + 1)
+            }
+            i = (i + 1)
+        }
+        c.eqInt("two equation spans" eqs 2)
+        c.eqStr("…the first keeps its TeX" first "a^2 + b^2 = c^2")
+        c.ok("the text holds no TeX" ((indexOf (p.plainText()) "^") < 0))
+        c.ok("…but the formula's letters" (MdDocxTest.hasSub((p.plainText()) "c")))
     }
 
     ; A markdown table is a Word table: rows, cells, the header row shaded and
