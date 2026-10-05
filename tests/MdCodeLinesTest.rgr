@@ -152,6 +152,9 @@ class MdCodeLinesTest {
         ; a diff without hunk headers: every line is + - or context
         def bare:MdCodeLines (MdCodeLines.read("--- x\n+ y\n z\n" "diff" "" ""))
         c.eqStr("no hunks: --- is a removed line" (MdCodeLinesTest.shape(bare)) "2:-1:0 1:-1:0 0:-1:0")
+        ; git's "\ No newline at end of file" is not a line of the file
+        def nl:MdCodeLines (MdCodeLines.read("@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+b\n\\ No newline at end of file\n" "diff" "1" ""))
+        c.eqStr("no-newline notes are left out" (MdCodeLinesTest.shape(nl)) "3:-1:0 2:-1:0 1:1:0")
         def junk:MdCodeLines (MdCodeLines.read("a\n" "js" "" "x-y,|"))
         c.eqInt("nothing marked by a spec that names no lines" junk.steps 0)
         c.eqInt("hunk start" (MdCodeLines.hunkStart("@@ -1 +7,2 @@")) 7)
