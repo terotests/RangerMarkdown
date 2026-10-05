@@ -231,6 +231,12 @@ class MdBox {
     ; a picture the layout has no bytes for (the missing picture is the
     ; thing to report, not its stand-in's contrast)
     def quiet:boolean false
+    ; a line set centred or to the right ("center" / "right"; "" at the
+    ; left) in the column alignX..alignX+alignW, so an export can say so
+    ; instead of placing the text where this layout happened to put it
+    def align:string ""
+    def alignX:double 0.0
+    def alignW:double 0.0
     ; a code block's highlight that a build step reveals (`lines=3-5|8`
     ; with `{.build}`): the step among the block's own, 0 = with the block
     def buildStep:int 0
@@ -268,6 +274,9 @@ class MdBox {
         b.furniture = furniture
         b.strike = strike
         b.quiet = quiet
+        b.align = align
+        b.alignX = alignX
+        b.alignW = alignW
         b.buildStep = buildStep
         return b
     }
@@ -2039,6 +2048,11 @@ class MdLayout {
         def scaled:boolean false
         def saved:[double]
         def savedColor:string style.textColor
+        def savedAlign:string align
+        def own:string (this.blockAlign(node))
+        if ((strlen own) > 0) {
+            align = own
+        }
         if (((strlen sheetText) > 0) && (((node.classCount()) > 0) || ((strlen node.nodeId) > 0))) {
             def got:CssComputed (this.styleOf(node))
             if (got.has("font-size")) {
@@ -2061,7 +2075,59 @@ class MdLayout {
             this.restoreStyle(saved)
         }
         style.textColor = savedColor
+        ; only the block's own: an HTML wrapper's alignment runs on past
+        ; the block that opened it, to its closing tag's
+        if ((strlen own) > 0) {
+            align = savedAlign
+        }
         currentSrc = outerSrc
+    }
+
+    ; How a heading or paragraph sets its lines: `{.center}`, `{.right}`,
+    ; `{.left}` or `{align=center}` under it, else the sheet's `text-align`
+    ; for it (`h1 { text-align: center }`, `.lead { text-align: center }`);
+    ; "" leaves the alignment it is in (an HTML wrapper's, or the left).
+    ; Lists, tables and code keep theirs: a centred list item would leave
+    ; its bullet behind.
+    fn blockAlign:string (node:MdNode) {
+        if ((node.kind != "paragraph") && (node.kind != "heading")) {
+            return ""
+        }
+        if (node.hasClass("center")) {
+            return "center"
+        }
+        if (node.hasClass("right")) {
+            return "right"
+        }
+        if (node.hasClass("left")) {
+            return "left"
+        }
+        def said:string (MdLayout.alignOfWord((MdCss.alignWord((node.attrValue("align"))))))
+        if ((strlen said) > 0) {
+            return said
+        }
+        if ((indexOf sheetText "text-align") < 0) {
+            return ""
+        }
+        def got:CssComputed (this.styleOf(node))
+        if (got.has("text-align")) {
+            return (MdLayout.alignOfWord((MdCss.alignWord((got.get("text-align"))))))
+        }
+        return ""
+    }
+
+    ; MdCss.alignWord's answer as the layout's: "center", "right", "left"
+    sfn alignOfWord:string (w:string) {
+        if (w == "center") {
+            return "center"
+        }
+        if (w == "end") {
+            return "right"
+        }
+        if (w == "start") {
+            return "left"
+        }
+        return ""
     }
 
     ; A block's `font-size` as a multiple of what it would have had: `1.3em`
@@ -4453,6 +4519,7 @@ class MdLayout {
     ; ----------------------------------------------------------------------
     fn paragraph:void (runs:[MdRun] x:double w:double) {
         def lines:[MdLine] (this.breakRuns(runs w))
+        def firstBox:int (array_length boxes)
         def i:int 0
         def n:int (array_length lines)
         while (i < n) {
@@ -4471,6 +4538,18 @@ class MdLayout {
             this.emitLine(ln (x + dx) y)
             cursorY = (y + ln.height)
             i = (i + 1)
+        }
+        if ((align == "center") || (align == "right")) {
+            def k:int firstBox
+            while (k < (array_length boxes)) {
+                def b:MdBox (itemAt boxes k)
+                if (b.kind == 0) {
+                    b.align = align
+                    b.alignX = x
+                    b.alignW = w
+                }
+                k = (k + 1)
+            }
         }
     }
 
