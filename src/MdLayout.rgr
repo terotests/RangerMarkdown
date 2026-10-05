@@ -2955,8 +2955,15 @@ class MdLayout {
             addInk = "#3fb950"
             delInk = "#f85149"
         }
-        def markBand:string (MdLayout.tint(style.codeBackground style.codeKeyword 0.16))
-        def numInk:string (MdLayout.tint(style.codeBackground style.codePlain 0.5))
+        ; a highlight is a lighter (darker) band, its bar an accent blue
+        def markBand:string (MdLayout.tint(style.codeBackground "#1f2328" 0.08))
+        def markBar:string "#0969da"
+        def numInk:string "#6e7781"
+        if dark {
+            markBand = (MdLayout.tint(style.codeBackground "#e6edf3" 0.13))
+            markBar = "#79c0ff"
+            numInk = "#8b949e"
+        }
         def build:boolean ((node.hasClass("build")) && (cl.steps > 0))
         def tx0:double ((x + style.codePadding) + gutter)
         def state:int 0
@@ -2971,7 +2978,7 @@ class MdLayout {
             }
             if (ln.mark > 0) {
                 def band:MdBox (MdBox.rect((x + 1.0) ty (w - 2.0) lh markBand))
-                def bar:MdBox (MdBox.rect((x + 1.0) ty 3.0 lh style.codeKeyword))
+                def bar:MdBox (MdBox.rect((x + 1.0) ty 3.0 lh markBar))
                 if build {
                     band.buildStep = ln.mark
                     bar.buildStep = ln.mark
