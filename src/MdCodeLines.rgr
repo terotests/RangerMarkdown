@@ -101,6 +101,12 @@ class MdCodeLines {
                     t = (substring t 0 ((strlen t) - 1))
                 }
             }
+            ; git's "\ No newline at end of file" says something about the
+            ; file, not a line of it: not shown
+            if (out.diff && (startsWith t "\\ No newline")) {
+                i = (i + 1)
+                continue
+            }
             def l (new MdCodeLine())
             l.text = t
             l.code = t
@@ -129,9 +135,6 @@ class MdCodeLines {
                         }
                         if (c == 45) {
                             l.kind = 2
-                        }
-                        if ((c == 92) && (startsWith t "\\ No newline")) {
-                            l.kind = 4
                         }
                     }
                 }
