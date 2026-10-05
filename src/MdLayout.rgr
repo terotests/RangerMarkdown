@@ -40,6 +40,7 @@ Import "MdEmbed.rgr"
 Import "MdEmbedKinds.rgr"
 Import "../../vfs/src/Vfs.rgr"
 Import "MdCodeHighlight.rgr"
+Import "MdCodeLines.rgr"
 Import "MdFrontMatter.rgr"
 Import "MdCss.rgr"
 Import "MdCssLimits.rgr"
@@ -221,6 +222,9 @@ class MdBox {
     ; text struck through (`~~…~~`, `<s>`, `<del>`): drawn muted on purpose,
     ; so a contrast check leaves it alone
     def strike:boolean false
+    ; a code block's highlight that a build step reveals (`lines=3-5|8`
+    ; with `{.build}`): the step among the block's own, 0 = with the block
+    def buildStep:int 0
 
     Constructor () {
     }
@@ -254,6 +258,7 @@ class MdBox {
         b.segLen = segLen
         b.furniture = furniture
         b.strike = strike
+        b.buildStep = buildStep
         return b
     }
 
@@ -2899,43 +2904,160 @@ class MdLayout {
         cursorY = (cursorY + style.headingSpaceAfter)
     }
 
+    ; A code block: a `diff` block's added and removed lines on green and red
+    ; bands, line numbers in a gutter (`.numbers`), highlighted lines
+    ; (`lines=`) on a band with a bar at the left — what each line is comes
+    ; from MdCodeLines.
     fn codeBlock:void (node:MdNode x:double w:double) {
-        def lines:[string] (strsplit node.literal "\n")
-        def count:int (array_length lines)
-        ; a fenced block ends in a newline, which is not a line of code
-        if (count > 0) {
-            def lastLine:string (itemAt lines (count - 1))
-            def lastLen:int (strlen lastLine)
-            if (lastLen == 0) { count = (count - 1) }
+        def numbers:string ""
+        if (node.hasClass("numbers")) {
+            numbers = "1"
         }
-        if (count < 1) { count = 1 }
+        if (node.hasAttr("numbers")) {
+            numbers = (node.attrValue("numbers"))
+        }
+        def cl:MdCodeLines (MdCodeLines.read(node.literal node.info numbers (node.attrValue("lines"))))
+        def count:int (array_length cl.lines)
+        def shown:int count
+        if (shown < 1) { shown = 1 }
         def lh:double (style.codeSize * style.codeLineHeight)
-        def boxH:double ((lh * (to_double count)) + (style.codePadding * 2.0))
+        def boxH:double ((lh * (to_double shown)) + (style.codePadding * 2.0))
         def y:double (this.reserve(boxH))
         this.emit((MdBox.rect(x y w boxH style.codeBackground)))
         this.emit((MdBox.outline(x y w boxH style.codeBorder 1.0)))
         def ty:double (y + style.codePadding)
-        def lang:MdLanguage (MdCodeHighlight.languageFor((MdLayout.firstWord(node.info))))
+        def lang:MdLanguage (MdCodeHighlight.languageFor(cl.lang))
+        def probe:MdRun (new MdRun())
+        probe.family = style.monoFamily
+        probe.size = style.codeSize
+        ; the gutter: as wide as the widest number, and a gap
+        def gutter:double 0.0
+        if cl.numbers {
+            def widest:string ""
+            for cl.lines gl:MdCodeLine gi {
+                def nt:string (to_string gl.number)
+                if ((gl.number >= 0) && ((strlen nt) > (strlen widest))) {
+                    widest = nt
+                }
+            }
+            if ((strlen widest) > 0) {
+                gutter = ((this.measureRun(widest probe)) + style.codePadding)
+            }
+        }
+        def dark:boolean ((MdLayout.luminance(style.codeBackground)) < 0.25)
+        def added:string (MdLayout.tint(style.codeBackground "#2da44e" 0.2))
+        def removed:string (MdLayout.tint(style.codeBackground "#cf222e" 0.18))
+        def addInk:string "#1a7f37"
+        def delInk:string "#cf222e"
+        if dark {
+            added = (MdLayout.tint(style.codeBackground "#2ea043" 0.3))
+            removed = (MdLayout.tint(style.codeBackground "#f85149" 0.26))
+            addInk = "#3fb950"
+            delInk = "#f85149"
+        }
+        ; a highlight is a lighter (darker) band, its bar an accent blue
+        def markBand:string (MdLayout.tint(style.codeBackground "#1f2328" 0.08))
+        def markBar:string "#0969da"
+        def numInk:string "#6e7781"
+        if dark {
+            markBand = (MdLayout.tint(style.codeBackground "#e6edf3" 0.13))
+            markBar = "#79c0ff"
+            numInk = "#8b949e"
+        }
+        def build:boolean ((node.hasClass("build")) && (cl.steps > 0))
+        def tx0:double ((x + style.codePadding) + gutter)
+        ; a diff's markers in a column of their own, so the code lines up
+        ; whatever the face's widths of +, - and space are
+        def markCol:double 0.0
+        if cl.diff {
+            markCol = ((this.measureRun("+" probe)) + (this.measureRun(" " probe)))
+            def dw:double ((this.measureRun("-" probe)) + (this.measureRun(" " probe)))
+            if (dw > markCol) {
+                markCol = dw
+            }
+        }
         def state:int 0
-        def tx0:double (x + style.codePadding)
         def i:int 0
         while (i < count) {
-            def ln:string (itemAt lines i)
-            if style.highlightCode {
-                def hl:MdHighlightedLine (MdCodeHighlight.line(ln lang state))
-                state = hl.state
-                this.codeLine(hl tx0 ty lh)
+            def ln:MdCodeLine (itemAt cl.lines i)
+            if (ln.kind == 1) {
+                this.emit((MdBox.rect((x + 1.0) ty (w - 2.0) lh added)))
+            }
+            if (ln.kind == 2) {
+                this.emit((MdBox.rect((x + 1.0) ty (w - 2.0) lh removed)))
+            }
+            if (ln.mark > 0) {
+                def band:MdBox (MdBox.rect((x + 1.0) ty (w - 2.0) lh markBand))
+                def bar:MdBox (MdBox.rect((x + 1.0) ty 3.0 lh markBar))
+                if build {
+                    band.buildStep = ln.mark
+                    bar.buildStep = ln.mark
+                }
+                this.emit(band)
+                this.emit(bar)
+            }
+            if ((cl.numbers && (ln.number >= 0)) && (gutter > 0.0)) {
+                def nt2:string (to_string ln.number)
+                def nw:double (this.measureRun(nt2 probe))
+                def nb:MdBox (MdBox.text(nt2 ((x + style.codePadding) + ((gutter - style.codePadding) - nw)) ty nw lh))
+                nb.family = style.monoFamily
+                nb.size = style.codeSize
+                nb.color = numInk
+                this.emit(nb)
+            }
+            def lx:double tx0
+            if ((strlen ln.marker) > 0) {
+                def mw:double (this.measureRun(ln.marker probe))
+                if (ln.marker != " ") {
+                    def mb:MdBox (MdBox.text(ln.marker lx ty mw lh))
+                    mb.family = style.monoFamily
+                    mb.size = style.codeSize
+                    mb.color = addInk
+                    if (ln.kind == 2) {
+                        mb.color = delInk
+                    }
+                    this.emit(mb)
+                }
+                lx = (lx + markCol)
+            }
+            if ((ln.kind == 3) || (ln.kind == 4)) {
+                def hb:MdBox (MdBox.text(ln.text lx ty ((w - (lx - x)) - style.codePadding) lh))
+                hb.family = style.monoFamily
+                hb.size = style.codeSize
+                hb.color = style.codeComment
+                hb.bold = (ln.kind == 4)
+                this.emit(hb)
             } {
-                def b:MdBox (MdBox.text(ln tx0 ty (w - (style.codePadding * 2.0)) lh))
-                b.family = style.monoFamily
-                b.size = style.codeSize
-                b.color = style.textColor
-                this.emit(b)
+                if style.highlightCode {
+                    def hl:MdHighlightedLine (MdCodeHighlight.line(ln.code lang state))
+                    state = hl.state
+                    this.codeLine(hl lx ty lh)
+                } {
+                    def b:MdBox (MdBox.text(ln.code lx ty ((w - (lx - x)) - style.codePadding) lh))
+                    b.family = style.monoFamily
+                    b.size = style.codeSize
+                    b.color = style.textColor
+                    this.emit(b)
+                }
             }
             ty = (ty + lh)
             i = (i + 1)
         }
         cursorY = ((y + boxH) + style.paraSpacing)
+    }
+
+    ; a colour t of the way from a to b (a when either does not parse)
+    sfn tint:string (a:string b:string t:double) {
+        def ca:EVGColor (EVGColor.parse(a))
+        def cb:EVGColor (EVGColor.parse(b))
+        if ((ca.isSet == false) || (cb.isSet == false)) {
+            return a
+        }
+        def r:double ((to_double (ca.red())) + (((to_double (cb.red())) - (to_double (ca.red()))) * t))
+        def g:double ((to_double (ca.green())) + (((to_double (cb.green())) - (to_double (ca.green()))) * t))
+        def bl:double ((to_double (ca.blue())) + (((to_double (cb.blue())) - (to_double (ca.blue()))) * t))
+        def c:EVGColor (EVGColor.create(r g bl 1.0))
+        return (c.toHexString())
     }
 
     ; One line of code, token by token. Each is measured and placed after the

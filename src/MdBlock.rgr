@@ -1348,6 +1348,19 @@ class MdBlock {
                     node.kind = "math_block"
                     node.literal = (trim node.literal)
                 }
+                ; ```js {.numbers lines=3-5}: the attributes of a code block
+                ; may close its info string, as Pandoc and Quarto write them
+                if (node.kind == "code_block") {
+                    def ia:int (MdAttrs.trailingAt(node.info))
+                    if ((ia < 0) && (MdAttrs.isBlock(node.info))) {
+                        ia = 0
+                    }
+                    if (ia >= 0) {
+                        if (MdAttrs.applyTo(node (substring node.info ia (strlen node.info)))) {
+                            node.info = (trim (substring node.info 0 ia))
+                        }
+                    }
+                }
             } {
                 def raw2:string (MdBlock.joinLines(node.lines))
                 node.literal = (MdBlock.stripTrailingBlankLines(raw2))
