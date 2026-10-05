@@ -1,0 +1,268 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdCodeLines.rgr — what each line of a code block is, before it is drawn.
+; ============================================================================
+;
+;   ```diff js {.numbers lines=12-14|20}
+;   @@ -10,6 +10,7 @@
+;    const a = 1
+;   -const b = 2
+;   +const b = 3
+;   ```
+;
+; A `diff` block (the second word is the language its code is coloured as)
+; marks each line added (+), removed (-), a hunk header (@@) or a file header
+; (diff --git, index, --- a/, +++ b/ before the first hunk). `.numbers` (or
+; `numbers=N`, the first number) puts line numbers in a gutter; in a diff they
+; follow the hunk headers' new-file side, and a removed line has none.
+; `lines=` names lines to highlight by the numbers shown (1 = first line when
+; there are none): `12-14,20` together, `12-14|20` as steps one after the
+; other, which `{.build}` reveals one per build step.
+;
+; The layout draws what this says; it reads characters only.
+; ============================================================================
+
+class MdCodeLine {
+    ; the line as shown, a diff's marker kept
+    def text:string ""
+    ; the diff marker ("+", "-", " ") or ""; code is the rest
+    def marker:string ""
+    def code:string ""
+    ; 0 code, 1 added, 2 removed, 3 hunk header, 4 file header
+    def kind:int 0
+    ; the number in the gutter, -1 for none
+    def number:int -1
+    ; 0 not highlighted, k the highlight step (1 = first) it belongs to
+    def mark:int 0
+}
+
+class MdCodeLines {
+    def lines:[MdCodeLine]
+    def diff:boolean false
+    ; the language the code is coloured as ("" plain)
+    def lang:string ""
+    def numbers:boolean false
+    ; highlight steps (`lines=` groups split by |); 0 when nothing is marked
+    def steps:int 0
+
+    sfn kindCode:int () { return 0 }
+    sfn kindAdded:int () { return 1 }
+    sfn kindRemoved:int () { return 2 }
+    sfn kindHunk:int () { return 3 }
+    sfn kindFile:int () { return 4 }
+
+    ; literal: the block's text; info: its info string (without attributes);
+    ; numbers: "" off, "1" from 1, "N" from N; marks: the lines= value
+    sfn read:MdCodeLines (literal:string info:string numbers:string marks:string) {
+        def out (new MdCodeLines())
+        def words:[string] (MdCodeLines.words(info))
+        if (((array_length words) > 0) && ((to_lowercase (itemAt words 0)) == "diff")) {
+            out.diff = true
+            if ((array_length words) > 1) {
+                out.lang = (itemAt words 1)
+            }
+        } {
+            if ((array_length words) > 0) {
+                out.lang = (itemAt words 0)
+            }
+        }
+        def raw:[string] (strsplit literal "\n")
+        def count:int (array_length raw)
+        ; a fenced block ends in a newline, which is not a line of code
+        if ((count > 0) && ((strlen (itemAt raw (count - 1))) == 0)) {
+            count = (count - 1)
+        }
+        def start:int 1
+        if ((strlen numbers) > 0) {
+            out.numbers = true
+            def sv:int (MdCodeLines.intOf(numbers -1))
+            if (sv >= 0) {
+                start = sv
+            }
+        }
+        def hunks:boolean false
+        if out.diff {
+            def h:int 0
+            while (h < count) {
+                if (startsWith (itemAt raw h) "@@") {
+                    hunks = true
+                }
+                h = (h + 1)
+            }
+        }
+        def next:int start
+        def inHunk:boolean false
+        def i:int 0
+        while (i < count) {
+            def t:string (itemAt raw i)
+            if ((strlen t) > 0) {
+                if ((charAt t ((strlen t) - 1)) == 13) {
+                    t = (substring t 0 ((strlen t) - 1))
+                }
+            }
+            def l (new MdCodeLine())
+            l.text = t
+            l.code = t
+            if out.diff {
+                if (startsWith t "@@") {
+                    l.kind = 3
+                    inHunk = true
+                    def ns:int (MdCodeLines.hunkStart(t))
+                    if (ns >= 0) {
+                        next = ns
+                    }
+                } {
+                    if (hunks && (inHunk == false)) {
+                        l.kind = 4
+                    } {
+                        def c:int -1
+                        if ((strlen t) > 0) {
+                            c = (charAt t 0)
+                        }
+                        if ((c == 43) || ((c == 45) || (c == 32))) {
+                            l.marker = (substring t 0 1)
+                            l.code = (substring t 1 (strlen t))
+                        }
+                        if (c == 43) {
+                            l.kind = 1
+                        }
+                        if (c == 45) {
+                            l.kind = 2
+                        }
+                        if ((c == 92) && (startsWith t "\\ No newline")) {
+                            l.kind = 4
+                        }
+                    }
+                }
+            }
+            if ((l.kind == 0) || (l.kind == 1)) {
+                l.number = next
+                next = (next + 1)
+            }
+            push out.lines l
+            i = (i + 1)
+        }
+        ; without a gutter, lines= counts the block's lines from 1
+        if (out.numbers == false) {
+            def k:int 0
+            while (k < (array_length out.lines)) {
+                def lk:MdCodeLine (itemAt out.lines k)
+                lk.number = (k + 1)
+                k = (k + 1)
+            }
+        }
+        out.mark(marks)
+        if (out.numbers == false) {
+            for out.lines ln:MdCodeLine li {
+                ln.number = -1
+            }
+        }
+        return out
+    }
+
+    ; lines= : "12-14,20" one step, "12-14|20" two
+    fn mark:void (spec:string) {
+        def s:string (trim spec)
+        if ((strlen s) == 0) {
+            return
+        }
+        def groups:[string] (strsplit s "|")
+        def step:int 0
+        for groups g:string gi {
+            def any:boolean false
+            def parts:[string] (strsplit g ",")
+            for parts p:string pi {
+                def r:string (trim p)
+                if ((strlen r) == 0) {
+                    continue
+                }
+                def from:int -1
+                def to:int -1
+                def dash:int (indexOf r "-")
+                if (dash > 0) {
+                    from = (MdCodeLines.intOf((substring r 0 dash) -1))
+                    to = (MdCodeLines.intOf((substring r (dash + 1) (strlen r)) -1))
+                } {
+                    from = (MdCodeLines.intOf(r -1))
+                    to = from
+                }
+                if ((from < 0) || (to < from)) {
+                    continue
+                }
+                if (any == false) {
+                    step = (step + 1)
+                    any = true
+                }
+                for lines l:MdCodeLine li {
+                    if (((l.number >= from) && (l.number <= to)) && (l.mark == 0)) {
+                        l.mark = step
+                    }
+                }
+            }
+        }
+        steps = step
+    }
+
+    ; the new-file start of "@@ -10,6 +12,7 @@", -1 when it does not say
+    sfn hunkStart:int (t:string) {
+        def at:int (indexOf t " +")
+        if (at < 0) {
+            return -1
+        }
+        def i:int (at + 2)
+        def j:int i
+        while ((j < (strlen t)) && (((charAt t j) >= 48) && ((charAt t j) <= 57))) {
+            j = (j + 1)
+        }
+        if (j == i) {
+            return -1
+        }
+        return (MdCodeLines.intOf((substring t i j) -1))
+    }
+
+    sfn intOf:int (s:string fallback:int) {
+        def t:string (trim s)
+        if ((strlen t) == 0) {
+            return fallback
+        }
+        def v:int 0
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if ((c < 48) || (c > 57)) {
+                return fallback
+            }
+            v = ((v * 10) + (c - 48))
+            i = (i + 1)
+        }
+        return v
+    }
+
+    sfn words:[string] (info:string) {
+        def out:[string]
+        def cur:string ""
+        def i:int 0
+        def n:int (strlen info)
+        while (i < n) {
+            def c:int (charAt info i)
+            if ((c == 32) || (c == 9)) {
+                if ((strlen cur) > 0) {
+                    push out cur
+                }
+                cur = ""
+            } {
+                if (c == 123) {
+                    ; attributes start
+                    break
+                }
+                cur = (cur + (substring info i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push out cur
+        }
+        return out
+    }
+}

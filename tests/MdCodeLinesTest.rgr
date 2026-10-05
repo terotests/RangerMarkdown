@@ -1,0 +1,149 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdCodeLinesTest.rgr — diff blocks, line numbers and highlighted lines.
+; ============================================================================
+;
+;   npm run markdown:codelines:test
+;
+; The model (MdCodeLines) first, then what the layout draws from it.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdLayout.rgr"
+Import "../src/MdCss.rgr"
+Import "../src/MdCodeLines.rgr"
+
+class CodeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print (("    got  " + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+}
+
+class MdCodeLinesTest {
+    sfn main:void () {
+        def c:CodeCheck (new CodeCheck())
+        print "== MdCodeLinesTest =="
+        MdCodeLinesTest.model(c)
+        MdCodeLinesTest.parsed(c)
+        MdCodeLinesTest.drawn(c)
+        print ""
+        print ((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    ; kind/number/mark of every line, "k:n:m" joined by spaces
+    sfn shape:string (cl:MdCodeLines) {
+        def parts:[string]
+        for cl.lines l:MdCodeLine i {
+            push parts ((to_string l.kind) + ":" + (to_string l.number) + ":" + (to_string l.mark))
+        }
+        return (join parts " ")
+    }
+
+    sfn model:void (c:CodeCheck) {
+        def d:string "diff --git a/x.js b/x.js\n--- a/x.js\n+++ b/x.js\n@@ -10,3 +12,4 @@ fn\n const a = 1\n-const b = 2\n+const b = 3\n+const c = 4\n"
+        def cl:MdCodeLines (MdCodeLines.read(d "diff js" "1" "13-14"))
+        c.ok("diff" cl.diff)
+        c.eqStr("its code's language" cl.lang "js")
+        c.eqStr("headers, hunk, then new-side numbers; removed lines have none" (MdCodeLinesTest.shape(cl)) "4:-1:0 4:-1:0 4:-1:0 3:-1:0 0:12:0 2:-1:0 1:13:1 1:14:1")
+        def l6:MdCodeLine (itemAt cl.lines 6)
+        c.eqStr("marker" l6.marker "+")
+        c.eqStr("code without it" l6.code "const b = 3")
+        c.eqInt("one step" cl.steps 1)
+
+        ; without a gutter, lines= counts the block's lines
+        def plain:MdCodeLines (MdCodeLines.read("a\nb\nc\nd\n" "py" "" "2|4,1"))
+        c.eqStr("steps by |" (MdCodeLinesTest.shape(plain)) "0:-1:2 0:-1:1 0:-1:0 0:-1:2")
+        c.eqInt("two steps" plain.steps 2)
+        c.eqStr("language" plain.lang "py")
+
+        def from:MdCodeLines (MdCodeLines.read("a\nb\n" "rust" "41" "42"))
+        c.eqStr("numbers from 41" (MdCodeLinesTest.shape(from)) "0:41:0 0:42:1")
+
+        ; a diff without hunk headers: every line is + - or context
+        def bare:MdCodeLines (MdCodeLines.read("--- x\n+ y\n z\n" "diff" "" ""))
+        c.eqStr("no hunks: --- is a removed line" (MdCodeLinesTest.shape(bare)) "2:-1:0 1:-1:0 0:-1:0")
+        def junk:MdCodeLines (MdCodeLines.read("a\n" "js" "" "x-y,|"))
+        c.eqInt("nothing marked by a spec that names no lines" junk.steps 0)
+        c.eqInt("hunk start" (MdCodeLines.hunkStart("@@ -1 +7,2 @@")) 7)
+    }
+
+    ; attributes after the language, as Pandoc writes them
+    sfn parsed:void (c:CodeCheck) {
+        def doc:MdNode (MdBlock.parseText("```diff js {.numbers lines=3-4|6 .build}\n+a\n```\n\n```{lines=2}\nx\ny\n```\n"))
+        def n:MdNode (doc.childAt(0))
+        c.eqStr("kind" n.kind "code_block")
+        c.eqStr("info without the attributes" n.info "diff js")
+        c.ok("class" (n.hasClass("numbers")))
+        c.ok("build" (n.hasClass("build")))
+        c.eqStr("lines" (n.attrValue("lines")) "3-4|6")
+        def m:MdNode (doc.childAt(1))
+        c.eqStr("attributes alone" (m.attrValue("lines")) "2")
+        c.eqStr("and no language" m.info "")
+    }
+
+    sfn drawn:void (c:CodeCheck) {
+        def src:string "```diff {lines=3|4 .build}\n context\n-old\n+new\n+more\n```\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        l.setDocSource(src)
+        l.layoutContinuous(doc 600.0)
+        def bands:int 0
+        def steps:[string]
+        def texts:[string]
+        for l.boxes b:MdBox i {
+            if ((b.kind == 1) && (b.h < 30.0)) {
+                bands = (bands + 1)
+                if (b.buildStep > 0) {
+                    push steps (to_string b.buildStep)
+                }
+            }
+            if ((b.kind == 0) && ((strlen b.text) > 0)) {
+                push texts b.text
+            }
+        }
+        ; a removed band, an added one, and a highlight (band and bar) on
+        ; each of the two marked lines, which an added line also has
+        c.eqInt("bands" bands 7)
+        c.eqStr("highlights revealed one step each" (join steps ",") "1,1,2,2")
+        c.eqStr("markers drawn, context's space not" (join texts "|") "context|-|old|+|new|+|more")
+    }
+}
