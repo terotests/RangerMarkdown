@@ -2966,6 +2966,16 @@ class MdLayout {
         }
         def build:boolean ((node.hasClass("build")) && (cl.steps > 0))
         def tx0:double ((x + style.codePadding) + gutter)
+        ; a diff's markers in a column of their own, so the code lines up
+        ; whatever the face's widths of +, - and space are
+        def markCol:double 0.0
+        if cl.diff {
+            markCol = ((this.measureRun("+" probe)) + (this.measureRun(" " probe)))
+            def dw:double ((this.measureRun("-" probe)) + (this.measureRun(" " probe)))
+            if (dw > markCol) {
+                markCol = dw
+            }
+        }
         def state:int 0
         def i:int 0
         while (i < count) {
@@ -3008,7 +3018,7 @@ class MdLayout {
                     }
                     this.emit(mb)
                 }
-                lx = (lx + mw)
+                lx = (lx + markCol)
             }
             if ((ln.kind == 3) || (ln.kind == 4)) {
                 def hb:MdBox (MdBox.text(ln.text lx ty ((w - (lx - x)) - style.codePadding) lh))
