@@ -158,6 +158,14 @@ class MdAttrsTest {
         ; A fenced block, and a table, which are leaves of other shapes.
         def code:MdNode (MdAttrsTest.nodeOf("```js\nconst x = 1;\n```\n{.wide}\n"))
         c.eqStr("a fenced code block" (MdAttrsTest.attributed(code)) "code_block .wide")
+        ; A diagram's settings may close its fence's info, as a code block's
+        def dia:MdNode (MdAttrsTest.nodeOf("```mermaid {style=cartoon tour=on}\nflowchart LR\n  A --> B\n```\n"))
+        def d0:MdNode (dia.childAt(0))
+        c.eqStr("a diagram's settings in its fence line" (d0.attrValue("style")) "cartoon")
+        c.eqStr("…all of them" (d0.attrValue("tour")) "on")
+        c.eqStr("…and its info is the notation alone" d0.info "mermaid")
+        def dia2:MdNode (MdAttrsTest.nodeOf("```mermaid\nflowchart LR\n  A --> B\n```\n{style=jurassic}\n"))
+        c.eqStr("…or under it, as before" ((dia2.childAt(0)).attrValue("style")) "jurassic")
         def tbl:MdNode (MdAttrsTest.nodeOf("| a | b |\n| --- | --- |\n| 1 | 2 |\n{.figures}\n"))
         c.eqStr("a table" (MdAttrsTest.attributed(tbl)) "table .figures")
 
