@@ -1349,8 +1349,9 @@ class MdBlock {
                     node.literal = (trim node.literal)
                 }
                 ; ```js {.numbers lines=3-5}: the attributes of a code block
-                ; may close its info string, as Pandoc and Quarto write them
-                if (node.kind == "code_block") {
+                ; may close its info string, as Pandoc and Quarto write them;
+                ; a diagram's the same (```mermaid {style=cartoon tour=on})
+                if ((node.kind == "code_block") || (node.kind == "embed")) {
                     def ia:int (MdAttrs.trailingAt(node.info))
                     if ((ia < 0) && (MdAttrs.isBlock(node.info))) {
                         ia = 0
