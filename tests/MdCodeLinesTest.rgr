@@ -80,7 +80,8 @@ class MdCodeLinesTest {
 
     ; muted on purpose, yet readable: comments and line numbers on a light
     ; code block (tinted as a theme tints it) pass 4.5:1; the "[alt]" of a
-    ; picture with no bytes is marked as the stand-in it is
+    ; picture with no bytes is marked as the stand-in it is, and the gutter's
+    ; numbers as dim on purpose (a contrast check leaves both alone)
     sfn readable:void (c:CodeCheck) {
         def st:MdStyle (new MdStyle())
         for ([] _:string ("#f6f8fa" "#faf7f2" "#f3f4f6")) bg:string i {
@@ -95,23 +96,28 @@ class MdCodeLinesTest {
         def stand:int 0
         def numbers:int 0
         def ones:int 0
+        def quietOnes:int 0
         for l.boxes b:MdBox j {
             if ((b.text == "[A chart]") && b.quiet) {
                 stand = (stand + 1)
             }
             if (b.text == "1") {
                 ones = (ones + 1)
+                if b.quiet {
+                    quietOnes = (quietOnes + 1)
+                }
                 if ((MdCodeLinesTest.ratio(b.color st.codeBackground)) >= 4.5) {
                     numbers = (numbers + 1)
                 }
             }
-            if (b.quiet && (b.text != "[A chart]")) {
+            if ((b.quiet && (b.text != "[A chart]")) && (b.text != "1")) {
                 c.ok(("only the stand-in is quiet: " + b.text) false)
             }
         }
         c.eqInt("the picture's stand-in is quiet" stand 1)
         c.ok("the line number is drawn" (ones >= 2))
         c.eqInt("and it reads, as the code's 1 does" numbers ones)
+        c.eqInt("the gutter's 1 is quiet, the code's is not" quietOnes 1)
     }
 
     ; kind/number/mark of every line, "k:n:m" joined by spaces
