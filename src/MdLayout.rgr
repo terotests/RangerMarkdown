@@ -229,7 +229,8 @@ class MdBox {
     def strike:boolean false
     ; drawn muted on purpose for another reason: the "[alt]" standing in for
     ; a picture the layout has no bytes for (the missing picture is the
-    ; thing to report, not its stand-in's contrast)
+    ; thing to report, not its stand-in's contrast), and a code block's
+    ; line numbers in the gutter (`.numbers`), dim beside the code they count
     def quiet:boolean false
     ; a line set centred or to the right ("center" / "right"; "" at the
     ; left) in the column alignX..alignX+alignW, so an export can say so
@@ -3079,6 +3080,9 @@ class MdLayout {
                 nb.family = style.monoFamily
                 nb.size = style.codeSize
                 nb.color = numInk
+                ; a gutter number is drawn dim on purpose and read with its
+                ; line: not the text a contrast check is for
+                nb.quiet = true
                 this.emit(nb)
             }
             def lx:double tx0
