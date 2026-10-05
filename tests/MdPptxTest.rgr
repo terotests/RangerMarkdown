@@ -1381,6 +1381,31 @@ prose
 
     ; The deck reads the layout's own boxes: a task list keeps its boxes,
     ; an item its drawn size and the gap above it, a word in bold its weight.
+    ; centred and right-set text is aligned in its column in the file, so it
+    ; stays so when someone edits it
+    fn aligned:void (c:DeckCheck) {
+        print "-- centred and right-set text --"
+        def src:string "# Title\n{.center}\n\nMiddle of it\n{.center}\n\nAt the end\n{.right}\n\nPlain\n"
+        def css:string "page { width: 720pt; height: 405pt; padding: 36pt }"
+        def back:PptxDeck (this.reopened((this.build(src css))))
+        def sl:PptxSlideRef (back.slideAt(0))
+        def got:string ""
+        def k:int 0
+        while (k < (sl.shapeCount())) {
+            def m:PptxShape ((sl.shapeAt(k)).model())
+            if ((array_length m.text.paragraphs) > 0) {
+                def p0:PptxParagraph (itemAt m.text.paragraphs 0)
+                def a:string "-"
+                if p0.alignSet {
+                    a = p0.align
+                }
+                got = (got + (MdPptxTest.firstText(m)) + ":" + a + ":" + (to_string (to_int m.x)) + "|")
+            }
+            k = (k + 1)
+        }
+        c.eqStr("each in its column, aligned there" got "Title:ctr:36|Middle of it:ctr:36|At the end:r:36|Plain:-:36|")
+    }
+
     fn asDrawn:void (c:DeckCheck) {
         print "-- the slide as the layout drew it --"
         def src:string "# Title\n\n- [x] done\n- [ ] open\n- [ ] also open\n\nSome **bold** text.\n"
@@ -1455,6 +1480,7 @@ prose
         this.headingWriteback(c)
         this.inlineMath(c)
         this.asDrawn(c)
+        this.aligned(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {

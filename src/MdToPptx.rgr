@@ -574,9 +574,11 @@ class MdToPptx {
         r.font(layout.style.headingFamily size)
         r.bold(true)
         r.color((layout.style.headingInk(node.level)))
-        MdToPptx.asDrawn((r.model()) (this.runBoxOf(node (this.pageOf(node)))))
+        def drawn:MdBox (this.runBoxOf(node (this.pageOf(node))))
+        MdToPptx.asDrawn((r.model()) drawn)
         this.blockRules(slide node)
         def m:PptxShape (box.model())
+        MdToPptx.aligned(m drawn)
         MdDeckSync.stamp(m node)
         if (node.level <= layout.splitLevel) {
             ; `isPlaceholder` as well as the type: the writer emits a bare
@@ -624,7 +626,27 @@ class MdToPptx {
         MdToPptx.asDrawn((r.model()) drawn)
         MdToPptx.lineSpacing((box.model()) drawn)
         this.withRuns((box.model()) node)
+        MdToPptx.aligned((box.model()) drawn)
         result.paragraphs = (result.paragraphs + 1)
+    }
+
+    ; A heading or paragraph the layout centred or set to the right: the box
+    ; is the column it was set in and PowerPoint aligns the text in it, so
+    ; it stays centred when someone edits it.
+    sfn aligned:void (m:PptxShape drawn:MdBox) {
+        if ((drawn.kind < 0) || ((drawn.align != "center") && (drawn.align != "right"))) {
+            return
+        }
+        m.x = drawn.alignX
+        m.width = drawn.alignW
+        def a:string "r"
+        if (drawn.align == "center") {
+            a = "ctr"
+        }
+        for m.text.paragraphs para:PptxParagraph i {
+            para.align = a
+            para.alignSet = true
+        }
     }
 
     fn quote:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {

@@ -1,0 +1,131 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdAlignTest.rgr — headings and paragraphs centred or set to the right.
+; ============================================================================
+;
+;   npm run markdown:align:test
+;
+; `{.center}` / `{.right}` / `{.left}` / `{align=…}` under the block, or the
+; sheet's `text-align` for it; lists keep their own.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdLayout.rgr"
+Import "../src/MdCss.rgr"
+
+class AlignCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+}
+
+class MdAlignTest {
+    sfn main:void () {
+        def c:AlignCheck (new AlignCheck())
+        print "== MdAlignTest =="
+        MdAlignTest.byClass(c)
+        MdAlignTest.bySheet(c)
+        print ""
+        print ((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    sfn laid:MdLayout (src:string css:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        if ((strlen css) > 0) {
+            def mc:MdCss (new MdCss())
+            mc.addStyleSheet(css)
+            mc.applyTo(l.style)
+            l.setStyleSheet(css)
+        }
+        l.setDocSource(src)
+        l.layoutContinuous(doc 600.0)
+        return l
+    }
+
+    ; where the text box `t` is in the column: "left", "center" or "right"
+    sfn placeOf:string (l:MdLayout t:string) {
+        for l.boxes b:MdBox i {
+            if ((b.kind == 0) && (b.text == t)) {
+                def left:double (b.x - l.contentX)
+                def right:double ((l.contentX + l.contentW) - (b.x + b.w))
+                if (left < 1.0) {
+                    return "left"
+                }
+                if (right < 1.0) {
+                    return "right"
+                }
+                if ((fabs (left - right)) < 1.5) {
+                    return "center"
+                }
+                return ("at " + (to_string left))
+            }
+        }
+        return "none"
+    }
+
+    sfn alignOf:string (l:MdLayout t:string) {
+        for l.boxes b:MdBox i {
+            if ((b.kind == 0) && (b.text == t)) {
+                return b.align
+            }
+        }
+        return "none"
+    }
+
+    sfn byClass:void (c:AlignCheck) {
+        def l:MdLayout (MdAlignTest.laid("# Title\n{.center}\n\nMiddle\n{.center}\n\nEnd\n{align=right}\n\nPlain\n\n- Item\n{.center}\n" ""))
+        c.eqStr("a heading {.center}" (MdAlignTest.placeOf(l "Title")) "center")
+        c.eqStr("a paragraph {.center}" (MdAlignTest.placeOf(l "Middle")) "center")
+        c.eqStr("{align=right}" (MdAlignTest.placeOf(l "End")) "right")
+        c.eqStr("the next paragraph is where it was" (MdAlignTest.placeOf(l "Plain")) "left")
+        c.eqStr("a list keeps its own" (MdAlignTest.placeOf(l "Item")) (MdAlignTest.placeOf((MdAlignTest.laid("- Item\n" "")) "Item")))
+        c.eqStr("the box says so, for an export" (MdAlignTest.alignOf(l "Middle")) "center")
+        c.eqStr("and where it was set" (MdAlignTest.alignOf(l "Plain")) "")
+    }
+
+    sfn bySheet:void (c:AlignCheck) {
+        def css:string "h2 { text-align: center } .lead { text-align: right }"
+        def l:MdLayout (MdAlignTest.laid("## Section\n\nBody\n\nLead\n{.lead}\n\n## Own\n{.left}\n" css))
+        c.eqStr("h2 { text-align: center }" (MdAlignTest.placeOf(l "Section")) "center")
+        c.eqStr("a paragraph is not an h2" (MdAlignTest.placeOf(l "Body")) "left")
+        c.eqStr(".lead { text-align: right }" (MdAlignTest.placeOf(l "Lead")) "right")
+        c.eqStr("{.left} over the sheet" (MdAlignTest.placeOf(l "Own")) "left")
+        def html:MdLayout (MdAlignTest.laid("<p align=\"center\">Inside</p>\n" ""))
+        c.eqStr("an HTML wrapper still centres" (MdAlignTest.placeOf(html "Inside")) "center")
+        def wrap:MdLayout (MdAlignTest.laid("<div align=\"center\">\n\nOne\n\nTwo\n{.right}\n\nThree\n\n</div>\n\nAfter\n" ""))
+        c.eqStr("…over several blocks" (MdAlignTest.placeOf(wrap "One")) "center")
+        c.eqStr("a block's own inside it" (MdAlignTest.placeOf(wrap "Two")) "right")
+        c.eqStr("then the wrapper's again" (MdAlignTest.placeOf(wrap "Three")) "center")
+        c.eqStr("and after its close, the left" (MdAlignTest.placeOf(wrap "After")) "left")
+    }
+}
