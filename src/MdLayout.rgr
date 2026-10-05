@@ -1965,11 +1965,19 @@ class MdLayout {
     }
 
     ; Room for `h` more, or a new sheet. Returns the y to draw at.
+    ; How far past `contentBottom` a block may end and still count as fitting.
+    ; A diagram or picture squeezed into the room left is given exactly
+    ; `contentBottom - cursorY`, and `cursorY` plus that comes back one
+    ; rounding step over `contentBottom` for some paddings: the block went to
+    ; a slide of its own and left its title's slide empty. A hundredth of a
+    ; point is far below anything a reader sees.
+    def fitSlack:double 0.01
+
     fn reserve:double (h:double) {
         if paginate {
             ; past the budget the rest stays on the last page: a block taller
             ; than any page is drawn cut, not spread over thousands
-            if (((cursorY + h) > contentBottom) && (page < (MdCssLimits.pageBudget()))) {
+            if (((cursorY + h) > (contentBottom + fitSlack)) && (page < (MdCssLimits.pageBudget()))) {
                 page = (page + 1)
                 pageCount = (page + 1)
                 cursorY = contentTop
