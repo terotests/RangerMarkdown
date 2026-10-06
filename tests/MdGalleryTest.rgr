@@ -86,6 +86,8 @@ class MdGalleryTest {
         MdGalleryTest.hidden(t)
         MdGalleryTest.grid(t)
         MdGalleryTest.full(t)
+        MdGalleryTest.naming(t)
+        MdGalleryTest.readable(t)
         MdGalleryTest.drawn(t)
         MdGalleryTest.exports(t)
         print ((("passed=" + (to_string t.passed)) + " failed=") + (to_string t.failed))
@@ -448,6 +450,50 @@ class MdGalleryTest {
         def doc:MdNode (MdBlock.parseText(after))
         al.layoutSlides(doc)
         t.eqInt("a second layout makes the same slides" al.pageCount 2)
+    }
+
+    ; the slides a full-page album runs onto are named: the picture's caption,
+    ; else the album's heading and the picture's number
+    sfn naming:void (t:GalleryCheck) {
+        print "layout=full slide names"
+        def css:string "page { width: 960pt; height: 540pt; padding: 40pt; }\n"
+        def src:string "## Hietaniemi {heading=hidden}\n\n```gallery\n- media/wide.jpg: Ranta\n- media/tall.jpg: Torni\n```\n{layout=full}\n"
+        def l:MdLayout (MdGalleryTest.slides(src css "screen"))
+        t.eqStr("the second slide is named by its caption" (l.pageName(1)) "Torni")
+        def bare:string "## Kuvat\n\n```gallery\n- media/wide.jpg\n- media/tall.jpg\n- media/wide.jpg\n```\n{layout=full}\n"
+        def bl:MdLayout (MdGalleryTest.slides(bare css "screen"))
+        t.eqInt("the heading's slide, then a slide a picture" bl.pageCount 4)
+        t.eqStr("no caption: the heading and the number" (bl.pageName(3)) "Kuvat (3)")
+        t.eqStr("a page no album named has no name" (bl.pageName(9)) "")
+    }
+
+    ; the default captions pass the 4.5:1 the checks ask for, over a picture
+    ; (whatever is in it) and under one
+    sfn readable:void (t:GalleryCheck) {
+        print "caption contrast"
+        def css:string "page { width: 960pt; height: 540pt; padding: 40pt; background-color: #0b1030; }\ndocument { color: #e8ecff; }\n"
+        def src:string "## Ranta {heading=hidden}\n\n```gallery\n- media/wide.jpg: Ranta heinäkuussa\n```\n{layout=full caption=overlay}\n"
+        def l:MdLayout (MdGalleryTest.slides(src css "screen"))
+        def cap:MdBox (MdGalleryTest.textOn(l "Ranta heinäkuussa"))
+        def band:string ""
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (((b.kind == 1) && (b.page == cap.page)) && ((b.y <= cap.y) && ((b.y + b.h) >= (cap.y + cap.h)))) {
+                band = b.fill
+            }
+            i = (i + 1)
+        }
+        t.ok("an overlay caption has a band" ((strlen band) > 0))
+        t.ok("…and reads on it over black and white" ((MdContainer.worstContrast(cap.color band)) >= 4.5))
+        def light:string "page { width: 960pt; height: 540pt; padding: 40pt; background-color: #ffffff; }\ndocument { color: #22252a; }\n"
+        def grid:string "## Ranta\n\n```gallery\n- media/wide.jpg: Ranta\n- media/tall.jpg: Torni\n```\n"
+        def gl:MdLayout (MdGalleryTest.slides(grid light "screen"))
+        def under:MdBox (MdGalleryTest.textOn(gl "Torni"))
+        t.ok("a caption below reads on the page" ((MdContainer.contrast(under.color "#ffffff")) >= 4.5))
+        def dl:MdLayout (MdGalleryTest.slides(grid css "screen"))
+        def dark:MdBox (MdGalleryTest.textOn(dl "Torni"))
+        t.ok("…on a dark page too" ((MdContainer.contrast(dark.color "#0b1030")) >= 4.5))
     }
 
     sfn firstOf:MdBox (l:MdLayout kind:int page:int) {

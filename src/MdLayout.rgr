@@ -488,6 +488,9 @@ class MdLayout {
     ; a block's slide by its boxes asks these (`pageOfHidden`).
     def hiddenSrc:[int]
     def hiddenPage:[int]
+    ; pages named without a heading (fullPageName)
+    def namedPage:[int]
+    def namedText:[string]
     ; the page a hidden heading opened, so a second heading straight after
     ; it still starts a slide of its own
     def hiddenOnPage:int -1
@@ -2025,6 +2028,8 @@ class MdLayout {
     fn resetHeadings:void () {
         clear hiddenSrc
         clear hiddenPage
+        clear namedPage
+        clear namedText
         clear overlaySrc
         clear overlayPage
         clear overlayPath
@@ -2075,6 +2080,60 @@ class MdLayout {
     }
 
     ; The page a hidden heading starting at `src` names, -1: none does.
+    ; A full-page gallery's picture is a slide of its own with no heading:
+    ; it is named by its caption, else the last title and its number
+    ; ("Hietaniemi (2)"), so overviews and reports can call it something.
+    fn fullPageName:string (it:MdGalleryItem k:int) {
+        def cap:string (trim it.caption)
+        if it.isText {
+            cap = (trim it.text)
+            def nl:int (indexOf cap "\n")
+            if (nl >= 0) {
+                cap = (trim (substring cap 0 nl))
+            }
+        }
+        if ((strlen cap) > 0) {
+            return cap
+        }
+        def last:string ""
+        def n:int (array_length headText)
+        if (n > 0) {
+            last = (itemAt headText (n - 1))
+        }
+        if ((strlen last) == 0) {
+            return ""
+        }
+        return (last + " (" + (to_string (k + 1)) + ")")
+    }
+
+    fn namePage:void (p:int name:string) {
+        if ((strlen name) == 0) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length namedPage)) {
+            if ((itemAt namedPage i) == p) {
+                return
+            }
+            i = (i + 1)
+        }
+        push namedPage p
+        push namedText name
+    }
+
+    ; The name a page was given without a heading (a full-page gallery's
+    ; picture), or "".
+    fn pageName:string (p:int) {
+        def i:int 0
+        while (i < (array_length namedPage)) {
+            if ((itemAt namedPage i) == p) {
+                return (itemAt namedText i)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
     fn pageOfHidden:int (src:int) {
         def i:int 0
         while (i < (array_length hiddenSrc)) {
@@ -5707,6 +5766,12 @@ class MdLayout {
         def it:MdGalleryItem (itemAt g.items idx)
         def cl:MdCellLook (g.cellLook(sheet it style))
         def cap:MdCellLook (g.captionLook(sheet it style))
+        def ground:string cl.background
+        if ((strlen ground) == 0) {
+            def look:MdGalleryLook (g.look(sheet))
+            ground = look.background
+        }
+        this.readableCaption(cap (g.caption == "overlay") ground)
         def capText:string it.caption
         def capW:double ((((w - cl.padL) - cl.padR) - cap.padL) - cap.padR)
         def capH:double 0.0
@@ -5807,12 +5872,14 @@ class MdLayout {
             push headerOff page
             push footerOff page
             def it:MdGalleryItem (itemAt g.items k)
+            this.namePage(page (this.fullPageName(it k)))
             def cl:MdCellLook (g.cellLook(sheet it style))
             def cap:MdCellLook (g.captionLook(sheet it style))
             def ground:string look.background
             if ((strlen cl.background) > 0) {
                 ground = cl.background
             }
+            this.readableCaption(cap (g.caption == "overlay") ground)
             if ((strlen ground) > 0) {
                 def gb:MdBox (MdBox.rect((0.0 - b) (0.0 - b) (pw + (b * 2.0)) (ph + (b * 2.0)) ground))
                 gb.bleeds = (b > 0.0)
@@ -5939,6 +6006,60 @@ class MdLayout {
     ; The band under an overlay caption: the caption's own background when
     ; the sheet gives one, else the page's colour at 55 %, as `bg-dim`
     ; lays the page over a slide's picture.
+    ; A caption that reads (4.5:1). On a picture (`overlay`) the band under
+    ; it is made just dark (or light) enough for its ink whatever the
+    ; picture is, from the paper at 55 % up to 90 %; below a picture the
+    ; ink must read on `ground`. A colour from the stylesheet is kept.
+    fn readableCaption:void (cap:MdCellLook overlay:boolean ground:string) {
+        def paper:string style.pageBackground
+        if (((strlen paper) == 0) || (paper == "transparent")) {
+            paper = "#ffffff"
+        }
+        def pc:EVGColor (EVGColor.parse(paper))
+        if overlay {
+            if ((strlen cap.background) == 0) {
+                def a:double 0.55
+                def fill:string ""
+                while ((a < 0.901) && ((strlen fill) == 0)) {
+                    def tryFill:string (MdContainer.hexOf((EVGColor.rgba((pc.red()) (pc.green()) (pc.blue()) a))))
+                    if ((MdContainer.worstContrast(cap.color tryFill)) >= 4.5) {
+                        fill = tryFill
+                    }
+                    a = (a + 0.05)
+                }
+                if ((strlen fill) == 0) {
+                    fill = (MdContainer.hexOf((EVGColor.rgba((pc.red()) (pc.green()) (pc.blue()) 0.85))))
+                }
+                cap.background = fill
+            }
+            if (cap.colorSet == false) {
+                def ink:string (MdContainer.inkOn(cap.background cap.color))
+                if ((strlen ink) > 0) {
+                    cap.color = ink
+                }
+            }
+            return
+        }
+        if cap.colorSet {
+            return
+        }
+        def under:string ground
+        if ((strlen under) == 0) {
+            under = paper
+        }
+        if ((MdContainer.contrast(cap.color under)) >= 4.5) {
+            return
+        }
+        if ((MdContainer.contrast(style.textColor under)) >= 4.5) {
+            cap.color = style.textColor
+            return
+        }
+        def ink2:string (MdContainer.inkOn(under cap.color))
+        if ((strlen ink2) > 0) {
+            cap.color = ink2
+        }
+    }
+
     fn dimColor:string (cap:MdCellLook) {
         if ((strlen cap.background) > 0) {
             return cap.background
