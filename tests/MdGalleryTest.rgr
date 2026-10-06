@@ -436,6 +436,18 @@ class MdGalleryTest {
         t.ok("print: it says it bleeds" pp.bleeds)
         def cap:MdBox (MdGalleryTest.textOn(pl "Hietaniemi"))
         t.ok("print: the caption keeps to the safe area" ((cap.x >= 22.67) && ((cap.y + cap.h) <= (595.28 - 22.67))))
+        ; a hidden title after text on the same slide goes with the gallery
+        def after:string "# Kesä {heading=hidden}\n\nKesän kuvat.\n\n## Ranta {heading=hidden}\n\n```gallery\n- media/wide.jpg: Ranta\n```\n{layout=full}\n"
+        def al:MdLayout (MdGalleryTest.slides(after css "screen"))
+        t.eqInt("text, then the gallery's slide" al.pageCount 2)
+        t.eqInt("the gallery's hidden title names the gallery's slide" (al.pageOfHidden((indexOf after "## Ranta"))) 1)
+        t.eqInt("…in the contents too" (itemAt al.headPage 1) 1)
+        t.eqInt("the first hidden title stays on the first" (al.pageOfHidden(0)) 0)
+        ; laid out again (the PDF's print pass after the stage's): a gallery
+        ; that ended the last layout does not start this one with a break
+        def doc:MdNode (MdBlock.parseText(after))
+        al.layoutSlides(doc)
+        t.eqInt("a second layout makes the same slides" al.pageCount 2)
     }
 
     sfn firstOf:MdBox (l:MdLayout kind:int page:int) {
