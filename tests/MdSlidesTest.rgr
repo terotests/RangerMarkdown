@@ -864,6 +864,31 @@ class MdSlidesTest {
         def wt:MdBox (unwrap (MdSlidesTest.textBox(wide "Kapea pohja")))
         def we:MdBox (unwrap (MdSlidesTest.boxOfKind(wide 3)))
         c.ok("a full-width figure: the text under it" (wt.y >= (we.y + we.h)))
+        ; a width or height asked on a slide is the size it is shown at,
+        ; larger than its pixels too (the slide's handles set them)
+        def cw:double (960.0 - 108.0)
+        def wl:MdLayout (MdSlidesTest.withPictures("## Leveä
+
+![Pieni](small.png)
+{width=60%}
+" css))
+        def wp:MdBox (unwrap (MdSlidesTest.boxOfKind(wl 4)))
+        c.ok(("width=60% of a 160 px picture: " + (to_string wp.w)) (((wp.w - (cw * 0.6)) * ((wp.w - (cw * 0.6)))) < 1.0))
+        c.ok("its shape kept" ((((wp.h / wp.w) - (90.0 / 160.0)) * (((wp.h / wp.w) - (90.0 / 160.0)))) < 0.0001))
+        def hl:MdLayout (MdSlidesTest.withPictures("## Korkea
+
+![Pieni](small.png)
+{height=50%}
+" css))
+        def hp:MdBox (unwrap (MdSlidesTest.boxOfKind(hl 4)))
+        c.ok(("height=50% of a 90 px picture: " + (to_string hp.h)) (((hp.h - 216.0) * (hp.h - 216.0)) < 1.0))
+        def xl:MdLayout (MdSlidesTest.withPictures("## Liian
+
+![Pieni](small.png)
+{width=250%}
+" css))
+        def xp:MdBox (unwrap (MdSlidesTest.boxOfKind(xl 4)))
+        c.ok(("never wider than the column: " + (to_string xp.w)) (xp.w <= (cw + 0.5)))
     }
 
     ; how many text boxes say `want` on slide `p`
