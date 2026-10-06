@@ -769,6 +769,18 @@ class MdSlidesTest {
         def mem (new VfsMemory())
         mem.put("/small.png" (MdSlidesTest.png(160 90)))
         mem.put("/big.png" (MdSlidesTest.png(2560 1280)))
+        ; (the store keeps a file by its bytes: these are not the PNGs')
+        def ink (new VfsBlob())
+        def raw:string "{\"items\":[]}"
+        def buf:buffer (buffer_alloc (strlen raw))
+        def k:int 0
+        while (k < (strlen raw)) {
+            buffer_set buf k (charAt raw k)
+            k = (k + 1)
+        }
+        ink.bytes = buf
+        ink.contentType = "application/x-test-overlay"
+        mem.put("/drawings/a.ink" ink)
         v.mount("/" mem)
         return v
     }
@@ -833,6 +845,40 @@ class MdSlidesTest {
         }
         def miss@(optional):MdBox
         return miss
+    }
+
+    ; OVERLAY PICTURES: a reference to a file the host draws over the slide
+    ; takes no room, draws no box, and says which slide it is on.
+    fn overlays:void (c:SlideCheck) {
+        print "-- overlay pictures --"
+        def css:string "deck { split-level: 2 } page { width: 960pt; height: 540pt; padding: 54pt } document { font-size: 20pt } h2 { font-size: 36pt }"
+        def src:string "## Yksi\n\nEnsin.\n\n![](drawings/a.ink)\n\nSitten.\n\n## Kaksi\n\n![](drawings/a.ink)\n"
+        def plain:MdLayout (MdSlidesTest.withPictures(src css))
+        c.eqInt("without the type it is a missing picture's alt text" (array_length plain.overlaySrc) 0)
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        def mc:MdCss (new MdCss())
+        mc.addStyleSheet(css)
+        mc.applyTo(l.style)
+        l.setStyleSheet(css)
+        l.applyMeta(doc)
+        l.applySlideMeta(doc)
+        l.setDocSource(src)
+        l.setImages((MdSlidesTest.pictureVfs()) "/")
+        push l.overlayTypes "application/x-test-overlay"
+        l.layoutSlides(doc)
+        c.eqInt("two slides" l.pageCount 2)
+        c.eqInt("both references noted" (array_length l.overlaySrc) 2)
+        c.eqInt("the first on slide 1" (itemAt l.overlayPage 0) 0)
+        c.eqInt("the second on slide 2" (itemAt l.overlayPage 1) 1)
+        c.ok("its path" ((itemAt l.overlayPath 0) == "/drawings/a.ink"))
+        c.ok("where it is written" ((substring src (itemAt l.overlaySrc 0) ((itemAt l.overlaySrc 0) + 3)) == "![]"))
+        def none@(optional):MdBox (MdSlidesTest.boxOfKind(l 4))
+        c.ok("no picture box" (null? none))
+        ; "Sitten." sits where it would with no reference between
+        def wo:MdLayout (MdSlidesTest.withPictures("## Yksi\n\nEnsin.\n\nSitten.\n" css))
+        c.ok("it takes no room" ((fabs ((MdSlidesTest.yOf(l "Sitten.")) - (MdSlidesTest.yOf(wo "Sitten.")))) < 0.01))
     }
 
     ; PICTURES on a slide take their room: a small one is set larger, a
@@ -1054,6 +1100,7 @@ class MdSlidesTest {
         this.grow(c)
         this.edges(c)
         this.pictures(c)
+        this.overlays(c)
         this.longTable(c)
         this.tableSpill(c)
         print ""
