@@ -1665,9 +1665,13 @@ class MdLayout {
                 }
             }
             followH = 0.0
+            followBeside = false
             if (slides && (child.kind == "paragraph")) {
                 if ((MdLayout.loneImage(child)).kind == "image") {
                     followH = (this.heightAfter(doc i))
+                    if ((i + 1) < (doc.childCount())) {
+                        followBeside = (MdLayout.besideable((doc.childAt((i + 1))) splitLevel))
+                    }
                 }
             }
             if floatOn {
@@ -1726,6 +1730,8 @@ class MdLayout {
     ; On a slide, how tall the blocks after a lone picture are, down to the
     ; slide's end: `pictureBlock` leaves them that room (see `heightAfter`).
     def followH:double 0.0
+    ; …and whether it can go beside the picture (startFloat), not under it
+    def followBeside:boolean false
     ; FLOAT: a picture or a drawing narrower than the column, with `{width=…}`
     ; under it, has the blocks after it set beside it, in the rest of the
     ; column, down to its bottom (`startFloat`). While on: the page it is on,
@@ -5606,6 +5612,14 @@ class MdLayout {
         ; (a 160×90 PNG) is not a stamp in a corner. Set larger at most 4
         ; times; a picture given a `width` or `height` is as asked. A
         ; document page keeps a picture's own size.
+        ; A picture narrow enough for the text after it to go beside it
+        ; (startFloat) leaves no room under itself for that text.
+        def under:double followH
+        if ((followBeside && ((strlen wantAttr) > 0)) && (useW <= (contentW * 0.75))) {
+            if (((contentW - useW) - (style.bodySize * 1.2)) >= (contentW * 0.25)) {
+                under = 0.0
+            }
+        }
         if ((slides && paginate) && (((strlen wantAttr) == 0) && ((strlen hAttr) == 0))) {
             def roomH:double ((contentBottom - cursorY) - followH)
             def up:double (MdLayout.pictureScale(useW useH w roomH 4.0))
@@ -5618,11 +5632,11 @@ class MdLayout {
         ; both); on a full slide it moves on as it did.
         if (slides && paginate) {
             def avail:double (contentBottom - cursorY)
-            if ((avail - followH) >= (fullH * 0.25)) {
-                avail = (avail - followH)
+            if ((avail - under) >= (fullH * 0.25)) {
+                avail = (avail - under)
             }
-            def under:boolean (slideTitleOnly && (avail >= (fullH * 0.2)))
-            if ((useH > avail) && ((avail >= (fullH * 0.35)) || under)) {
+            def titleOnly:boolean (slideTitleOnly && (avail >= (fullH * 0.2)))
+            if ((useH > avail) && ((avail >= (fullH * 0.35)) || titleOnly)) {
                 useW = (useW * (avail / useH))
                 useH = avail
             }
@@ -6015,20 +6029,29 @@ class MdLayout {
         if (((strlen paper) == 0) || (paper == "transparent")) {
             paper = "#ffffff"
         }
-        def pc:EVGColor (EVGColor.parse(paper))
         if overlay {
+            ; a photo's caption: a dark see-through band with white text,
+            ; which reads over light and dark pictures alike. A caption the
+            ; sheet coloured dark gets a light band instead.
+            if (cap.colorSet == false) {
+                cap.color = "#FFFFFF"
+            }
             if ((strlen cap.background) == 0) {
-                def a:double 0.55
+                def shade:int 0
+                if ((MdContainer.luminance(cap.color)) <= 0.4) {
+                    shade = 255
+                }
+                def a:double 0.45
                 def fill:string ""
                 while ((a < 0.901) && ((strlen fill) == 0)) {
-                    def tryFill:string (MdContainer.hexOf((EVGColor.rgba((pc.red()) (pc.green()) (pc.blue()) a))))
+                    def tryFill:string (MdContainer.hexOf((EVGColor.rgba(shade shade shade a))))
                     if ((MdContainer.worstContrast(cap.color tryFill)) >= 4.5) {
                         fill = tryFill
                     }
                     a = (a + 0.05)
                 }
                 if ((strlen fill) == 0) {
-                    fill = (MdContainer.hexOf((EVGColor.rgba((pc.red()) (pc.green()) (pc.blue()) 0.85))))
+                    fill = (MdContainer.hexOf((EVGColor.rgba(shade shade shade 0.9))))
                 }
                 cap.background = fill
             }
