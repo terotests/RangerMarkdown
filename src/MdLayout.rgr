@@ -5242,7 +5242,11 @@ class MdLayout {
         }
         def wantAttr:string (node.attrValue("width"))
         def asked:double (MdEmbedKinds.widthOf(wantAttr w))
-        if (asked < useW) {
+        ; On a slide a `width` is the width it is shown at, larger than its
+        ; pixels too (the handles on the slide set it); a document page
+        ; only ever fits it down.
+        def grows:boolean ((slides && paginate) && ((strlen wantAttr) > 0))
+        if ((asked < useW) || grows) {
             if (useW > 0.0) {
                 useH = (useH * (asked / useW))
                 useW = asked
@@ -5272,6 +5276,16 @@ class MdLayout {
         if ((maxH > 0.0) && (useH > maxH)) {
             useW = (useW * (maxH / useH))
             useH = maxH
+        }
+        ; …and on a slide a `height` (without a `width`) the height it is
+        ; shown at, as wide as that makes it up to the column
+        if ((((slides && paginate) && ((strlen hAttr) > 0)) && ((strlen wantAttr) == 0)) && ((useH > 0.0) && ((maxH > useH) && (useW > 0.0)))) {
+            def hk:double (maxH / useH)
+            if ((useW * hk) > w) {
+                hk = (w / useW)
+            }
+            useW = (useW * hk)
+            useH = (useH * hk)
         }
         ; On a slide a picture is shown at the size of its room: the column's
         ; width and the height under its heading, less what is written under
