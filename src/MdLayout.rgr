@@ -1917,9 +1917,14 @@ class MdLayout {
         if (b.kind == 3) {
             def kind:string (MdLayout.firstWord(child.info))
             def ei:int (embeds.find(kind child.literal b.w))
+            ; A drawing's box starts the column whatever its alignment:
+            ; `center` sets the drawing in the middle of its own box
+            ; (MdEmbedEntry.shiftIn). So a chart given a width has the text
+            ; after it beside it even when centred (a host centres every
+            ; chart by default); it went under it, and a chart with its
+            ; takeaway in a box beside it ended up on two slides.
             if (ei >= 0) {
                 def e:MdEmbedEntry (embeds.entryAt(ei))
-                if (e.align == "center") { return "" }
                 if (e.align == "end") { return "end" }
             }
             return "start"
