@@ -242,6 +242,24 @@ class MarkdownEdit {
         return ok
     }
 
+    ; Every picture and text file dropped, for the next document: it starts
+    ; with an empty store, so a picture of the one before is not drawn in it
+    ; (nor sized, nor exported) as if it were this one's.
+    fn clearFiles:void () {
+        def names:[string]
+        def i:int 0
+        while (i < (array_length imageMemory.order)) {
+            push names (itemAt imageMemory.order i)
+            i = (i + 1)
+        }
+        i = 0
+        while (i < (array_length names)) {
+            imageMemory.remove((itemAt names i))
+            i = (i + 1)
+        }
+        if ((array_length names) > 0) { stale = true }
+    }
+
     fn ensureLayout:void () {
         if (! stale) {
             return
@@ -496,6 +514,13 @@ class MarkdownWeb {
         def ok:boolean (edit.addImage(name data contentType w h))
         if ok { built = false }
         return ok
+    }
+
+    ; The pictures and text files of the document before, gone
+    ; (`MarkdownEdit.clearFiles`).
+    fn clearFiles:void () {
+        edit.clearFiles()
+        built = false
     }
 
     fn imageCount:int () {
