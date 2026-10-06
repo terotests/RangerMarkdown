@@ -343,6 +343,18 @@ class MdFigureTest {
         c.ok("swot: colours by quadrant" ((c.hasFill(s "#ff6600")) && (c.hasFill(s "#0066cc"))))
         c.inside("swot" s)
 
+        ; --- stats: key figures, one card each, the number large
+        def ks:FlowScene (MdFigure.sceneOf("stats" "- 91: asiakasta\n- 50 292: transaktiot yhteensä\n- 552,66: keskiarvo / asiakas" st 960.0 10.0))
+        c.ok("stats is a figure" ((MdEmbedKinds.notationOf("stats")) == "figure"))
+        c.ok("stats: has height" (ks.worldH > 60.0))
+        def kt:string (c.texts(ks))
+        c.ok("stats: numbers and labels" (((indexOf kt "50 292|") >= 0) && ((indexOf kt "asiakasta|") >= 0)))
+        c.inside("stats" ks)
+        ; five figures: three to a row, two rows
+        def k5:FlowScene (MdFigure.sceneOf("stats" "- 1: a\n- 2: b\n- 3: c\n- 4: d\n- 5: e" st 960.0 10.0))
+        c.ok("stats: five go on two rows" (k5.worldH > (ks.worldH * 1.6)))
+        c.inside("stats five" k5)
+
         ; --- timeline
         def t:FlowScene (MdFigure.sceneOf("timeline" "2023: Founded\n2024: First product in the hands of customers\n2025\n2026: Abroad" st 960.0 10.0))
         c.ok("timeline: has height" (t.worldH > 60.0))
