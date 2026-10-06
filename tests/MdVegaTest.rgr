@@ -33,6 +33,7 @@ Import "../src/MdVegaRender.rgr"
 Import "../src/MdEmbedKinds.rgr"
 Import "../src/MdDiagram.rgr"
 Import "../src/MdBlock.rgr"
+Import "../src/MdToEvg.rgr"
 
 class VegaCheck {
     def passed:int 0
@@ -360,8 +361,10 @@ class MdVegaTest {
         c.ok("a long axis title leaves the plot its height" (rb.chartHeight > 180.0))
         c.ok("…and the drawing fits the room" ((rb.viewHeight()) <= 331.0))
         def db:MdVegaDrawing (MdVegaRender.draw(gb 1240.0 10.0))
+        ; …fitted to the plot's height: smaller and on two lines, not cut
         def yt:SceneItem (MdVegaTest.textStarting(db.scene "Mean of"))
-        c.ok("…the title cut to the plot's height" ((indexOf yt.text (strfromcode 8230)) > 0))
+        c.ok("…the title fitted to the plot's height, not cut" (((indexOf yt.text (strfromcode 8230)) < 0) && (yt.text != "Mean of Miles per Gallon (95% CIs)")))
+        c.eqInt("…on two lines" (array_length (MdVegaTest.turnedTexts(db.scene))) 2)
         ; no height stated: the room's height, not Vega-Lite's 20 points a
         ; category (the strip plot was a band across the top of its slide)
         def strip:string "{\"width\": 520, \"data\": {\"values\": [{\"h\": 60, \"c\": 3}, {\"h\": 90, \"c\": 4}, {\"h\": 70, \"c\": 5}, {\"h\": 120, \"c\": 6}, {\"h\": 200, \"c\": 8}]}, \"mark\": \"tick\", \"encoding\": {\"x\": {\"field\": \"h\", \"type\": \"quantitative\"}, \"y\": {\"field\": \"c\", \"type\": \"ordinal\"}}}"
@@ -680,6 +683,65 @@ class MdVegaTest {
         c.eqInt("without a budget every chart is drawn at once" (MdVegaTest.staleCount(cache)) 0)
     }
 
+    ; A y title too long for its axis: smaller and on two lines, each line an
+    ; item of its own; far too long, cut, with the whole text kept on the
+    ; items and found again under the pointer.
+    sfn titled:string (title:string) {
+        return ("{\"width\": 300, \"height\": 120, \"data\": {\"values\": [{\"m\": \"a\", \"n\": 2}, {\"m\": \"b\", \"n\": 5}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"m\", \"type\": \"nominal\"}, \"y\": {\"field\": \"n\", \"type\": \"quantitative\", \"title\": \"" + title + "\"}}}")
+    }
+
+    sfn turnedTexts:[SceneItem] (sc:FlowScene) {
+        def out:[SceneItem]
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def it:SceneItem (itemAt sc.items i)
+            if ((it.kind == 1) && (it.angle == -90.0)) {
+                push out it
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn titles:void (c:VegaCheck) {
+        print "-- a long axis title: smaller, on two lines, cut only when tiny --"
+        def d:MdVegaDrawing (MdVegaRender.draw((MdVegaTest.titled("Count of Records per Region and Quarter")) 520.0 10.0))
+        def two:[SceneItem] (MdVegaTest.turnedTexts(d.scene))
+        c.eqInt("two lines, two items" (array_length two) 2)
+        if ((array_length two) == 2) {
+            def a:SceneItem (itemAt two 0)
+            def b:SceneItem (itemAt two 1)
+            c.ok("no line is cut" (((indexOf a.text (strfromcode 8230)) < 0) && ((indexOf b.text (strfromcode 8230)) < 0)))
+            c.eqStr("the words, in order" ((a.text + " ") + b.text) "Count of Records per Region and Quarter")
+            ; turned up the side: the first line further from the plot
+            c.ok("the second line nearer the plot" (b.x > a.x))
+            c.eqStr("nothing to show on hover" a.full "")
+        }
+        c.ok("still all inside the scene" (MdVegaTest.allInside(d.scene)))
+        def far:string "Number of customer support tickets resolved within the first day of the quarter by region and channel"
+        def d2:MdVegaDrawing (MdVegaRender.draw((MdVegaTest.titled(far)) 520.0 10.0))
+        def cut:[SceneItem] (MdVegaTest.turnedTexts(d2.scene))
+        c.ok("far too long: drawn" ((array_length cut) >= 1))
+        if ((array_length cut) >= 1) {
+            def last:SceneItem (itemAt cut ((array_length cut) - 1))
+            c.ok("…and cut" ((indexOf last.text (strfromcode 8230)) > 0))
+            c.eqStr("…the whole text kept" last.full far)
+            ; under the pointer: the EVG tree carries it as the text's alt
+            def root:EVGElement (d2.scene.toEvgTree())
+            MdToEvg.put(root 100.0 50.0 d2.scene.worldW d2.scene.worldH)
+            def le:EVGLayout (new EVGLayout())
+            le.setPageSize(d2.scene.worldW d2.scene.worldH)
+            le.layout(root)
+            def lay (new MdLayout())
+            ; the middle of the turned line: its anchor's x, half way up
+            def midX:double (((100.0 + last.x) - d2.scene.worldX) + last.originX)
+            def midY:double (((50.0 + last.y) - d2.scene.worldY) + last.originY)
+            def hx:double (midX - (last.fontSize * 0.5))
+            c.eqStr("the whole title under the pointer" (MdToEvg.altAt(lay root hx midY)) far)
+            c.eqStr("nothing away from it" (MdToEvg.altAt(lay root (midX - 200.0) midY)) "")
+        }
+    }
+
     fn run:void () {
         def c (new VegaCheck())
         print "== MdVegaTest =="
@@ -688,6 +750,7 @@ class MdVegaTest {
         this.refused(c)
         this.centred(c)
         this.turned(c)
+        this.titles(c)
         this.fromTheSpec(c)
         this.grownToFit(c)
         this.staggered(c)

@@ -1416,62 +1416,32 @@ class MdVegaRender {
             if ((strlen ink) == 0) {
                 ink = "#000000"
             }
-            ; Vega ANCHORS a string at a point and says which way it hangs off
-            ; it; a scene item ALIGNS a string inside a box. An axis label
-            ; carrying `align: center` into a box of width zero comes out
-            ; left-aligned at the tick — every category name drawn half its own
-            ; width to the right of the bar it names, which is what the first
-            ; chart through this door did.
-            def al:string (MdVegaRender.align(c.align))
-            def wide:double (VlText.drawWidth(c.text size))
-            ; The box must never be NARROWER than the glyphs. `drawWidth` is an
-            ; ESTIMATE — one advance table for every sans face — and the face
-            ; that ends up drawing is wider than it by a third for lowercase
-            ; text, so a box measured to the estimate clips: "markdown" came
-            ; out as "markdo" on the first chart that had a long category in
-            ; it. Generous, therefore, and deliberately: an empty box paints
-            ; nothing, so the only cost of one too wide is nothing at all,
-            ; while one too narrow eats the end of a word. The ANCHOR stays
-            ; exact whatever the box is, because the alignment is what places
-            ; the string inside it — a right-aligned label ends at its tick
-            ; whether its box is forty pixels wide or four hundred.
-            def boxW:double ((wide * 2.0) + size)
-            def left:double tx
-            if (al == "center") {
-                left = (tx - (boxW * 0.5))
+            ; A label on several lines (the value model joins them with a line
+            ; break, as an axis title fitted to its axis is) is one item per
+            ; line, each stepped a line further along the text's own "down" —
+            ; across the page for a turned title — and the block moved back by
+            ; what its baseline says, as the reference places it.
+            def lines:[string] (VlText.lines(c.text))
+            def n:int (array_length lines)
+            def lineStep:double ((VlText.lineStep(c.fontSize)) * scale)
+            def back:double 0.0
+            if (c.baseline == "bottom") {
+                back = (lineStep * (to_double (n - 1)))
             }
-            if (al == "right") {
-                left = (tx - boxW)
+            if (c.baseline == "middle") {
+                back = ((lineStep * (to_double (n - 1))) * 0.5)
             }
-            ; Vega places text on a BASELINE and names which one; a scene item
-            ; places it on the top of its line box. Taking every string for an
-            ; alphabetic baseline put the bottom axis' labels four fifths of a
-            ; line high, over the ticks they belong under.
-            def top:double (MdVegaRender.topOf(ty size c.baseline))
-            def t:SceneItem (sc.text(c.text left top boxW size ink))
-            t.align = al
-            ; The box is an estimate; the label is not. A chart's runtime has
-            ; already decided where this string breaks, so the box may place it
-            ; but must never rewrap it.
-            t.nowrap = true
-            ; Turned labels: an axis too crowded to write its categories flat
-            ; writes them on a slant, and the scene item turns about the same
-            ; anchor Vega rotates about — its own box, which is why the box
-            ; above has to be the label's and not the column's.
-            if (c.angle != 0.0) {
-                t.angle = c.angle
-                t.originX = (tx - left)
-                t.originY = (ty - top)
-                t.hasOrigin = true
+            def rad:double ((c.angle * 3.141592653589793) / 180.0)
+            def downX:double (0.0 - (sin rad))
+            def downY:double (cos rad)
+            def li:int 0
+            while (li < n) {
+                def along:double ((lineStep * (to_double li)) - back)
+                def t:SceneItem (MdVegaRender.textLine(sc c (itemAt lines li) (tx + (downX * along)) (ty + (downY * along)) size ink))
+                ; the whole text, when the runtime cut it to fit
+                t.full = c.full
+                li = (li + 1)
             }
-            if (c.fontWeight == "bold") {
-                t.bold = true
-            }
-            if ((strlen c.font) > 0) {
-                t.fontFamily = c.font
-            }
-            t.opacity = c.opacity
-            t.tag = "chart"
             return
         }
         if (c.op == "path") {
@@ -1705,6 +1675,67 @@ class MdVegaRender {
     ; Where the top of a scene item's line box goes, for the baseline Vega
     ; named. `middle` is a y-axis label centred on its tick, `top` a bottom-axis
     ; label hanging under the plot, `bottom` a title sitting on a line.
+    ; One line of a chart's text, as a scene item anchored at (tx, ty).
+    sfn textLine:SceneItem (sc:FlowScene c:VlDrawCommand text:string tx:double ty:double size:double ink:string) {
+        ; Vega ANCHORS a string at a point and says which way it hangs off
+        ; it; a scene item ALIGNS a string inside a box. An axis label
+        ; carrying `align: center` into a box of width zero comes out
+        ; left-aligned at the tick — every category name drawn half its own
+        ; width to the right of the bar it names, which is what the first
+        ; chart through this door did.
+        def al:string (MdVegaRender.align(c.align))
+        def wide:double (VlText.drawWidth(text size))
+        ; The box must never be NARROWER than the glyphs. `drawWidth` is an
+        ; ESTIMATE — one advance table for every sans face — and the face
+        ; that ends up drawing is wider than it by a third for lowercase
+        ; text, so a box measured to the estimate clips: "markdown" came
+        ; out as "markdo" on the first chart that had a long category in
+        ; it. Generous, therefore, and deliberately: an empty box paints
+        ; nothing, so the only cost of one too wide is nothing at all,
+        ; while one too narrow eats the end of a word. The ANCHOR stays
+        ; exact whatever the box is, because the alignment is what places
+        ; the string inside it — a right-aligned label ends at its tick
+        ; whether its box is forty pixels wide or four hundred.
+        def boxW:double ((wide * 2.0) + size)
+        def left:double tx
+        if (al == "center") {
+            left = (tx - (boxW * 0.5))
+        }
+        if (al == "right") {
+            left = (tx - boxW)
+        }
+        ; Vega places text on a BASELINE and names which one; a scene item
+        ; places it on the top of its line box. Taking every string for an
+        ; alphabetic baseline put the bottom axis' labels four fifths of a
+        ; line high, over the ticks they belong under.
+        def top:double (MdVegaRender.topOf(ty size c.baseline))
+        def t:SceneItem (sc.text(text left top boxW size ink))
+        t.align = al
+        ; The box is an estimate; the label is not. A chart's runtime has
+        ; already decided where this string breaks, so the box may place it
+        ; but must never rewrap it.
+        t.nowrap = true
+        ; Turned labels: an axis too crowded to write its categories flat
+        ; writes them on a slant, and the scene item turns about the same
+        ; anchor Vega rotates about — its own box, which is why the box
+        ; above has to be the label's and not the column's.
+        if (c.angle != 0.0) {
+            t.angle = c.angle
+            t.originX = (tx - left)
+            t.originY = (ty - top)
+            t.hasOrigin = true
+        }
+        if (c.fontWeight == "bold") {
+            t.bold = true
+        }
+        if ((strlen c.font) > 0) {
+            t.fontFamily = c.font
+        }
+        t.opacity = c.opacity
+        t.tag = "chart"
+        return t
+    }
+
     sfn topOf:double (y:double size:double baseline:string) {
         if (baseline == "top") {
             return y
