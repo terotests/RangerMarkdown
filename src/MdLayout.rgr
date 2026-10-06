@@ -1598,6 +1598,8 @@ class MdLayout {
 
     fn bodyPass:void (doc:MdNode mode:int) {
         floatOn = false
+        ; a full-page gallery ending the last layout must not break this one
+        fullPageDone = false
         def placed:boolean (mode == 0)
         def i:int 0
         def n:int (doc.childCount())
@@ -5588,6 +5590,42 @@ class MdLayout {
     ; page — and in print over the bleed past it — with no margins and no
     ; header or footer. The first goes on the slide the gallery is on when
     ; that slide holds nothing yet (a hidden title is nothing).
+    ; A hidden title written just before a full-page gallery names the
+    ; gallery's first slide, not the slide the break leaves behind: the
+    ; titles noted on `from` after the last thing drawn there move to `to`.
+    fn carryHidden:void (from:int to:int) {
+        if (hiddenOnPage != from) {
+            return
+        }
+        def last:int -1
+        def i:int 0
+        while (i < (array_length boxes)) {
+            def b:MdBox (itemAt boxes i)
+            if (b.page == from) {
+                def s:int b.srcStart
+                if (b.segSrc >= 0) {
+                    s = b.segSrc
+                }
+                if (s > last) {
+                    last = s
+                }
+            }
+            i = (i + 1)
+        }
+        def h:int 0
+        while (h < (array_length hiddenSrc)) {
+            if (((itemAt hiddenPage h) == from) && ((itemAt hiddenSrc h) > last)) {
+                set_at hiddenPage h to
+            }
+            h = (h + 1)
+        }
+        hiddenOnPage = to
+        def n:int (array_length headPage)
+        if ((n > 0) && ((itemAt headPage (n - 1)) == from)) {
+            set_at headPage (n - 1) to
+        }
+    }
+
     fn galleryFull:void (g:MdGallery look:MdGalleryLook) {
         def pw:double style.pageWidth
         def ph:double style.pageHeight
@@ -5604,7 +5642,11 @@ class MdLayout {
         def k:int 0
         while (k < (array_length g.items)) {
             if ((k > 0) || ((cursorY - contentTop) > 0.5)) {
+                def from:int page
                 this.nextSlide()
+                if (k == 0) {
+                    this.carryHidden(from page)
+                }
             }
             push headerOff page
             push footerOff page
