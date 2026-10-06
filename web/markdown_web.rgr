@@ -81,6 +81,9 @@ class MarkdownEdit {
     ; The company template, as a stylesheet. Empty is a plain document, which
     ; is what a README is.
     def styleCss:string ""
+    ; "screen", or "print" for a layout that goes to paper: the sheet's
+    ; `@media print` rules then count, and its print page is the page
+    def media:string "screen"
     def sheet:MdCss (new MdCss())
     def sheetErrors:int 0
     def sheetUnsupported:int 0
@@ -256,6 +259,10 @@ class MarkdownEdit {
         ; title — `applyMeta` returns early when there is no metadata, and
         ; what it returns early from is overwriting.
         layout.style = (new MdStyle())
+        ; the medium: a print layout reads the sheet's `@media print` rules
+        ; too, and its page (MdCss.applyPrint, below)
+        sheet.setMedia(media)
+        layout.media = media
         sheet.applyTo(layout.style)
         sheetUnsupported = (sheet.unsupportedCount())
         ; …and the same sheet to the LAYOUT, which asks it a different
@@ -270,6 +277,9 @@ class MarkdownEdit {
             def ph:double layout.style.pageHeight
             layout.style.pageWidth = (MdFrontMatter.pageW(pageSize pw ph))
             layout.style.pageHeight = (MdFrontMatter.pageH(pageSize ph pw))
+        }
+        if (media == "print") {
+            sheet.applyPrint(layout.style)
         }
         ; The width is derived HERE, after the metadata and the reader's page
         ; size have been applied — not handed in by the host.

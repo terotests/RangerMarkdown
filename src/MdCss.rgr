@@ -85,9 +85,50 @@ class MdCss {
         return source
     }
 
+    ; Which medium the sheet is read for: "screen" (the stage, the
+    ; thumbnails, the PPTX) or "print" (the PDF for a printing house). A
+    ; sheet's `@media print { … }` rules count only for print, where they
+    ; come after the rest and so win; `@media screen { … }` only on a
+    ; screen. `CssCore` reads no at-rules (see its banner), so the blocks
+    ; are taken apart here, before it parses what is left.
+    def media:string "screen"
+    ; the `@media print` rules alone: what the print page says (its size,
+    ; `bleed`, `safe-area`) is read from them and from nothing else
+    def printSheet:CssSheet (new CssSheet())
+    def printText:string ""
+
+    ; The medium to read the sheet for, parsed again from its text when it
+    ; changes.
+    fn setMedia:void (m:string) {
+        if (m == media) { return }
+        media = m
+        def was:string source
+        source = ""
+        printText = ""
+        sheet = (new CssSheet())
+        printSheet = (new CssSheet())
+        clear unsupported
+        this.addStyleSheet(was)
+    }
+
+    fn hasPrint:boolean () {
+        return ((strlen printText) > 0)
+    }
+
     fn addStyleSheet:void (css:string) {
         source = (source + css)
-        sheet.parse(css)
+        def parts:[string] (MdCss.splitMedia(css))
+        def screenText:string (MdCss.desugar((itemAt parts 0)))
+        def printPart:string (MdCss.desugar((itemAt parts 1)))
+        def screenOnly:string (MdCss.desugar((itemAt parts 2)))
+        printText = (printText + printPart)
+        printSheet.parse(printPart)
+        sheet.parse(screenText)
+        if (media == "print") {
+            sheet.parse(printPart)
+        } {
+            sheet.parse(screenOnly)
+        }
         ; The deck rules are read here rather than in `applyTo`, because they
         ; are not about how a page LOOKS and a caller that only wants the
         ; slide rules should not have to resolve a style to get them.
@@ -218,7 +259,7 @@ class MdCss {
         ; same function that answers for `![](x)` and `r:embed`, because four
         ; copies of that arithmetic would be four answers to what `../` means.
         style.pageBackgroundImage = (MdCss.urlOf((this.raw(got "background-image"))))
-        this.rest(got "width,height,padding,background-color,background-image")
+        this.rest(got "width,height,padding,background-color,background-image,bleed,safe-area")
     }
 
     ; The inside of a `url(...)`, unquoted. Anything else is left alone: a
@@ -461,7 +502,7 @@ class MdCss {
             aspect = (CssSheet.tidy((got.get("aspect-ratio"))))
             applied = (applied + 1)
         }
-        this.rest(got "split-level,overflow,aspect-ratio")
+        this.rest(got "split-level,overflow,aspect-ratio,crop-marks")
     }
 
     ; ----------------------------------------------------------------------
@@ -562,5 +603,158 @@ class MdCss {
             i = (i + 1)
         }
         return false
+    }
+
+    ; ----------------------------------------------------------------------
+    ; @media, and `:nth(n)`
+    ; ----------------------------------------------------------------------
+
+    ; The sheet in three: [everything outside an `@media` block, the inside
+    ; of every `@media print` block, the inside of every `@media screen`
+    ; block]. Another medium's block (`@media (max-width…)`) is left in the
+    ; first part, where `CssCore` reports it as an at-rule it does not read.
+    sfn splitMedia:[string] (css:string) {
+        def src:string (CssSheet.stripComments(css))
+        def rest:string ""
+        def onPrint:string ""
+        def onScreen:string ""
+        def n:int (strlen src)
+        def i:int 0
+        def from:int 0
+        while (i < n) {
+            def c:int (charAt src i)
+            if (c == 64) {
+                def open:int (CssSheet.findChar(src i 123))
+                if (open < 0) {
+                    i = n
+                } {
+                    def head:string (CssSheet.lower((CssSheet.tidy((substring src i open)))))
+                    def close:int (CssSheet.matchingBrace(src open))
+                    def which:string ""
+                    if ((indexOf head "@media") == 0) {
+                        def q:string (trim (substring head 6 (strlen head)))
+                        if (q == "print") { which = "print" }
+                        if (q == "screen") { which = "screen" }
+                    }
+                    if ((strlen which) > 0) {
+                        rest = (rest + (substring src from i))
+                        def end:int close
+                        if (end < 0) { end = n }
+                        def inner:string (substring src (open + 1) end)
+                        if (which == "print") {
+                            onPrint = (onPrint + inner + "\n")
+                        } {
+                            onScreen = (onScreen + inner + "\n")
+                        }
+                        if (close < 0) {
+                            i = n
+                        } {
+                            i = (close + 1)
+                        }
+                        from = i
+                    } {
+                        ; another at-rule: skip its block whole, so a `{`
+                        ; inside it is not taken for the next rule's
+                        if (close < 0) {
+                            i = n
+                        } {
+                            i = (close + 1)
+                        }
+                    }
+                }
+            } {
+                if (c == 123) {
+                    def close2:int (CssSheet.matchingBrace(src i))
+                    if (close2 < 0) {
+                        i = n
+                    } {
+                        i = (close2 + 1)
+                    }
+                } {
+                    i = (i + 1)
+                }
+            }
+        }
+        if (from < n) {
+            rest = (rest + (substring src from n))
+        }
+        def out:[string]
+        push out rest
+        push out onPrint
+        push out onScreen
+        return out
+    }
+
+    ; `cell:nth(3)` — the third cell of a gallery — is read as the class
+    ; `MdCss.nthClass(3)`, which every gallery cell carries for its own
+    ; place. A pseudo-class weighs what a class weighs in CSS, so the
+    ; cascade ranks it exactly as it would rank `:nth-child(3)`. Only in
+    ; selectors: a declaration's value is left as it was written.
+    sfn desugar:string (css:string) {
+        if ((indexOf css ":nth(") < 0) { return css }
+        def out:string ""
+        def n:int (strlen css)
+        def depth:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt css i)
+            if (c == 123) { depth = (depth + 1) }
+            if (c == 125) { depth = (depth - 1) }
+            def took:boolean false
+            if ((depth == 0) && ((c == 58) && ((i + 5) < n))) {
+                if ((substring css i (i + 5)) == ":nth(") {
+                    def close:int (CssSheet.findChar(css (i + 5) 41))
+                    if (close > 0) {
+                        def arg:string (trim (substring css (i + 5) close))
+                        def num@(optional):int (str2int arg)
+                        if (!null? num) {
+                            out = (out + "." + (MdCss.nthClass((unwrap num))))
+                            i = (close + 1)
+                            took = true
+                        }
+                    }
+                }
+            }
+            if (took == false) {
+                out = (out + (strfromcode c))
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; The class a gallery's `n`th cell (from 1) carries for `cell:nth(n)`.
+    sfn nthClass:string (n:int) {
+        return ("nth--" + (to_string n))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The print page
+    ; ----------------------------------------------------------------------
+    ;
+    ; `@media print { page { width: 297mm; height: 210mm; bleed: 3mm;
+    ; safe-area: 8mm } deck { crop-marks: on } }`. Applied after
+    ; everything else that sets the page (the theme, `page:` in the front
+    ; matter, the reader's choice), because paper is paper: the printing
+    ; house's size is the size. A sheet with no print rules leaves the style
+    ; as it was, apart from saying it is for print.
+    fn applyPrint:void (style:MdStyle) {
+        style.forPrint = true
+        def pn (new CssNode())
+        pn.tag = "page"
+        def pg:CssComputed (CssCascade.resolve(printSheet pn))
+        style.pageWidth = (this.len(pg "width" style.pageWidth))
+        style.pageHeight = (this.len(pg "height" style.pageHeight))
+        style.margin = (this.len(pg "padding" style.margin))
+        style.bleed = (this.len(pg "bleed" style.bleed))
+        style.safeArea = (this.len(pg "safe-area" style.safeArea))
+        def dn (new CssNode())
+        dn.tag = "deck"
+        def dk:CssComputed (CssCascade.resolve(printSheet dn))
+        if (dk.has("crop-marks")) {
+            def v:string (CssSheet.lower((CssSheet.tidy((dk.get("crop-marks"))))))
+            style.cropMarks = (((v == "on") || (v == "true")) || (v == "yes"))
+            applied = (applied + 1)
+        }
     }
 }

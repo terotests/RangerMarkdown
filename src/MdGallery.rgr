@@ -1,0 +1,889 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdGallery.rgr — a photo album as a fence: what it says, and where each
+; picture, caption and text cell goes.
+; ============================================================================
+;
+; ````markdown
+; ```gallery
+; - media/ranta.jpg: Hietaniemi heinäkuussa {focus=top}
+; - media/sauna.jpg: Sauna {span=2}
+; - Kesä jäi mieleen.
+; ```
+; {layout=full fit=cover caption=overlay .polaroid}
+; ````
+;
+; One line per cell: a picture (`path: caption`, or `![caption](path)`)
+; or, when the line names no picture, a TEXT cell (`cell.text` in a sheet).
+; A `{…}` at the end of a line is that cell's own: `focus=`, `span=`,
+; `.class`.
+;
+; Under the fence:
+;
+;   layout=grid   the pictures in rows (the default); the sheet's
+;                 `gallery { columns }` says how many across
+;   layout=full   one picture a slide, edge to edge, no page margins; in
+;                 print it runs over the bleed
+;   fit=cover     fills its place and is cropped (the default);
+;   fit=contain   shows all of it, the gallery's background round it
+;   caption=below | overlay | none   overlay: the words on the picture, on
+;                 a band of the page's colour so they read (as `bg-dim`)
+;   focus=        what a crop keeps: `top`, `bottom-left`, `center`,
+;                 `30% 70%` or `0.3,0.7` (x then y); per cell or for all
+;
+; The template decides the STRUCTURE and the sheet only its look: gaps,
+; borders, padding, corner radius, type. Nothing a sheet says can make a
+; cell overlap another or leave its slide (`MdGalleryLook` takes lengths,
+; the geometry here takes the rest).
+;
+; Selectors: `gallery`, `cell`, `caption`, `cell.text`, a class under the
+; fence (`.polaroid cell`) and one cell by its place (`cell:nth(3)`, read
+; by `MdCss.desugar`).
+;
+; This file is geometry and nothing else: no text is measured here (the
+; host hands in how tall each caption is at the width it was given) and
+; nothing is drawn. `MdLayout.gallery` turns the answer into boxes.
+; `tests/MdGalleryTest.rgr` checks it.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdChar.rgr"
+Import "MdAttrs.rgr"
+Import "MdStyle.rgr"
+Import "MdCss.rgr"
+Import "../../css/CssCore.rgr"
+
+; One line of the fence.
+class MdGalleryItem {
+    ; from 1, the number `cell:nth(n)` names
+    def index:int 0
+    ; the picture as written ("" for a text cell)
+    def src:string ""
+    def caption:string ""
+    ; a text cell's words
+    def text:string ""
+    def isText:boolean false
+    ; what a crop keeps, 0..1 across and down; the gallery's when unset
+    def focusX:double 0.5
+    def focusY:double 0.5
+    def hasFocus:boolean false
+    ; how many columns the cell takes
+    def span:int 1
+    def classes:[string]
+    ; where the line starts in the fence's text
+    def offset:int 0
+
+    Constructor () {
+    }
+}
+
+; The look of a cell (or of its caption, or of a text cell's words), as
+; the sheet says. Lengths in points.
+class MdCellLook {
+    def padT:double 0.0
+    def padR:double 0.0
+    def padB:double 0.0
+    def padL:double 0.0
+    def radius:double 0.0
+    def borderWidth:double 0.0
+    def borderColor:string ""
+    def background:string ""
+    def fontSize:double 11.0
+    def family:string ""
+    def color:string ""
+    ; "start" | "center" | "end"
+    def align:string "start"
+    def bold:boolean false
+
+    Constructor () {
+    }
+}
+
+class MdGalleryLook {
+    def gap:double 8.0
+    ; 0: chosen from the number of cells
+    def columns:int 0
+    def background:string ""
+
+    Constructor () {
+    }
+}
+
+; Where one cell went. All in the layout's points; the picture rectangle
+; can be larger than the cell (a `cover` crop is expressed by the crop
+; fractions instead, so it is not) and, in print, run past the page's edge
+; by the bleed.
+class MdGalleryCell {
+    def item:int 0
+    ; which page of the gallery's, from 0 (a `full` gallery: one per cell)
+    def pageOff:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    ; the picture: where it is drawn and which part of it (0..1 of its
+    ; pixels) is shown there
+    def picX:double 0.0
+    def picY:double 0.0
+    def picW:double 0.0
+    def picH:double 0.0
+    def cropX:double 0.0
+    def cropY:double 0.0
+    def cropW:double 1.0
+    def cropH:double 1.0
+    def cropped:boolean false
+    ; the caption (or a text cell's words): the box its lines are set in
+    def capX:double 0.0
+    def capY:double 0.0
+    def capW:double 0.0
+    def capH:double 0.0
+    ; overlay: a band of the page's colour under the caption
+    def dim:boolean false
+    def dimX:double 0.0
+    def dimY:double 0.0
+    def dimW:double 0.0
+    def dimH:double 0.0
+
+    Constructor () {
+    }
+}
+
+class MdGallery {
+    def layout:string "grid"
+    def fit:string "cover"
+    ; "" until read: below on a grid, overlay on a full page
+    def caption:string ""
+    def focusX:double 0.5
+    def focusY:double 0.5
+    def items:[MdGalleryItem]
+    ; the classes under the fence (`{.polaroid}`)
+    def classes:[string]
+
+    Constructor () {
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Reading the fence
+    ; ----------------------------------------------------------------------
+
+    sfn isGallery:boolean (node:MdNode) {
+        if (node.kind != "code_block") { return false }
+        def info:string (trim node.info)
+        def sp:int (indexOf info " ")
+        if (sp > 0) {
+            info = (substring info 0 sp)
+        }
+        def brace:int (indexOf info "{")
+        if (brace > 0) {
+            info = (substring info 0 brace)
+        }
+        return ((MdChar.lower(info)) == "gallery")
+    }
+
+    sfn of:MdGallery (node:MdNode) {
+        def g:MdGallery (MdGallery.parse(node.literal))
+        def lay:string (MdChar.lower((trim (node.attrValue("layout")))))
+        if (lay == "full") {
+            g.layout = "full"
+        }
+        def fit:string (MdChar.lower((trim (node.attrValue("fit")))))
+        if (fit == "contain") {
+            g.fit = "contain"
+        }
+        def cap:string (MdChar.lower((trim (node.attrValue("caption")))))
+        if (((cap == "below") || (cap == "overlay")) || (cap == "none")) {
+            g.caption = cap
+        }
+        if ((strlen g.caption) == 0) {
+            g.caption = "below"
+            if (g.layout == "full") {
+                g.caption = "overlay"
+            }
+        }
+        def f:[double] (MdGallery.focusOf((node.attrValue("focus"))))
+        if ((array_length f) == 2) {
+            g.focusX = (itemAt f 0)
+            g.focusY = (itemAt f 1)
+        }
+        def i:int 0
+        while (i < (node.classCount())) {
+            push g.classes (node.classAt(i))
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length g.items)) {
+            def it:MdGalleryItem (itemAt g.items k)
+            if (it.hasFocus == false) {
+                it.focusX = g.focusX
+                it.focusY = g.focusY
+            }
+            k = (k + 1)
+        }
+        return g
+    }
+
+    ; The lines of the fence, one cell each. A line that does not start a
+    ; list item continues the one before it (a long caption wrapped by
+    ; hand); blank lines are nothing.
+    sfn parse:MdGallery (literal:string) {
+        def g (new MdGallery())
+        def lines:[string] (strsplit literal "\n")
+        def off:int 0
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (itemAt lines i)
+            def line:string (trim raw)
+            def n:int (strlen line)
+            if (n > 0) {
+                def bullet:boolean false
+                if (n >= 2) {
+                    def c0:int (charAt line 0)
+                    if (((c0 == 45) || (c0 == 42)) || (c0 == 43)) {
+                        if ((charAt line 1) == 32) {
+                            bullet = true
+                        }
+                    }
+                }
+                if (bullet || ((array_length g.items) == 0)) {
+                    def body:string line
+                    if bullet {
+                        body = (trim (substring line 2 n))
+                    }
+                    def it:MdGalleryItem (MdGallery.item(body))
+                    it.index = ((array_length g.items) + 1)
+                    it.offset = off
+                    push g.items it
+                } {
+                    def last:MdGalleryItem (itemAt g.items ((array_length g.items) - 1))
+                    if last.isText {
+                        last.text = ((last.text + " ") + line)
+                    } {
+                        last.caption = (trim ((last.caption + " ") + line))
+                    }
+                }
+            }
+            off = ((off + (strlen raw)) + 1)
+            i = (i + 1)
+        }
+        return g
+    }
+
+    ; One cell from its line (without the bullet).
+    sfn item:MdGalleryItem (body0:string) {
+        def it (new MdGalleryItem())
+        def body:string body0
+        ; its own `{focus=top span=2 .wide}` at the end
+        def at:int (MdAttrs.trailingAt(body))
+        if (at > 0) {
+            def tmp:MdNode (new MdNode())
+            if (MdAttrs.applyTo(tmp (substring body at (strlen body)))) {
+                body = (trim (substring body 0 at))
+                def f:[double] (MdGallery.focusOf((tmp.attrValue("focus"))))
+                if ((array_length f) == 2) {
+                    it.focusX = (itemAt f 0)
+                    it.focusY = (itemAt f 1)
+                    it.hasFocus = true
+                }
+                def sp:string (trim (tmp.attrValue("span")))
+                if ((strlen sp) > 0) {
+                    def v@(optional):int (str2int sp)
+                    def s:int (?? v 1)
+                    if (s > 1) {
+                        it.span = s
+                    }
+                }
+                def ci:int 0
+                while (ci < (tmp.classCount())) {
+                    push it.classes (tmp.classAt(ci))
+                    ci = (ci + 1)
+                }
+            }
+        }
+        ; `![caption](path)`
+        if (((strlen body) > 4) && ((substring body 0 2) == "![")) {
+            def close:int (indexOf body "](")
+            def end:int ((strlen body) - 1)
+            if ((close > 1) && ((charAt body end) == 41)) {
+                it.caption = (substring body 2 close)
+                it.src = (trim (substring body (close + 2) end))
+                return it
+            }
+        }
+        ; `path: caption` or a bare path
+        def colon:int (indexOf body ": ")
+        def head:string body
+        def rest:string ""
+        if (colon > 0) {
+            head = (trim (substring body 0 colon))
+            rest = (trim (substring body (colon + 2) (strlen body)))
+        } {
+            if (((strlen body) > 1) && ((charAt body ((strlen body) - 1)) == 58)) {
+                head = (trim (substring body 0 ((strlen body) - 1)))
+            }
+        }
+        if (MdGallery.isPicturePath(head)) {
+            it.src = head
+            it.caption = rest
+            return it
+        }
+        it.isText = true
+        it.text = body
+        return it
+    }
+
+    ; A picture's name: one word ending in a picture's extension.
+    sfn isPicturePath:boolean (s:string) {
+        if ((strlen s) < 5) { return false }
+        if ((indexOf s " ") >= 0) { return false }
+        def low:string (MdChar.lower(s))
+        def q:int (indexOf low "?")
+        if (q > 0) {
+            low = (substring low 0 q)
+        }
+        def exts:[string] (strsplit ".jpg,.jpeg,.png,.gif,.webp,.svg,.bmp,.avif" ",")
+        def i:int 0
+        while (i < (array_length exts)) {
+            def e:string (itemAt exts i)
+            def n:int (strlen low)
+            def m:int (strlen e)
+            if ((n > m) && ((substring low (n - m) n) == e)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; `focus=`: words (`top`, `bottom-left`, `left`, `center`) or two
+    ; numbers, x then y, as percentages (`30% 70%`) or fractions
+    ; (`0.3,0.7`). Empty when it says nothing this can read.
+    sfn focusOf:[double] (v0:string) {
+        def out:[double]
+        def v:string (MdChar.lower((trim v0)))
+        if ((strlen v) == 0) {
+            return out
+        }
+        def x:double 0.5
+        def y:double 0.5
+        def words:boolean false
+        if ((indexOf v "left") >= 0) {
+            x = 0.0
+            words = true
+        }
+        if ((indexOf v "right") >= 0) {
+            x = 1.0
+            words = true
+        }
+        if ((indexOf v "top") >= 0) {
+            y = 0.0
+            words = true
+        }
+        if ((indexOf v "bottom") >= 0) {
+            y = 1.0
+            words = true
+        }
+        if ((indexOf v "center") >= 0) {
+            words = true
+        }
+        if ((indexOf v "centre") >= 0) {
+            words = true
+        }
+        if words {
+            push out x
+            push out y
+            return out
+        }
+        def parts:[string]
+        def cur:string ""
+        def i:int 0
+        while (i < (strlen v)) {
+            def c:int (charAt v i)
+            if (((c == 32) || (c == 44)) || (c == 59)) {
+                if ((strlen cur) > 0) {
+                    push parts cur
+                }
+                cur = ""
+            } {
+                cur = (cur + (strfromcode c))
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push parts cur
+        }
+        if ((array_length parts) != 2) {
+            return out
+        }
+        def a:double (MdGallery.fraction((itemAt parts 0)))
+        def b:double (MdGallery.fraction((itemAt parts 1)))
+        if ((a < 0.0) || (b < 0.0)) {
+            return out
+        }
+        push out a
+        push out b
+        return out
+    }
+
+    ; `30%` or `0.3` as 0.3, clamped to 0..1; -1 when it is not a number.
+    sfn fraction:double (s0:string) {
+        def s:string (trim s0)
+        def pct:boolean false
+        if (((strlen s) > 1) && ((charAt s ((strlen s) - 1)) == 37)) {
+            pct = true
+            s = (substring s 0 ((strlen s) - 1))
+        }
+        if ((CssValue.isBareNumber(s)) == false) {
+            return -1.0
+        }
+        def d@(optional):double (to_double (trim s))
+        if (null? d) {
+            return -1.0
+        }
+        def v:double (unwrap d)
+        if (pct || (v > 1.0)) {
+            v = (v / 100.0)
+        }
+        if (v < 0.0) {
+            v = 0.0
+        }
+        if (v > 1.0) {
+            v = 1.0
+        }
+        return v
+    }
+
+    ; ----------------------------------------------------------------------
+    ; What the sheet says
+    ; ----------------------------------------------------------------------
+
+    fn galleryNode:CssNode () {
+        def n (new CssNode())
+        n.tag = "gallery"
+        def i:int 0
+        while (i < (array_length classes)) {
+            n.addClass((itemAt classes i))
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn cellNode:CssNode (it:MdGalleryItem) {
+        def n (new CssNode())
+        n.tag = "cell"
+        def p@(optional):CssNode (this.galleryNode())
+        n.parent = p
+        if it.isText {
+            n.addClass("text")
+        }
+        n.addClass((MdCss.nthClass(it.index)))
+        def i:int 0
+        while (i < (array_length it.classes)) {
+            n.addClass((itemAt it.classes i))
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn look:MdGalleryLook (css:MdCss) {
+        def out (new MdGalleryLook())
+        def got:CssComputed (CssCascade.resolve(css.sheet (this.galleryNode())))
+        out.gap = (MdGallery.lenOf(got "gap" out.gap))
+        if (got.has("column-gap")) {
+            out.gap = (MdGallery.lenOf(got "column-gap" out.gap))
+        }
+        def cols:string (CssSheet.tidy((got.get("columns"))))
+        if ((strlen cols) == 0) {
+            cols = (CssSheet.tidy((got.get("column-count"))))
+        }
+        if ((strlen cols) > 0) {
+            def c@(optional):int (str2int cols)
+            def ci:int (?? c 0)
+            if (ci > 0) {
+                out.columns = ci
+            }
+        }
+        out.background = (MdGallery.colorOf(got "background-color" ""))
+        return out
+    }
+
+    ; A cell's own look, over the defaults a style gives (`text`: a text
+    ; cell, whose words are set in the cell's own type).
+    fn cellLook:MdCellLook (css:MdCss it:MdGalleryItem st:MdStyle) {
+        def out (new MdCellLook())
+        out.fontSize = st.bodySize
+        out.family = st.bodyFamily
+        out.color = st.textColor
+        if it.isText {
+            out.padT = 12.0
+            out.padR = 12.0
+            out.padB = 12.0
+            out.padL = 12.0
+        }
+        def got:CssComputed (CssCascade.resolve(css.sheet (this.cellNode(it))))
+        MdGallery.boxLook(out got)
+        return out
+    }
+
+    ; A caption's look: a step smaller than the text, the page's ink on an
+    ; overlay band, muted under a picture.
+    fn captionLook:MdCellLook (css:MdCss it:MdGalleryItem st:MdStyle) {
+        def out (new MdCellLook())
+        out.fontSize = (st.bodySize * 0.8)
+        out.family = st.bodyFamily
+        out.color = st.mutedColor
+        if (caption == "overlay") {
+            out.color = st.textColor
+            out.padT = 6.0
+            out.padB = 6.0
+        } {
+            out.padT = 4.0
+        }
+        def n (new CssNode())
+        n.tag = "caption"
+        def p@(optional):CssNode (this.cellNode(it))
+        n.parent = p
+        def got:CssComputed (CssCascade.resolve(css.sheet n))
+        MdGallery.boxLook(out got)
+        return out
+    }
+
+    sfn boxLook:void (out:MdCellLook got:CssComputed) {
+        if (got.has("padding")) {
+            def pads:[double] (MdGallery.sides((got.get("padding"))))
+            if ((array_length pads) == 4) {
+                out.padT = (itemAt pads 0)
+                out.padR = (itemAt pads 1)
+                out.padB = (itemAt pads 2)
+                out.padL = (itemAt pads 3)
+            }
+        }
+        out.padT = (MdGallery.lenOf(got "padding-top" out.padT))
+        out.padR = (MdGallery.lenOf(got "padding-right" out.padR))
+        out.padB = (MdGallery.lenOf(got "padding-bottom" out.padB))
+        out.padL = (MdGallery.lenOf(got "padding-left" out.padL))
+        out.radius = (MdGallery.lenOf(got "border-radius" out.radius))
+        out.borderWidth = (MdGallery.lenOf(got "border-width" out.borderWidth))
+        out.borderColor = (MdGallery.colorOf(got "border-color" out.borderColor))
+        out.background = (MdGallery.colorOf(got "background-color" out.background))
+        out.fontSize = (MdGallery.lenOf(got "font-size" out.fontSize))
+        out.color = (MdGallery.colorOf(got "color" out.color))
+        if (got.has("font-family")) {
+            def f:string (CssValue.firstFamily((got.get("font-family"))))
+            if ((strlen f) > 0) {
+                out.family = f
+            }
+        }
+        if (got.has("text-align")) {
+            def a:string (MdCss.alignWord((got.get("text-align"))))
+            if ((strlen a) > 0) {
+                out.align = a
+            }
+        }
+        if (got.has("font-weight")) {
+            out.bold = (CssValue.isBold((got.get("font-weight"))))
+        }
+    }
+
+    ; `10pt`, `10pt 20pt`, `10pt 10pt 32pt` or four: top, right, bottom,
+    ; left as CSS has them.
+    sfn sides:[double] (v:string) {
+        def out:[double]
+        def words:[string]
+        def cur:string ""
+        def t:string (CssSheet.tidy(v))
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if (c == 32) {
+                if ((strlen cur) > 0) {
+                    push words cur
+                }
+                cur = ""
+            } {
+                cur = (cur + (strfromcode c))
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push words cur
+        }
+        def n:int (array_length words)
+        if ((n < 1) || (n > 4)) {
+            return out
+        }
+        def vals:[double]
+        def k:int 0
+        while (k < n) {
+            push vals (MdGallery.safeLen((CssValue.fontPoints((itemAt words k) 0.0))))
+            k = (k + 1)
+        }
+        def top:double (itemAt vals 0)
+        def right:double top
+        def bottom:double top
+        def left:double top
+        if (n >= 2) {
+            right = (itemAt vals 1)
+            left = right
+        }
+        if (n >= 3) {
+            bottom = (itemAt vals 2)
+        }
+        if (n == 4) {
+            left = (itemAt vals 3)
+        }
+        push out top
+        push out right
+        push out bottom
+        push out left
+        return out
+    }
+
+    sfn lenOf:double (got:CssComputed name:string fallback:double) {
+        if ((got.has(name)) == false) {
+            return fallback
+        }
+        return (MdGallery.safeLen((CssValue.fontPoints((got.get(name)) fallback))))
+    }
+
+    ; A length a sheet gave, within what a slide can hold: no negative
+    ; padding, nothing past 500pt (MdCssLimits holds the document's own).
+    sfn safeLen:double (v:double) {
+        if (v < 0.0) {
+            return 0.0
+        }
+        if (v > 500.0) {
+            return 500.0
+        }
+        return v
+    }
+
+    sfn colorOf:string (got:CssComputed name:string fallback:string) {
+        if ((got.has(name)) == false) {
+            return fallback
+        }
+        def word:string (CssSheet.lower((CssSheet.tidy((got.get(name))))))
+        if ((word == "none") || (word == "transparent")) {
+            return ""
+        }
+        def c:EVGColor (CssValue.color((got.get(name))))
+        if (c.isSet == false) {
+            return fallback
+        }
+        return (MdCss.hexOf(c))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The grid
+    ; ----------------------------------------------------------------------
+
+    ; How many across: the sheet's, else as many as there are cells up to
+    ; three (four go two by two).
+    fn columnsFor:int (look:MdGalleryLook) {
+        def n:int (array_length items)
+        if (look.columns > 0) {
+            return look.columns
+        }
+        if (n == 4) {
+            return 2
+        }
+        if (n < 1) {
+            return 1
+        }
+        if (n <= 3) {
+            return n
+        }
+        return 3
+    }
+
+    ; The rows: item indexes (from 0), each row filled up to `cols` columns
+    ; by the cells' spans. A cell wider than the grid is as wide as it.
+    fn rows:[[int]] (cols:int) {
+        def out:[[int]]
+        def row:[int]
+        def used:int 0
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:MdGalleryItem (itemAt items i)
+            def s:int (MdGallery.spanIn(it cols))
+            if (((used + s) > cols) && ((array_length row) > 0)) {
+                push out row
+                def fresh:[int]
+                row = fresh
+                used = 0
+            }
+            push row i
+            used = (used + s)
+            i = (i + 1)
+        }
+        if ((array_length row) > 0) {
+            push out row
+        }
+        return out
+    }
+
+    sfn spanIn:int (it:MdGalleryItem cols:int) {
+        def s:int it.span
+        if (s < 1) {
+            s = 1
+        }
+        if (s > cols) {
+            s = cols
+        }
+        return s
+    }
+
+    ; The width of each cell of a row across `w`: in proportion to its
+    ; span, the row's gaps taken out, so a short last row fills the width
+    ; too rather than leaving a hole.
+    fn rowWidths:[double] (row:[int] cols:int w:double gap:double) {
+        def out:[double]
+        def total:int 0
+        def i:int 0
+        while (i < (array_length row)) {
+            total = (total + (MdGallery.spanIn((itemAt items (itemAt row i)) cols)))
+            i = (i + 1)
+        }
+        def n:int (array_length row)
+        def room:double (w - (gap * (to_double (n - 1))))
+        if (room < 0.0) {
+            room = 0.0
+        }
+        def k:int 0
+        while (k < n) {
+            def s:int (MdGallery.spanIn((itemAt items (itemAt row k)) cols))
+            push out (room * ((to_double s) / (to_double total)))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; How many rows go on one slide: as many as keep a row at least `minRow`
+    ; high in `h`, at least one.
+    sfn rowsPerPage:int (h:double gap:double minRow:double rowCount:int) {
+        def n:int rowCount
+        while (n > 1) {
+            def rowH:double ((h - (gap * (to_double (n - 1)))) / (to_double n))
+            if (rowH >= minRow) {
+                return n
+            }
+            n = (n - 1)
+        }
+        return 1
+    }
+
+    ; One cell at `x, y`, `w` × `h`: where its picture and its caption go.
+    ; `capH` is how tall its caption's lines are (at the width `captionWidth`
+    ; gives), `natW × natH` the picture's own pixels (0: unknown).
+    fn placeCell:MdGalleryCell (it:MdGalleryItem idx:int x:double y:double w:double h:double cl:MdCellLook capLook:MdCellLook capH:double natW:double natH:double) {
+        def c (new MdGalleryCell())
+        c.item = idx
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        def ix:double (x + cl.padL)
+        def iy:double (y + cl.padT)
+        def iw:double ((w - cl.padL) - cl.padR)
+        def ih:double ((h - cl.padT) - cl.padB)
+        if (iw < 1.0) {
+            iw = 1.0
+        }
+        if (ih < 1.0) {
+            ih = 1.0
+        }
+        if it.isText {
+            c.capX = ix
+            c.capY = iy
+            c.capW = iw
+            c.capH = ih
+            return c
+        }
+        def hasCap:boolean (((strlen it.caption) > 0) && (caption != "none"))
+        def boxH:double ih
+        def band:double ((capH + capLook.padT) + capLook.padB)
+        if (hasCap && (caption == "below")) {
+            ; the caption under the picture, inside the cell (a polaroid's
+            ; deep bottom padding is where it sits); never more than half
+            if (band > (ih * 0.5)) {
+                band = (ih * 0.5)
+            }
+            boxH = (ih - band)
+            c.capX = (ix + capLook.padL)
+            c.capY = ((iy + boxH) + capLook.padT)
+            c.capW = ((iw - capLook.padL) - capLook.padR)
+            c.capH = capH
+        }
+        MdGallery.fitPicture(c fit it.focusX it.focusY natW natH ix iy iw boxH)
+        if (hasCap && (caption == "overlay")) {
+            if (band > (boxH * 0.6)) {
+                band = (boxH * 0.6)
+            }
+            c.dim = true
+            c.dimX = ix
+            c.dimW = iw
+            c.dimY = ((iy + boxH) - band)
+            c.dimH = band
+            c.capX = (ix + capLook.padL)
+            c.capY = (c.dimY + capLook.padT)
+            c.capW = ((iw - capLook.padL) - capLook.padR)
+            c.capH = capH
+        }
+        return c
+    }
+
+    ; The picture in the box `x, y, w, h`: `cover` fills it and keeps the
+    ; part `fx, fy` names, `contain` shows all of it in the middle.
+    sfn fitPicture:void (c:MdGalleryCell fit:string fx:double fy:double natW:double natH:double x:double y:double w:double h:double) {
+        c.picX = x
+        c.picY = y
+        c.picW = w
+        c.picH = h
+        c.cropX = 0.0
+        c.cropY = 0.0
+        c.cropW = 1.0
+        c.cropH = 1.0
+        c.cropped = false
+        if ((((natW <= 0.0) || (natH <= 0.0)) || (w <= 0.0)) || (h <= 0.0)) {
+            return
+        }
+        def pr:double (natW / natH)
+        def br:double (w / h)
+        if (fit == "contain") {
+            if (pr > br) {
+                c.picH = (w / pr)
+                c.picY = (y + ((h - c.picH) * 0.5))
+            } {
+                c.picW = (h * pr)
+                c.picX = (x + ((w - c.picW) * 0.5))
+            }
+            return
+        }
+        if ((fabs (pr - br)) < 0.0001) {
+            return
+        }
+        c.cropped = true
+        if (pr > br) {
+            ; wider than its place: a slice across, from where `fx` says
+            c.cropW = (br / pr)
+            c.cropX = ((1.0 - c.cropW) * fx)
+        } {
+            c.cropH = (pr / br)
+            c.cropY = ((1.0 - c.cropH) * fy)
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Print
+    ; ----------------------------------------------------------------------
+
+    ; How many dots an inch a picture of `natW` pixels gets when it is drawn
+    ; `drawnW` points wide (a crop counts: only `cropW` of it is in the
+    ; place). 0 when it is not known.
+    sfn effectiveDpi:double (natW:double cropW:double drawnW:double) {
+        if (((natW <= 0.0) || (drawnW <= 0.0)) || (cropW <= 0.0)) {
+            return 0.0
+        }
+        return (((natW * cropW) / drawnW) * 72.0)
+    }
+}

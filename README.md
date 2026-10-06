@@ -39,6 +39,7 @@ npm run markdown:attrs:test    # `{.class}` attaches to the right block, and to 
 npm run markdown:css:test      # a template says it, the style holds it, nothing else moves
 npm run markdown:slides:test   # columns, and where a slide breaks
 npm run markdown:pptx:test     # the deck goes out and comes back the same deck
+npm run markdown:gallery:test  # ```gallery, {heading=hidden} and @media print
 ```
 
 ## Editing the drawing
@@ -585,3 +586,43 @@ editors this repository already has rather than by a third one written here.
 [`../PLAN_DOCUMENT_MODES.md`](../PLAN_DOCUMENT_MODES.md) has the modes and the
 staging; the bytes a picture or a background image needs are in
 [`../vfs/PLAN_VFS.md`](../vfs/PLAN_VFS.md).
+
+## Photo albums: ```gallery, hidden titles and print
+
+````markdown
+## Hietaniemi {heading=hidden}
+
+```gallery
+- media/ranta.jpg: Hietaniemi heinäkuussa {focus=top}
+- media/sauna.jpg: Sauna {span=2}
+- Kesä jäi mieleen.
+```
+{layout=full fit=cover caption=overlay .polaroid}
+````
+
+- `{heading=hidden}` on a heading: it names the slide (contents, anchors,
+  screen readers, the web page's `.visually-hidden`) and is not drawn; the
+  room goes to what is under it. `MdLayout.pageOfHidden(src)` says which
+  slide it names, since it has no box.
+- ```` ```gallery ````: one cell a line: `path: caption`,
+  `![caption](path)`, or words (a text cell). A line's own `{focus= span=
+  .class}`. Under the fence `layout=grid|full`, `fit=cover|contain`,
+  `caption=below|overlay|none`, `focus=` (`top`, `bottom-left`,
+  `30% 70%`, `0.3,0.7`). The geometry is `MdGallery` (no measuring, no
+  drawing); `MdLayout.gallery` makes the boxes. A `cover` crop is a crop
+  window on the picture box (`MdBox.hasCrop`, carried to the display list,
+  and to PPTX as `a:srcRect`).
+- Selectors: `gallery { gap; columns; background-color }`, `cell { padding;
+  border-width; border-color; border-radius; background-color }`, `caption
+  { font-size; color; font-family; text-align }`, `cell.text`, `.polaroid
+  cell`, `cell:nth(3)` (read as the class `nth--3`, which weighs what a
+  pseudo-class weighs). A sheet sets the look; the template sets where
+  things go.
+- `@media print { page { width; height; bleed; safe-area } deck {
+  crop-marks: on } }` count only when the layout is for print
+  (`MarkdownEdit.media = "print"`, `MdCss.applyPrint`): the print page is
+  the page, a full-page picture runs over the bleed (`MdBox.bleeds`), and
+  a full page's caption keeps inside the safe area. `@media screen { }`
+  counts only on a screen. `MdGallery.effectiveDpi` is what a picture
+  prints at.
+

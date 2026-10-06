@@ -442,6 +442,10 @@ class MdToPptx {
     ; ----------------------------------------------------------------------
     fn block:void (d:PptxDeck node:MdNode) {
         if (node.kind == "front_matter") { return }
+        if (MdGallery.isGallery(node)) {
+            this.gallery(d node)
+            return
+        }
         def page:int (this.pageOf(node))
         if (page < 0) {
             ; No boxes at all: the layout drew nothing for it, so there is
@@ -1556,6 +1560,78 @@ class MdToPptx {
         def model:PptxSlide (slide.model())
         push model.shapes group
         result.drawn = (result.drawn + 1)
+    }
+
+    ; A gallery as the layout drew it, on every slide it reaches (a grid
+    ; that ran on, a `layout=full` one with a slide per picture): the
+    ; pictures cropped as on the stage (`a:srcRect`), the cells, bands and
+    ; captions as shapes and text boxes, one group a slide.
+    fn gallery:void (d:PptxDeck node:MdNode) {
+        def p0:int (this.pageOf(node))
+        if (p0 < 0) { return }
+        def last:int p0
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if ((MdToPptx.inSpan(node b.srcStart)) && (b.page > last)) {
+                last = b.page
+            }
+            i = (i + 1)
+        }
+        def p:int p0
+        while (p <= last) {
+            if (p < (d.slideCount())) {
+                def dl (new EVGDisplayList())
+                def painter (new MdToEvg())
+                def any:boolean false
+                def k:int 0
+                while (k < (array_length layout.boxes)) {
+                    def b2:MdBox (itemAt layout.boxes k)
+                    if ((b2.page == p) && (MdToPptx.inSpan(node b2.srcStart))) {
+                        painter.paintBox(dl layout b2 0.0)
+                        any = true
+                    }
+                    k = (k + 1)
+                }
+                if any {
+                    def conv (new PptxFromEvg())
+                    conv.unit = 1.0
+                    if haveImages {
+                        conv.setImages(imageStore)
+                    }
+                    def group:PptxShape (conv.build(dl 0.0 0.0))
+                    group.name = ("Gallery " + (to_string (result.drawn + 1)))
+                    group.altText = (MdToPptx.galleryAlt(node))
+                    def slide:PptxSlideRef (d.slideAt(p))
+                    def model:PptxSlide (slide.model())
+                    push model.shapes group
+                    result.drawn = (result.drawn + 1)
+                }
+            }
+            p = (p + 1)
+        }
+    }
+
+    ; What a gallery shows, in words: its captions and text cells.
+    sfn galleryAlt:string (node:MdNode) {
+        def g:MdGallery (MdGallery.of(node))
+        def out:string ""
+        def i:int 0
+        while (i < (array_length g.items)) {
+            def it:MdGalleryItem (itemAt g.items i)
+            def w:string it.caption
+            if it.isText {
+                w = it.text
+            }
+            if ((strlen w) > 0) {
+                if ((strlen out) > 0) {
+                    out = (out + "; ")
+                }
+                out = (out + w)
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     ; A $$ display: its outlines as shapes, grouped, with the TeX kept on the

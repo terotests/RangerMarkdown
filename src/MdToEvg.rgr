@@ -144,6 +144,10 @@ class MdToEvg {
         def y:double (box.y + dy)
         if (box.kind == 1) {
             this.rect(out box.x y box.w box.h box.fill)
+            if (box.radius > 0.0) {
+                def last:EVGDrawCmd (itemAt out.cmds ((array_length out.cmds) - 1))
+                last.radius = box.radius
+            }
             return
         }
         if (box.kind == 2) {
@@ -154,6 +158,7 @@ class MdToEvg {
             c.w = box.w
             c.h = box.h
             c.thickness = box.strokeWidth
+            c.radius = box.radius
             this.tint(c box.stroke)
             push out.cmds c
             return
@@ -172,6 +177,15 @@ class MdToEvg {
             p.src = box.imagePath
             p.text = box.imageAlt
             p.a = 1.0
+            ; a gallery's `cover`: the part of the picture that fills the box
+            if box.hasCrop {
+                p.hasCrop = true
+                p.cropX = box.cropX
+                p.cropY = box.cropY
+                p.cropW = box.cropW
+                p.cropH = box.cropH
+            }
+            p.radius = box.radius
             push out.cmds p
             return
         }
@@ -455,6 +469,12 @@ class MdToEvg {
             ; picture's own proportions, so there is nothing to crop — and a
             ; `cover` that cropped a diagram's edge would be silent.
             img.objectFit = "contain"
+            ; a gallery's crop: an element has no source rectangle, so it
+            ; fills its box from the middle (the display list keeps the
+            ; exact part, `focus=` and all)
+            if b.hasCrop {
+                img.objectFit = "cover"
+            }
             img.sourceWidth = (to_double b.imageNaturalW)
             img.sourceHeight = (to_double b.imageNaturalH)
             return img

@@ -129,6 +129,17 @@ class MdStyle {
     def pageHeight:double 841.89
     def margin:double 56.0
 
+    ; PRINT (`@media print { page { bleed; safe-area } deck { crop-marks } }`,
+    ; set by `MdCss.applyPrint` only when the layout is for paper). `bleed`:
+    ; how far a picture that reaches the page's edge runs past it, for the
+    ; cut; `safeArea`: how far in from the edge text has to stay (the layout
+    ; report checks it); `cropMarks`: the PDF draws the cut lines. On a
+    ; screen all three are 0 / off and nothing moves.
+    def forPrint:boolean false
+    def bleed:double 0.0
+    def safeArea:double 0.0
+    def cropMarks:boolean false
+
     ; Page furniture. All off by default: a document that said nothing about
     ; itself gets a plain page, which is what a README wants.
     def title:string ""
@@ -236,6 +247,9 @@ class MdStyle {
         out = ((((out + "/") + (to_string cellPadX)) + "/") + (to_string cellPadY))
         out = ((((out + " page ") + (to_string pageWidth)) + "/") + (to_string pageHeight))
         out = ((out + "/") + (to_string margin))
+        if forPrint {
+            out = (out + " print " + (to_string bleed) + "/" + (to_string safeArea))
+        }
         out = ((((out + "/") + pageBackground) + "/") + pageBackgroundImage)
         out = ((((out + " furniture ") + title) + "/") + runningHead)
         out = ((out + "/") + pageNumbers)
