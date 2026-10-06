@@ -437,12 +437,18 @@ class MdLayout {
     ;
     ;   1  MANDATORY   `{.slide}`, or a heading at or above `splitLevel`
     ;   2  FORBIDDEN   `{.no-break}`
-    ;   3  PREFERRED   any other heading, if the slide is more than half full
+    ;   3  PREFERRED   any other heading, when the section it opens does not
+    ;                  fit in the room left and does fit on a slide of its own
     ;   4  FALLBACK    overflow — which is what pagination already does
     ;
     ; …and one constraint that is not a break rule and is the thing that makes
     ; an automatic deck look hand-made: KEEP-WITH-NEXT, a heading is never the
     ; last thing on a slide.
+    ;
+    ; A slide that breaks goes on on a CONTINUATION, which says the slide's
+    ; title again at its top — always, whatever it begins with — and, when it
+    ; begins inside a section, that section's sub-heading under the title
+    ; (`emitSlideTitle`).
     def slides:boolean false
     ; `#` only, at 1. `2` means `#` and `##` each start a slide.
     def splitLevel:int 1
@@ -483,6 +489,25 @@ class MdLayout {
     ; `{heading=hidden}` on the slide's title: it names the slide and is
     ; not drawn, here or on a continuation slide
     def slideTitleHidden:boolean false
+    ; The SECTION the layout is in: the last sub-heading (deeper than
+    ; `splitLevel`) under the slide's title, until the next heading. A slide
+    ; a block spills onto from inside a section says that heading again
+    ; under the title — the reader of the second half of "Footnotes" is
+    ; told it is "Footnotes", not only "Plugins". Empty between a title and
+    ; its first sub-heading, and while a heading is itself being laid out,
+    ; so a continuation that begins WITH a sub-heading has the title alone
+    ; over it rather than the previous section's heading.
+    def sectionTitle:string ""
+    def sectionLevel:int 0
+    def sectionHidden:boolean false
+    ; What each continuation slide said again at its top, by slide: a slide
+    ; laid out again to shrink or grow it (`shrinkSlide`, `growSlide`) says
+    ; it again at the new size instead of losing it. Hidden ones are "".
+    def contPage:[int]
+    def contTitle:[string]
+    def contTitleLevel:[int]
+    def contSection:[string]
+    def contSectionLevel:[int]
     ; HIDDEN HEADINGS (`## Kesä {heading=hidden}`): the page each one names
     ; and where it is in the source. They draw no box, so a host that finds
     ; a block's slide by its boxes asks these (`pageOfHidden`).
@@ -724,6 +749,12 @@ class MdLayout {
         slideOverflows = 0
         slideTitle = ""
         slideTitleLevel = 0
+        this.clearSection()
+        clear contPage
+        clear contTitle
+        clear contTitleLevel
+        clear contSection
+        clear contSectionLevel
         this.layoutPaged(doc)
         slides = false
     }
@@ -1630,8 +1661,18 @@ class MdLayout {
                     fullPageDone = false
                     this.nextSlide()
                 }
-                if (this.slideBreakBefore(child i)) {
+                if (child.kind == "heading") {
+                    ; a heading closes the section it was in; a sub-heading
+                    ; opens its own once it has been laid out (below)
+                    this.clearSection()
+                }
+                if (this.slideBreakBefore(doc child i)) {
                     this.nextSlide()
+                    ; a sub-heading moved to the next slide is the slide
+                    ; going on: the title again over it, as any continuation
+                    if (this.continuesSlide(child)) {
+                        this.emitSlideTitle()
+                    }
                 }
                 this.keepWithNext(child i n doc)
                 if (child.kind == "heading") {
@@ -1684,6 +1725,11 @@ class MdLayout {
                 this.startFloat(doc i fromBox)
             }
             followH = 0.0
+            if (slides && (child.kind == "heading") && (child.level > splitLevel)) {
+                sectionTitle = (child.plainText())
+                sectionLevel = child.level
+                sectionHidden = (MdLayout.hiddenHeading(child))
+            }
             if slides {
                 def isTitle:boolean (opensSlide && (child.kind == "heading"))
                 if (isTitle && (MdLayout.bodyFollows(doc i splitLevel))) {
@@ -1842,22 +1888,44 @@ class MdLayout {
     ; and taken back: the room a picture leaves under itself so that the
     ; text written under it is on the same slide.
     fn heightAfter:double (doc:MdNode i:int) {
-        def j:int (i + 1)
         if (! (MdLayout.bodyFollows(doc i splitLevel))) { return 0.0 }
+        return this.measureBlocks(doc (i + 1) 0)
+    }
+
+    ; How tall the run of blocks from `from` on is, laid out from the top and
+    ; taken back: every block that stays on the slide `from` is on, and, when
+    ; `level` is above 0, only up to the next heading at `level` or above —
+    ; the SECTION a sub-heading at `level` opens (see `sectionMovesOn`).
+    ; Nothing it laid out is left behind: boxes, headings, the slide count and
+    ; what a full-page gallery noted for the slides it would have opened.
+    fn measureBlocks:double (doc:MdNode from:int level:int) {
+        def n:int (doc.childCount())
+        if (from >= n) { return 0.0 }
         def savedBoxes:int (array_length boxes)
         def savedY:double cursorY
         def savedPage:int page
         def savedPageCount:int pageCount
         def savedOverflows:int slideOverflows
         def savedHeads:int (array_length headText)
+        def savedHeaderOff:int (array_length headerOff)
+        def savedFooterOff:int (array_length footerOff)
+        def savedNamed:int (array_length namedPage)
+        def savedHiddenOn:int hiddenOnPage
+        def savedFullDone:boolean fullPageDone
         def wasPaginate:boolean paginate
         paginate = false
         cursorY = 0.0
-        def n:int (doc.childCount())
+        def j:int from
         def going:boolean true
         while (going && (j < n)) {
             this.block((doc.childAt(j)) contentX contentW)
             going = (MdLayout.bodyFollows(doc j splitLevel))
+            if (going && (level > 0) && ((j + 1) < n)) {
+                def next:MdNode (doc.childAt((j + 1)))
+                if ((next.kind == "heading") && (next.level <= level)) {
+                    going = false
+                }
+            }
             j = (j + 1)
         }
         def h:double cursorY
@@ -1869,6 +1937,18 @@ class MdLayout {
             removeLast headPage
             removeLast headY
         }
+        while ((array_length headerOff) > savedHeaderOff) {
+            removeLast headerOff
+        }
+        while ((array_length footerOff) > savedFooterOff) {
+            removeLast footerOff
+        }
+        while ((array_length namedPage) > savedNamed) {
+            removeLast namedPage
+            removeLast namedText
+        }
+        hiddenOnPage = savedHiddenOn
+        fullPageDone = savedFullDone
         cursorY = savedY
         page = savedPage
         pageCount = savedPageCount
@@ -1917,7 +1997,7 @@ class MdLayout {
     ; ----------------------------------------------------------------------
     ; …and the four rules, in order
     ; ----------------------------------------------------------------------
-    fn slideBreakBefore:boolean (child:MdNode i:int) {
+    fn slideBreakBefore:boolean (doc:MdNode child:MdNode i:int) {
         ; Never before the first block, and never on a slide with nothing on
         ; it yet — a rule that fires twice in a row leaves a blank slide.
         if (i == 0) { return false }
@@ -1930,14 +2010,44 @@ class MdLayout {
         if (child.hasClass("slide")) { return true }
         if (child.kind == "heading") {
             if (child.level <= splitLevel) { return true }
-            ; 3. PREFERRED — any other heading, once the slide is more than
-            ; half full. Below half, a second heading is a subheading of what
-            ; is already there and belongs with it.
-            def used:double (cursorY - contentTop)
-            def room:double (contentBottom - contentTop)
-            if (used > (room * 0.5)) { return true }
+            ; 3. PREFERRED — any other heading, when the slide has to break
+            ; anyway: see `sectionMovesOn`.
+            return this.sectionMovesOn(doc i)
         }
         return false
+    }
+
+    ; 3. PREFERRED, in full. A sub-heading opens a SECTION: it and what
+    ; follows, up to the next heading at its level or above (or the next
+    ; slide's title). When the section fits in the room left, nothing
+    ; breaks — a slide is cut where it has to be, not wherever a heading
+    ; happens to fall below the middle (that rule sent the last line of
+    ; `### h3` … `###### h6` to a slide of its own with half the slide
+    ; empty). When it does not fit, the slide is going to break somewhere,
+    ; and the place to break is before the heading: the section starts at
+    ; the top of the continuation, under the title, whole. That holds only
+    ; when the section fits on a continuation of its own; one taller than
+    ; that is cut wherever it runs over, as before, and the continuation
+    ; says its heading again (`emitSlideTitle`). A slide that holds only
+    ; its title keeps the section: moving it would leave the title alone.
+    fn sectionMovesOn:boolean (doc:MdNode i:int) {
+        if slideTitleOnly { return false }
+        def child:MdNode (doc.childAt(i))
+        def h:double (this.measureBlocks(doc i child.level))
+        if ((cursorY + h) <= (contentBottom + fitSlack)) { return false }
+        def alone:double ((contentBottom - contentTop) - (this.continuationTitleHeight(false)))
+        return (h <= alone)
+    }
+
+    ; Whether a slide `child` was moved onto by a break is the same slide
+    ; going on — a sub-heading, which says the title again over it — rather
+    ; than a slide of its own: a title, or a block the author marked
+    ; `{.slide}`, which asked for a new slide and gets one as written.
+    fn continuesSlide:boolean (child:MdNode) {
+        if (child.kind != "heading") { return false }
+        if (child.level <= splitLevel) { return false }
+        if (child.hasClass("slide")) { return false }
+        return true
     }
 
     ; KEEP-WITH-NEXT. A heading with nothing under it is the one thing that
@@ -1955,6 +2065,9 @@ class MdLayout {
         if ((cursorY + need) > contentBottom) {
             if ((cursorY - contentTop) > 0.5) {
                 this.nextSlide()
+                if (this.continuesSlide(child)) {
+                    this.emitSlideTitle()
+                }
             }
         }
     }
@@ -2001,20 +2114,128 @@ class MdLayout {
     ; The title again, at the top of a slide a block spilled onto. Emitted
     ; here rather than through `blockInner`, because there is no node for it:
     ; it is the same heading, said twice.
+    ;
+    ; THE RULE, one for every continuation: the slide's title is said again
+    ; at the top, whether the continuation begins with a block cut in two,
+    ; a whole block or a sub-heading the break was moved before. When it
+    ; begins INSIDE a section, that section's sub-heading is said again
+    ; under the title, set and marked as the title is — its own level's
+    ; size and ink, no box of the source behind it (`segSrc` -1), and no
+    ; "(continued)" suffix, which the deck would have to translate.
     fn emitSlideTitle:void () {
-        if ((strlen slideTitle) == 0) { return }
-        if slideTitleHidden { return }
-        def size:double (style.headingSize(slideTitleLevel))
+        this.noteContinuation(page)
+        def said:boolean false
+        if (((strlen slideTitle) > 0) && (slideTitleHidden == false)) {
+            this.emitRepeatedHeading(slideTitle slideTitleLevel)
+            said = true
+        }
+        if (((strlen sectionTitle) > 0) && (sectionHidden == false)) {
+            if said {
+                cursorY = (cursorY + style.headingSpaceBefore)
+            }
+            this.emitRepeatedHeading(sectionTitle sectionLevel)
+        }
+    }
+
+    fn emitRepeatedHeading:void (text:string level:int) {
+        def size:double (style.headingSize(level))
         def h:double (size * style.lineHeight)
-        def b:MdBox (MdBox.text(slideTitle contentX cursorY contentW h))
+        def b:MdBox (MdBox.text(text contentX cursorY contentW h))
         b.family = style.headingFamily
         b.size = size
         b.bold = true
         ; the heading's own ink: it is the same title, and a dimmed one is
         ; text a reader at the back cannot make out
-        b.color = (style.headingInk(slideTitleLevel))
+        b.color = (style.headingInk(level))
         this.emit(b)
         cursorY = ((cursorY + h) + style.headingSpaceAfter)
+    }
+
+    ; How tall what `emitSlideTitle` says is, with the section's heading or
+    ; without it: the room a continuation has is the slide less this.
+    fn continuationTitleHeight:double (withSection:boolean) {
+        def h:double 0.0
+        def said:boolean false
+        if (((strlen slideTitle) > 0) && (slideTitleHidden == false)) {
+            h = (((style.headingSize(slideTitleLevel)) * style.lineHeight) + style.headingSpaceAfter)
+            said = true
+        }
+        if (withSection && ((strlen sectionTitle) > 0) && (sectionHidden == false)) {
+            if said {
+                h = (h + style.headingSpaceBefore)
+            }
+            h = ((h + ((style.headingSize(sectionLevel)) * style.lineHeight)) + style.headingSpaceAfter)
+        }
+        return h
+    }
+
+    fn noteContinuation:void (p:int) {
+        def t:string ""
+        if (slideTitleHidden == false) { t = slideTitle }
+        def st:string ""
+        if (sectionHidden == false) { st = sectionTitle }
+        def i:int (indexOf contPage p)
+        if (i < 0) {
+            push contPage p
+            push contTitle t
+            push contTitleLevel slideTitleLevel
+            push contSection st
+            push contSectionLevel sectionLevel
+            return
+        }
+        set_at contTitle i t
+        set_at contTitleLevel i slideTitleLevel
+        set_at contSection i st
+        set_at contSectionLevel i sectionLevel
+    }
+
+    ; Slide `p` laid out again from its top: what it said again as a
+    ; continuation, said again, and the title and section it was in made the
+    ; current ones for what follows on it.
+    fn resumeContinuation:void (p:int) {
+        def i:int (indexOf contPage p)
+        if (i < 0) { return }
+        slideTitle = (itemAt contTitle i)
+        slideTitleLevel = (itemAt contTitleLevel i)
+        slideTitleHidden = false
+        sectionTitle = (itemAt contSection i)
+        sectionLevel = (itemAt contSectionLevel i)
+        sectionHidden = false
+        this.emitSlideTitle()
+    }
+
+    ; Slide `p` went (shrunk into the one before it): its record goes and
+    ; every later slide's moves up one.
+    fn dropContinuation:void (p:int) {
+        def keepP:[int]
+        def keepT:[string]
+        def keepTL:[int]
+        def keepS:[string]
+        def keepSL:[int]
+        def i:int 0
+        while (i < (array_length contPage)) {
+            def cp:int (itemAt contPage i)
+            if (cp != p) {
+                if (cp > p) { cp = (cp - 1) }
+                push keepP cp
+                push keepT (itemAt contTitle i)
+                push keepTL (itemAt contTitleLevel i)
+                push keepS (itemAt contSection i)
+                push keepSL (itemAt contSectionLevel i)
+            }
+            i = (i + 1)
+        }
+        contPage = keepP
+        contTitle = keepT
+        contTitleLevel = keepTL
+        contSection = keepS
+        contSectionLevel = keepSL
+    }
+
+    fn clearSection:void () {
+        sectionTitle = ""
+        sectionLevel = 0
+        sectionHidden = false
     }
 
     sfn countHeadings:int (doc:MdNode) {
@@ -2706,16 +2927,11 @@ class MdLayout {
             page = p
             pageCount = (p + 1)
             cursorY = contentTop
+            this.resumeContinuation(p)
             def j:int 0
             while (j < (array_length members)) {
                 def child:MdNode (doc.childAt((itemAt members j)))
-                if (child.kind == "heading") {
-                    if (child.level <= splitLevel) {
-                        slideTitle = (child.plainText())
-                        slideTitleLevel = child.level
-                    }
-                }
-                this.block(child contentX contentW)
+                this.relayoutBlock(child)
                 j = (j + 1)
             }
             def fits:boolean (page == p)
@@ -2740,6 +2956,7 @@ class MdLayout {
                     q = (q + 1)
                 }
                 this.dropSpillExcess((p + 1))
+                this.dropContinuation((p + 1))
                 page = (savedPage - 1)
                 pageCount = (savedPageCount - 1)
                 cursorY = savedCursor
@@ -2769,6 +2986,26 @@ class MdLayout {
         cursorY = savedCursor
         slideOverflows = savedOverflows
         return false
+    }
+
+    ; One block of a slide laid out again (shrunk or grown), keeping the
+    ; title and the section current as `bodyPass` does, so a continuation
+    ; it runs onto says the right ones.
+    fn relayoutBlock:void (child:MdNode) {
+        if (child.kind == "heading") {
+            this.clearSection()
+            if (child.level <= splitLevel) {
+                slideTitle = (child.plainText())
+                slideTitleLevel = child.level
+                slideTitleHidden = (MdLayout.hiddenHeading(child))
+            }
+        }
+        this.block(child contentX contentW)
+        if ((child.kind == "heading") && (child.level > splitLevel)) {
+            sectionTitle = (child.plainText())
+            sectionLevel = child.level
+            sectionHidden = (MdLayout.hiddenHeading(child))
+        }
     }
 
     fn growSlides:void (doc:MdNode) {
@@ -2858,16 +3095,11 @@ class MdLayout {
             this.growStyle(saved s)
             page = p
             cursorY = contentTop
+            this.resumeContinuation(p)
             def j:int 0
             while (j < (array_length members)) {
                 def child:MdNode (doc.childAt((itemAt members j)))
-                if (child.kind == "heading") {
-                    if (child.level <= splitLevel) {
-                        slideTitle = (child.plainText())
-                        slideTitleLevel = child.level
-                    }
-                }
-                this.block(child contentX contentW)
+                this.relayoutBlock(child)
                 j = (j + 1)
             }
             ; …and a heading that was one line stays one line: a title
@@ -5455,8 +5687,8 @@ class MdLayout {
             return flat
         }
         def titleH:double 0.0
-        if (slides && ((strlen slideTitle) > 0)) {
-            titleH = (((style.headingSize(slideTitleLevel)) * style.lineHeight) + style.headingSpaceAfter)
+        if slides {
+            titleH = (this.continuationTitleHeight(true))
         }
         def firstRoom:double (contentBottom - cursorY)
         def nextRoom:double ((contentBottom - contentTop) - titleH)
