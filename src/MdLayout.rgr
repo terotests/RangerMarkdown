@@ -491,6 +491,17 @@ class MdLayout {
     ; the page a hidden heading opened, so a second heading straight after
     ; it still starts a slide of its own
     def hiddenOnPage:int -1
+    ; OVERLAY PICTURES: files the host draws over the page itself (a drawing
+    ; made on a slide), referenced as a picture is (`![](drawings/a.ink)`)
+    ; so that deleting the line deletes the drawing. A picture whose file's
+    ; content type is in `overlayTypes` (the host says which) takes no room
+    ; and draws nothing here; the page it is on and where it is written are
+    ; noted (`overlaySrc`, `overlayPage`, `overlayPath`, one per reference)
+    ; for the host to draw it.
+    def overlayTypes:[string]
+    def overlaySrc:[int]
+    def overlayPage:[int]
+    def overlayPath:[string]
     ; a `layout=full` gallery's last picture took its whole slide
     def fullPageDone:boolean false
     ; the medium the sheet is read for ("screen" | "print", see
@@ -2014,6 +2025,9 @@ class MdLayout {
     fn resetHeadings:void () {
         clear hiddenSrc
         clear hiddenPage
+        clear overlaySrc
+        clear overlayPage
+        clear overlayPath
         hiddenOnPage = -1
         clear headText
         clear headLevel
@@ -2037,6 +2051,27 @@ class MdLayout {
         }
         push hiddenSrc src
         push hiddenPage p
+    }
+
+    ; An overlay picture written at `src` is on page `p`. A slide laid out
+    ; again (shrunk to fit) notes it again: the last word holds.
+    fn noteOverlay:void (src:int path:string p:int) {
+        def i:int 0
+        while (i < (array_length overlaySrc)) {
+            if ((itemAt overlaySrc i) == src) {
+                set_at overlayPage i p
+                set_at overlayPath i path
+                return
+            }
+            i = (i + 1)
+        }
+        push overlaySrc src
+        push overlayPage p
+        push overlayPath path
+    }
+
+    fn isOverlayType:boolean (contentType:string) {
+        return ((indexOf overlayTypes contentType) >= 0)
     }
 
     ; The page a hidden heading starting at `src` names, -1: none does.
@@ -5438,6 +5473,14 @@ class MdLayout {
         if (! st.found) {
             missingImages = (missingImages + 1)
             return false
+        }
+        ; drawn by the host over the page: no room here (a pass that only
+        ; measures what follows a picture does not place it)
+        if (this.isOverlayType(st.contentType)) {
+            if paginate {
+                this.noteOverlay(node.srcStart path page)
+            }
+            return true
         }
 
         ; Its own size, never scaled UP — a 64pt icon in a 468pt column is a
