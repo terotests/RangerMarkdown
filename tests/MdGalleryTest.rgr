@@ -1,0 +1,566 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdGalleryTest.rgr — ```gallery, `{heading=hidden}` and `@media print`.
+; ============================================================================
+;
+;   npm run markdown:gallery:test
+;
+; The fence is read into cells (pictures, captions, text cells, each
+; cell's own `focus=` / `span=` / class), the sheet's `gallery`, `cell`,
+; `caption`, `.polaroid cell` and `cell:nth(n)` rules land on the cell
+; they name, a crop keeps the part `focus=` names, `layout=full` puts one
+; picture on each slide over the whole page (and over the bleed in
+; print), and a hidden heading names its slide without drawing.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdLayout.rgr"
+Import "../src/MdCss.rgr"
+Import "../src/MdGallery.rgr"
+Import "../src/MdToEvg.rgr"
+Import "../src/MdToPptx.rgr"
+Import "../src/MdToHtml.rgr"
+Import "../src/MdToDocx.rgr"
+
+class GalleryCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print (("    got  " + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.01) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print (("    got  " + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+}
+
+class MdGalleryTest {
+    sfn main:void () {
+        def t (new GalleryCheck())
+        MdGalleryTest.reading(t)
+        MdGalleryTest.focus(t)
+        MdGalleryTest.crops(t)
+        MdGalleryTest.sheets(t)
+        MdGalleryTest.printing(t)
+        MdGalleryTest.hidden(t)
+        MdGalleryTest.grid(t)
+        MdGalleryTest.full(t)
+        MdGalleryTest.drawn(t)
+        MdGalleryTest.exports(t)
+        print ((("passed=" + (to_string t.passed)) + " failed=") + (to_string t.failed))
+        if (t.failed == 0) {
+            print "ALL PASS"
+        }
+    }
+
+    sfn fence:MdNode (src:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def i:int 0
+        while (i < (doc.childCount())) {
+            def c:MdNode (doc.childAt(i))
+            if (MdGallery.isGallery(c)) {
+                return c
+            }
+            i = (i + 1)
+        }
+        return (new MdNode())
+    }
+
+    sfn reading:void (t:GalleryCheck) {
+        print "reading the fence"
+        def src:string "```gallery\n- media/ranta.jpg: Hietaniemi heinäkuussa\n- media/sauna.jpg: Sauna {focus=top span=2 .wide}\n  illalla\n- Kesä jäi mieleen.\n- ![Laituri](media/laituri.png)\n```\n{layout=full fit=contain caption=overlay .polaroid}\n"
+        def node:MdNode (MdGalleryTest.fence(src))
+        t.ok("a ```gallery fence is a gallery" (MdGallery.isGallery(node)))
+        def g:MdGallery (MdGallery.of(node))
+        t.eqInt("four cells" (array_length g.items) 4)
+        t.eqStr("layout" g.layout "full")
+        t.eqStr("fit" g.fit "contain")
+        t.eqStr("caption" g.caption "overlay")
+        t.eqStr("the class under the fence" (itemAt g.classes 0) "polaroid")
+        def a:MdGalleryItem (itemAt g.items 0)
+        t.eqStr("path" a.src "media/ranta.jpg")
+        t.eqStr("caption" a.caption "Hietaniemi heinäkuussa")
+        t.eqInt("numbered from 1" a.index 1)
+        def b:MdGalleryItem (itemAt g.items 1)
+        t.eqStr("a caption continued on the next line" b.caption "Sauna illalla")
+        t.eqInt("span" b.span 2)
+        t.near("focus=top keeps the top" b.focusY 0.0)
+        t.eqStr("a cell's own class" (itemAt b.classes 0) "wide")
+        def c:MdGalleryItem (itemAt g.items 2)
+        t.ok("a line with no picture is a text cell" c.isText)
+        t.eqStr("its words" c.text "Kesä jäi mieleen.")
+        def d:MdGalleryItem (itemAt g.items 3)
+        t.eqStr("![caption](path) path" d.src "media/laituri.png")
+        t.eqStr("![caption](path) caption" d.caption "Laituri")
+        def plain:MdGallery (MdGallery.of((MdGalleryTest.fence("```gallery\n- a.jpg\n```\n"))))
+        t.eqStr("a grid by default" plain.layout "grid")
+        t.eqStr("cover by default" plain.fit "cover")
+        t.eqStr("captions below on a grid" plain.caption "below")
+        def full:MdGallery (MdGallery.of((MdGalleryTest.fence("```gallery\n- a.jpg: A\n```\n{layout=full}\n"))))
+        t.eqStr("captions over a full page" full.caption "overlay")
+    }
+
+    sfn focus:void (t:GalleryCheck) {
+        print "focus="
+        def tl:[double] (MdGallery.focusOf("top-left"))
+        t.near("top-left x" (itemAt tl 0) 0.0)
+        t.near("top-left y" (itemAt tl 1) 0.0)
+        def br:[double] (MdGallery.focusOf("bottom right"))
+        t.near("bottom right x" (itemAt br 0) 1.0)
+        t.near("bottom right y" (itemAt br 1) 1.0)
+        def pc:[double] (MdGallery.focusOf("30% 70%"))
+        t.near("30% across" (itemAt pc 0) 0.3)
+        t.near("70% down" (itemAt pc 1) 0.7)
+        def fr:[double] (MdGallery.focusOf("0.2,0.9"))
+        t.near("fractions" (itemAt fr 1) 0.9)
+        t.eqInt("nonsense says nothing" (array_length (MdGallery.focusOf("somewhere"))) 0)
+    }
+
+    sfn crops:void (t:GalleryCheck) {
+        print "cover and contain"
+        def c (new MdGalleryCell())
+        ; a 2:1 picture in a square: half its width shows
+        MdGallery.fitPicture(c "cover" 0.0 0.5 2000.0 1000.0 10.0 20.0 100.0 100.0)
+        t.ok("cropped" c.cropped)
+        t.near("half the width" c.cropW 0.5)
+        t.near("from the left (focus=left)" c.cropX 0.0)
+        t.near("all the height" c.cropH 1.0)
+        t.near("the box is the place" c.picW 100.0)
+        MdGallery.fitPicture(c "cover" 1.0 0.5 2000.0 1000.0 10.0 20.0 100.0 100.0)
+        t.near("from the right (focus=right)" c.cropX 0.5)
+        MdGallery.fitPicture(c "cover" 0.5 0.0 1000.0 3000.0 0.0 0.0 300.0 300.0)
+        t.near("a tall one: a third of its height" c.cropH (1.0 / 3.0))
+        t.near("…from the top" c.cropY 0.0)
+        MdGallery.fitPicture(c "contain" 0.5 0.5 2000.0 1000.0 0.0 0.0 100.0 100.0)
+        t.ok("contain: not cropped" (c.cropped == false))
+        t.near("contain: as wide as the place" c.picW 100.0)
+        t.near("contain: half as high" c.picH 50.0)
+        t.near("contain: in the middle" c.picY 25.0)
+        print "effective resolution"
+        ; 1200 px across 4 inches (288 pt) is 300 dpi
+        t.near("whole" (MdGallery.effectiveDpi(1200.0 1.0 288.0)) 300.0)
+        t.near("a half crop halves it" (MdGallery.effectiveDpi(1200.0 0.5 288.0)) 150.0)
+    }
+
+    sfn sheets:void (t:GalleryCheck) {
+        print "the sheet's selectors"
+        def css:string "gallery { gap: 12pt; columns: 4; background-color: #0b1030; }\ncell { border-radius: 4pt; padding: 0; }\ncaption { font-size: 14pt; color: #e8ecff; text-align: left; }\ncell.text { font-size: 18pt; padding: 16pt; background-color: #151c48; }\n.polaroid cell { padding: 10pt 10pt 32pt; background-color: #fff; }\n.polaroid caption { color: #222; font-family: Noto Sans; }\ncell:nth(3) { border-width: 2pt; border-color: #ff0000; }\n"
+        def sheet (new MdCss())
+        sheet.addStyleSheet(css)
+        t.eqInt("the sheet reads without errors" (sheet.errorCount()) 0)
+        def st (new MdStyle())
+        def g:MdGallery (MdGallery.of((MdGalleryTest.fence("```gallery\n- a.jpg: A\n- b.jpg: B\n- c.jpg: C\n- Words\n```\n"))))
+        def look:MdGalleryLook (g.look(sheet))
+        t.near("gallery gap" look.gap 12.0)
+        t.eqInt("gallery columns" look.columns 4)
+        t.eqStr("gallery background" look.background "#0B1030")
+        def c1:MdCellLook (g.cellLook(sheet (itemAt g.items 0) st))
+        t.near("cell radius" c1.radius 4.0)
+        t.near("cell padding 0" c1.padT 0.0)
+        t.near("cell 1 has no border" c1.borderWidth 0.0)
+        def c3:MdCellLook (g.cellLook(sheet (itemAt g.items 2) st))
+        t.near("cell:nth(3) border" c3.borderWidth 2.0)
+        t.eqStr("cell:nth(3) border colour" c3.borderColor "#FF0000")
+        def tx:MdCellLook (g.cellLook(sheet (itemAt g.items 3) st))
+        t.near("cell.text size" tx.fontSize 18.0)
+        t.near("cell.text padding" tx.padL 16.0)
+        def cap:MdCellLook (g.captionLook(sheet (itemAt g.items 0) st))
+        t.near("caption size" cap.fontSize 14.0)
+        t.eqStr("caption colour" cap.color "#E8ECFF")
+        def pg:MdGallery (MdGallery.of((MdGalleryTest.fence("```gallery\n- a.jpg: A\n```\n{.polaroid}\n"))))
+        def pc:MdCellLook (pg.cellLook(sheet (itemAt pg.items 0) st))
+        t.near(".polaroid cell top" pc.padT 10.0)
+        t.near(".polaroid cell bottom (three values)" pc.padB 32.0)
+        t.near(".polaroid cell left" pc.padL 10.0)
+        t.eqStr(".polaroid cell background" pc.background "#FFFFFF")
+        def pcap:MdCellLook (pg.captionLook(sheet (itemAt pg.items 0) st))
+        t.eqStr(".polaroid caption colour" pcap.color "#222222")
+        t.eqStr(".polaroid caption face" pcap.family "Noto Sans")
+        t.eqStr("`:nth(` is a class in a selector" (MdCss.desugar("cell:nth(3) { content: \":nth(2)\" }")) "cell.nth--3 { content: \":nth(2)\" }")
+    }
+
+    sfn printing:void (t:GalleryCheck) {
+        print "@media print"
+        def css:string "page { width: 960pt; height: 540pt; }\ngallery { gap: 8pt; }\n@media print {\n  page { width: 297mm; height: 210mm; bleed: 3mm; safe-area: 8mm; }\n  deck { crop-marks: on; }\n  gallery { gap: 4pt; }\n}\n@media screen { caption { font-size: 20pt; } }\n"
+        def screen (new MdCss())
+        screen.addStyleSheet(css)
+        t.eqInt("no at-rule errors" (screen.errorCount()) 0)
+        t.ok("it has print rules" (screen.hasPrint()))
+        def st (new MdStyle())
+        screen.applyTo(st)
+        t.near("screen page width" st.pageWidth 960.0)
+        t.ok("a screen style is not for print" (st.forPrint == false))
+        t.near("no bleed on a screen" st.bleed 0.0)
+        def g:MdGallery (MdGallery.of((MdGalleryTest.fence("```gallery\n- a.jpg: A\n```\n"))))
+        def lk1:MdGalleryLook (g.look(screen))
+        t.near("screen gap" lk1.gap 8.0)
+        def cp1:MdCellLook (g.captionLook(screen (itemAt g.items 0) st))
+        t.near("@media screen counts on a screen" cp1.fontSize 20.0)
+        def paper (new MdCss())
+        paper.media = "print"
+        paper.addStyleSheet(css)
+        def ps (new MdStyle())
+        paper.applyTo(ps)
+        paper.applyPrint(ps)
+        t.ok("for print" ps.forPrint)
+        t.near("297mm" ps.pageWidth 841.89)
+        t.near("210mm" ps.pageHeight 595.28)
+        t.near("bleed 3mm" ps.bleed 8.5)
+        t.near("safe area 8mm" ps.safeArea 22.68)
+        t.ok("crop marks" ps.cropMarks)
+        def lk2:MdGalleryLook (g.look(paper))
+        t.near("print gap wins in print" lk2.gap 4.0)
+        def cp2:MdCellLook (g.captionLook(paper (itemAt g.items 0) ps))
+        t.ok("@media screen does not count in print" (cp2.fontSize < 19.0))
+        def back (new MdCss())
+        back.addStyleSheet(css)
+        back.setMedia("print")
+        def lk3:MdGalleryLook (g.look(back))
+        t.near("setMedia reads the sheet again" lk3.gap 4.0)
+        back.setMedia("screen")
+        def lk4:MdGalleryLook (g.look(back))
+        t.near("…and back" lk4.gap 8.0)
+    }
+
+    sfn png:VfsBlob (w:int h:int) {
+        def blob (new VfsBlob())
+        def raw:string "PNGBYTES"
+        def buf:buffer (buffer_alloc (strlen raw))
+        def bi:int 0
+        while (bi < (strlen raw)) {
+            buffer_set buf bi (charAt raw bi)
+            bi = (bi + 1)
+        }
+        blob.bytes = buf
+        blob.contentType = "image/png"
+        blob.pixelW = w
+        blob.pixelH = h
+        return blob
+    }
+
+    sfn pictures:Vfs () {
+        def v (new Vfs())
+        def mem (new VfsMemory())
+        mem.put("/media/wide.jpg" (MdGalleryTest.png(3000 1000)))
+        mem.put("/media/tall.jpg" (MdGalleryTest.png(1000 3000)))
+        mem.put("/media/small.jpg" (MdGalleryTest.png(600 400)))
+        v.mount("/" mem)
+        return v
+    }
+
+    sfn slides:MdLayout (src:string css:string media:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        def c:MdCss (new MdCss())
+        c.media = media
+        c.addStyleSheet(css)
+        c.applyTo(l.style)
+        if (media == "print") {
+            c.applyPrint(l.style)
+        }
+        l.media = media
+        l.setStyleSheet(css)
+        l.applyMeta(doc)
+        l.applySlideMeta(doc)
+        l.setDocSource(src)
+        l.setImages((MdGalleryTest.pictures()) "/")
+        l.layoutSlides(doc)
+        return l
+    }
+
+    sfn count:int (l:MdLayout kind:int page:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == kind) && ((page < 0) || (b.page == page))) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn hasText:boolean (l:MdLayout want:string) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 0) && ((indexOf b.text want) >= 0)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn hidden:void (t:GalleryCheck) {
+        print "{heading=hidden}"
+        def css:string "page { width: 960pt; height: 540pt; padding: 40pt; }\ndeck { split-level: 2; }\n"
+        def src:string "## Kesä 2026 {heading=hidden}\n\nKuvat tulevat tähän.\n\n## Syksy {heading=hidden}\n\nLehdet.\n\n## Talvi\n\nLunta.\n"
+        def l:MdLayout (MdGalleryTest.slides(src css "screen"))
+        t.ok("the hidden title is not drawn" ((MdGalleryTest.hasText(l "Kesä 2026")) == false))
+        t.ok("a shown one is" (MdGalleryTest.hasText(l "Talvi")))
+        t.eqInt("three slides: a hidden title still starts one" l.pageCount 3)
+        t.eqInt("it names its slide" (l.pageOfHidden(0)) 0)
+        def two:MdLayout (MdGalleryTest.slides("## A {heading=hidden}\n\n## B {heading=hidden}\n\nText.\n" css "screen"))
+        t.eqInt("two hidden titles in a row are two slides" two.pageCount 2)
+        t.eqStr("…and is in the contents" (itemAt l.headText 0) "Kesä 2026")
+        def first:int -1
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (((b.kind == 0) && (b.page == 0)) && (first < 0)) {
+                first = i
+            }
+            i = (i + 1)
+        }
+        def fb:MdBox (itemAt l.boxes first)
+        t.near("the room is the slide's: text starts at the top" fb.y l.contentTop)
+    }
+
+    sfn grid:void (t:GalleryCheck) {
+        print "layout=grid"
+        def css:string "page { width: 960pt; height: 540pt; padding: 40pt; }\ngallery { gap: 10pt; columns: 3; background-color: #000000; }\n"
+        def src:string "## Kesä {heading=hidden}\n\n```gallery\n- media/wide.jpg: Ranta\n- media/tall.jpg: Torni {focus=top}\n- media/small.jpg\n- Tekstiä\n- media/wide.jpg: Toinen {span=2}\n```\n"
+        def l:MdLayout (MdGalleryTest.slides(src css "screen"))
+        t.eqInt("four pictures" (MdGalleryTest.count(l 4 -1)) 4)
+        t.eqInt("one slide: two rows fit" l.pageCount 1)
+        def pics:[MdBox]
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 4) {
+                push pics b
+            }
+            i = (i + 1)
+        }
+        def a:MdBox (itemAt pics 0)
+        def b2:MdBox (itemAt pics 1)
+        t.near("the first row starts at the top" a.y 40.0)
+        t.near("three across: a third of the column less the gaps" a.w ((880.0 - 20.0) / 3.0))
+        t.ok("a wide picture in a cell is cropped" a.hasCrop)
+        t.ok("a tall one too" b2.hasCrop)
+        t.near("focus=top keeps the top" b2.cropY 0.0)
+        t.ok("the caption is under the picture" (MdGalleryTest.hasText(l "Ranta")))
+        t.ok("the text cell's words are drawn" (MdGalleryTest.hasText(l "Tekstiä")))
+        def last:MdBox (itemAt pics 3)
+        def third:MdBox (itemAt pics 2)
+        t.ok("the second row is under the first" (last.y > (third.y + third.h)))
+        t.ok("span=2 is wider than a single cell" (last.w > (a.w * 1.5)))
+        t.ok("no box leaves the page" (MdGalleryTest.inside(l 960.0 540.0)))
+        t.ok("the gallery's background is drawn" ((MdGalleryTest.count(l 1 0)) >= 2))
+        def many:string "## Paljon\n\n```gallery\n- media/wide.jpg\n- media/wide.jpg\n- media/wide.jpg\n- media/wide.jpg\n- media/wide.jpg\n- media/wide.jpg\n- media/wide.jpg\n- media/wide.jpg\n- media/wide.jpg\n- media/wide.jpg\n- media/wide.jpg\n- media/wide.jpg\n```\n"
+        def lm:MdLayout (MdGalleryTest.slides(many css "screen"))
+        t.ok("rows that do not fit go on to another slide" (lm.pageCount >= 2))
+        t.ok("…and nothing leaves a page" (MdGalleryTest.inside(lm 960.0 540.0)))
+    }
+
+    sfn inside:boolean (l:MdLayout w:double h:double) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.furniture == 0) && (b.bleeds == false)) {
+                if ((((b.x < -0.01) || (b.y < -0.01)) || ((b.x + b.w) > (w + 0.01))) || ((b.y + b.h) > (h + 0.01))) {
+                    print ((((("    outside: kind " + (to_string b.kind)) + " ") + b.text) + " y=") + (to_string b.y))
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    sfn full:void (t:GalleryCheck) {
+        print "layout=full"
+        def css:string "page { width: 960pt; height: 540pt; padding: 40pt; }\n@media print {\n  page { width: 297mm; height: 210mm; bleed: 3mm; safe-area: 8mm; }\n}\n"
+        def src:string "## Hietaniemi {heading=hidden}\n\n```gallery\n- media/wide.jpg: Hietaniemi heinäkuussa\n- media/tall.jpg: Torni\n```\n{layout=full fit=cover caption=overlay}\n\nJälkeen.\n"
+        def l:MdLayout (MdGalleryTest.slides(src css "screen"))
+        t.eqInt("one picture a slide, and the text after on its own" l.pageCount 3)
+        t.eqInt("one picture on the first" (MdGalleryTest.count(l 4 0)) 1)
+        t.eqInt("one on the second" (MdGalleryTest.count(l 4 1)) 1)
+        def p0:MdBox (MdGalleryTest.firstOf(l 4 0))
+        t.near("edge to edge: x" p0.x 0.0)
+        t.near("edge to edge: y" p0.y 0.0)
+        t.near("edge to edge: w" p0.w 960.0)
+        t.near("edge to edge: h" p0.h 540.0)
+        t.ok("a screen has no bleed" (p0.bleeds == false))
+        t.ok("the caption is on the picture" (MdGalleryTest.hasText(l "Hietaniemi heinäkuussa")))
+        t.ok("…on a band" ((MdGalleryTest.count(l 1 0)) >= 1))
+        t.ok("the text after the gallery is on the next slide" ((MdGalleryTest.pageOfText(l "Jälkeen.")) == 2))
+        def pl:MdLayout (MdGalleryTest.slides(src css "print"))
+        def pp:MdBox (MdGalleryTest.firstOf(pl 4 0))
+        t.near("print: over the bleed, x" pp.x -8.5)
+        t.near("print: over the bleed, w" pp.w (841.89 + 17.0))
+        t.ok("print: it says it bleeds" pp.bleeds)
+        def cap:MdBox (MdGalleryTest.textOn(pl "Hietaniemi"))
+        t.ok("print: the caption keeps to the safe area" ((cap.x >= 22.67) && ((cap.y + cap.h) <= (595.28 - 22.67))))
+        ; a hidden title after text on the same slide goes with the gallery
+        def after:string "# Kesä {heading=hidden}\n\nKesän kuvat.\n\n## Ranta {heading=hidden}\n\n```gallery\n- media/wide.jpg: Ranta\n```\n{layout=full}\n"
+        def al:MdLayout (MdGalleryTest.slides(after css "screen"))
+        t.eqInt("text, then the gallery's slide" al.pageCount 2)
+        t.eqInt("the gallery's hidden title names the gallery's slide" (al.pageOfHidden((indexOf after "## Ranta"))) 1)
+        t.eqInt("…in the contents too" (itemAt al.headPage 1) 1)
+        t.eqInt("the first hidden title stays on the first" (al.pageOfHidden(0)) 0)
+        ; laid out again (the PDF's print pass after the stage's): a gallery
+        ; that ended the last layout does not start this one with a break
+        def doc:MdNode (MdBlock.parseText(after))
+        al.layoutSlides(doc)
+        t.eqInt("a second layout makes the same slides" al.pageCount 2)
+    }
+
+    sfn firstOf:MdBox (l:MdLayout kind:int page:int) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == kind) && (b.page == page)) {
+                return b
+            }
+            i = (i + 1)
+        }
+        return (new MdBox())
+    }
+
+    sfn textOn:MdBox (l:MdLayout want:string) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 0) && ((indexOf b.text want) >= 0)) {
+                return b
+            }
+            i = (i + 1)
+        }
+        return (new MdBox())
+    }
+
+    sfn pageOfText:int (l:MdLayout want:string) {
+        def b:MdBox (MdGalleryTest.textOn(l want))
+        if (b.kind != 0) {
+            return -1
+        }
+        return b.page
+    }
+
+    sfn drawn:void (t:GalleryCheck) {
+        print "the display list"
+        def css:string "page { width: 960pt; height: 540pt; padding: 40pt; }\ncell { border-radius: 6pt; }\n"
+        def src:string "## A {heading=hidden}\n\n```gallery\n- media/wide.jpg: A {focus=right}\n- media/tall.jpg: B\n```\n"
+        def l:MdLayout (MdGalleryTest.slides(src css "screen"))
+        def painter (new MdToEvg())
+        def dl (new EVGDisplayList())
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            painter.paintBox(dl l (itemAt l.boxes i) 0.0)
+            i = (i + 1)
+        }
+        def found:boolean false
+        def k:int 0
+        while (k < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds k)
+            if ((c.kind == 2) && (found == false)) {
+                found = true
+                t.ok("the picture's crop is in the list" c.hasCrop)
+                t.ok("focus=right: the crop is at the right" ((c.cropX + c.cropW) > 0.999))
+                t.near("its corners" c.radius 6.0)
+            }
+            k = (k + 1)
+        }
+        t.ok("a picture was drawn" found)
+    }
+
+    sfn exports:void (t:GalleryCheck) {
+        print "PPTX, web page and Word"
+        def css:string "page { width: 960pt; height: 540pt; padding: 40pt; }\n"
+        def src:string "## Kesä {heading=hidden}\n\n```gallery\n- media/wide.jpg: Ranta {focus=left}\n- media/tall.jpg: Torni\n- Tekstiä\n```\n"
+        def l:MdLayout (MdGalleryTest.slides(src css "screen"))
+        def doc:MdNode (MdBlock.parseText(src))
+        def maker (new MdToPptx())
+        def d:PptxDeck (maker.deck(doc l))
+        def sl:PptxSlide (itemAt d.pres.slides 0)
+        def group@(optional):PptxShape
+        def k:int 0
+        while (k < (array_length sl.shapes)) {
+            def sh:PptxShape (itemAt sl.shapes k)
+            if ((indexOf sh.name "Gallery") == 0) {
+                group = sh
+            }
+            k = (k + 1)
+        }
+        t.ok("the gallery is a group on its slide" (!null? group))
+        if (!null? group) {
+            def gr:PptxShape (unwrap group)
+            def pics:int 0
+            def cut:int 0
+            def j:int 0
+            while (j < (array_length gr.children)) {
+                def c:PptxShape (itemAt gr.children j)
+                if (c.kind == (PptxShapeKind.picture())) {
+                    pics = (pics + 1)
+                    if ((c.cropL + c.cropR) > 0.01) {
+                        cut = (cut + 1)
+                    }
+                }
+                j = (j + 1)
+            }
+            t.eqInt("two pictures" pics 2)
+            t.ok("the wide one cropped as on the stage" (cut >= 1))
+            t.ok("its alt text is the captions" ((indexOf gr.altText "Ranta") >= 0))
+        }
+        def h (new MdToHtml())
+        h.standalone = true
+        def html:string (h.node(doc))
+        t.ok("web page: a figure grid" ((indexOf html "<figure class=\"gallery") >= 0))
+        t.ok("web page: a caption" ((indexOf html "<figcaption>Ranta</figcaption>") >= 0))
+        t.ok("web page: focus as object-position" ((indexOf html "object-position: 0% 50%") >= 0))
+        t.ok("web page: the text cell" ((indexOf html "<p class=\"cell text\">Tekstiä</p>") >= 0))
+        t.ok("web page: the hidden heading is kept, out of sight" ((indexOf html "class=\"visually-hidden\">Kesä") >= 0))
+        def plain:string (MdToHtml.render(doc))
+        t.ok("plain CommonMark rendering is unchanged" ((indexOf plain "<pre><code class=\"language-gallery\">") >= 0))
+        def w (new MdToDocx())
+        w.setImages((MdGalleryTest.pictures()) "/")
+        def st (new MdStyle())
+        w.build(doc st)
+        t.eqInt("Word: the pictures" w.result.pictures 2)
+    }
+}

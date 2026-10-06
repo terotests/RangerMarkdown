@@ -43,6 +43,7 @@ Import "MdCodeHighlight.rgr"
 Import "MdCodeLines.rgr"
 Import "MdFrontMatter.rgr"
 Import "MdCss.rgr"
+Import "MdGallery.rgr"
 Import "MdCssLimits.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
 Import "../../math/src/MathLayout.rgr"
@@ -242,9 +243,20 @@ class MdBox {
     ; a code block's highlight that a build step reveals (`lines=3-5|8`
     ; with `{.build}`): the step among the block's own, 0 = with the block
     def buildStep:int 0
-    ; a filled rectangle's rounded corners, and a `{container=bubble}`
-    ; plate's tail: how far it hangs below the bottom edge, near the left
+    ; A PICTURE shown in part (a gallery's `fit=cover`): the part of its
+    ; pixels, 0..1, that fills the box. A RECTANGLE's or a picture's corner
+    ; radius (`cell { border-radius }`).
+    def hasCrop:boolean false
+    def cropX:double 0.0
+    def cropY:double 0.0
+    def cropW:double 1.0
+    def cropH:double 1.0
     def radius:double 0.0
+    ; drawn past the page's edge on purpose, into the print bleed: a
+    ; full-page picture, its background, an overlay band at the page's foot
+    def bleeds:boolean false
+    ; a `{container=bubble}` plate's tail: how far it hangs below the
+    ; bottom edge, near the left
     def tail:double 0.0
 
     Constructor () {
@@ -284,7 +296,13 @@ class MdBox {
         b.alignX = alignX
         b.alignW = alignW
         b.buildStep = buildStep
+        b.hasCrop = hasCrop
+        b.cropX = cropX
+        b.cropY = cropY
+        b.cropW = cropW
+        b.cropH = cropH
         b.radius = radius
+        b.bleeds = bleeds
         b.tail = tail
         return b
     }
@@ -462,6 +480,22 @@ class MdLayout {
     ; continuation slide so a reader knows what they are still looking at.
     def slideTitle:string ""
     def slideTitleLevel:int 0
+    ; `{heading=hidden}` on the slide's title: it names the slide and is
+    ; not drawn, here or on a continuation slide
+    def slideTitleHidden:boolean false
+    ; HIDDEN HEADINGS (`## Kesä {heading=hidden}`): the page each one names
+    ; and where it is in the source. They draw no box, so a host that finds
+    ; a block's slide by its boxes asks these (`pageOfHidden`).
+    def hiddenSrc:[int]
+    def hiddenPage:[int]
+    ; the page a hidden heading opened, so a second heading straight after
+    ; it still starts a slide of its own
+    def hiddenOnPage:int -1
+    ; a `layout=full` gallery's last picture took its whole slide
+    def fullPageDone:boolean false
+    ; the medium the sheet is read for ("screen" | "print", see
+    ; `MdCss.media`); set before `setStyleSheet`
+    def media:string "screen"
     def engine:EVGTextEngine (new EVGTextEngine())
     def boxes:[MdBox]
 
@@ -618,6 +652,7 @@ class MdLayout {
     fn setStyleSheet:void (css:string) {
         sheetText = css
         sheet = (new MdCss())
+        sheet.media = media
         sheet.addStyleSheet(css)
         ; the same sheet says which lists are figures (`list-style: swot`)
         embeds.listSheet = sheet
@@ -1568,12 +1603,19 @@ class MdLayout {
 
     fn bodyPass:void (doc:MdNode mode:int) {
         floatOn = false
+        ; a full-page gallery ending the last layout must not break this one
+        fullPageDone = false
         def placed:boolean (mode == 0)
         def i:int 0
         def n:int (doc.childCount())
         while (i < n) {
             def child:MdNode (doc.childAt(i))
             if slides {
+                ; a `layout=full` gallery filled its last slide edge to edge
+                if fullPageDone {
+                    fullPageDone = false
+                    this.nextSlide()
+                }
                 if (this.slideBreakBefore(child i)) {
                     this.nextSlide()
                 }
@@ -1586,6 +1628,7 @@ class MdLayout {
                         ; continuation slide carried an empty title.
                         slideTitle = (child.plainText())
                         slideTitleLevel = child.level
+                        slideTitleHidden = (MdLayout.hiddenHeading(child))
                     }
                 }
             }
@@ -1858,7 +1901,7 @@ class MdLayout {
         ; Never before the first block, and never on a slide with nothing on
         ; it yet — a rule that fires twice in a row leaves a blank slide.
         if (i == 0) { return false }
-        if ((cursorY - contentTop) < 0.5) { return false }
+        if (((cursorY - contentTop) < 0.5) && (hiddenOnPage != page)) { return false }
         ; 2. FORBIDDEN beats 1. MANDATORY. An author who wrote `{.no-break}`
         ; on a heading meant it, and the alternative is a flag that does
         ; nothing whenever it would matter.
@@ -1883,6 +1926,7 @@ class MdLayout {
     ; one line of whatever follows.
     fn keepWithNext:void (child:MdNode i:int n:int doc:MdNode) {
         if (child.kind != "heading") { return }
+        if (MdLayout.hiddenHeading(child)) { return }
         if ((i + 1) >= n) { return }
         def next:MdNode (doc.childAt(i + 1))
         def size:double (style.headingSize(child.level))
@@ -1939,6 +1983,7 @@ class MdLayout {
     ; it is the same heading, said twice.
     fn emitSlideTitle:void () {
         if ((strlen slideTitle) == 0) { return }
+        if slideTitleHidden { return }
         def size:double (style.headingSize(slideTitleLevel))
         def h:double (size * style.lineHeight)
         def b:MdBox (MdBox.text(slideTitle contentX cursorY contentW h))
@@ -1967,10 +2012,43 @@ class MdLayout {
     }
 
     fn resetHeadings:void () {
+        clear hiddenSrc
+        clear hiddenPage
+        hiddenOnPage = -1
         clear headText
         clear headLevel
         clear headPage
         clear headY
+    }
+
+    ; `{heading=hidden}` (also `hidden` and `none`) on a heading.
+    sfn hiddenHeading:boolean (node:MdNode) {
+        return (MdAttrs.headingHidden(node))
+    }
+
+    fn noteHidden:void (src:int p:int) {
+        def i:int 0
+        while (i < (array_length hiddenSrc)) {
+            if ((itemAt hiddenSrc i) == src) {
+                set_at hiddenPage i p
+                return
+            }
+            i = (i + 1)
+        }
+        push hiddenSrc src
+        push hiddenPage p
+    }
+
+    ; The page a hidden heading starting at `src` names, -1: none does.
+    fn pageOfHidden:int (src:int) {
+        def i:int 0
+        while (i < (array_length hiddenSrc)) {
+            if ((itemAt hiddenSrc i) == src) {
+                return (itemAt hiddenPage i)
+            }
+            i = (i + 1)
+        }
+        return -1
     }
 
     ; Room for `h` more, or a new sheet. Returns the y to draw at.
@@ -3016,6 +3094,10 @@ class MdLayout {
             return
         }
         if (kind == "code_block") {
+            if (MdGallery.isGallery(node)) {
+                this.gallery(node x w)
+                return
+            }
             this.codeBlock(node x w)
             return
         }
@@ -3078,6 +3160,19 @@ class MdLayout {
                 pageCount = (page + 1)
                 cursorY = contentTop
             }
+        }
+        if (MdLayout.hiddenHeading(node)) {
+            ; `{heading=hidden}`: the slide's name, its anchor and its line
+            ; in the contents, and nothing on the slide — the room is the
+            ; pictures'. Recorded at the top of what comes next.
+            push headText (node.plainText())
+            push headLevel node.level
+            push headPage page
+            push headY cursorY
+            this.readEdgesOff(node)
+            this.noteHidden(node.srcStart page)
+            hiddenOnPage = page
+            return
         }
         def size:double (style.headingSize(node.level))
         def base:MdRun (new MdRun())
@@ -5478,6 +5573,410 @@ class MdLayout {
         if (s > most) { s = most }
         if (s < 1.0) { return 1.0 }
         return s
+    }
+
+
+    ; ----------------------------------------------------------------------
+    ; A gallery (```gallery, MdGallery)
+    ; ----------------------------------------------------------------------
+    ;
+    ; `layout=grid`: the cells in rows across the column, each row as tall
+    ; as the slide allows for as many rows as keep a row at least
+    ; `galleryMinRow` high; the rows that do not fit go on to the next slide
+    ; (with its title again, as any block that spills). On a document page
+    ; a row is two thirds of a column's width high. `layout=full`: one
+    ; picture a slide, edge to edge.
+    def galleryMinRow:double 140.0
+
+    fn gallery:void (node:MdNode x:double w:double) {
+        def g:MdGallery (MdGallery.of(node))
+        if ((array_length g.items) == 0) {
+            return
+        }
+        def look:MdGalleryLook (g.look(sheet))
+        if ((g.layout == "full") && paginate) {
+            this.galleryFull(g look)
+            return
+        }
+        this.galleryGrid(g look x w)
+    }
+
+    fn galleryGrid:void (g:MdGallery look:MdGalleryLook x:double w:double) {
+        def cols:int (g.columnsFor(look))
+        def rows:[[int]] (g.rows(cols))
+        def gap:double look.gap
+        if (gap > (w * 0.2)) {
+            gap = (w * 0.2)
+        }
+        def nRows:int (array_length rows)
+        def rowH:double (((w - (gap * (to_double (cols - 1)))) / (to_double cols)) * 0.66)
+        if (slides && paginate) {
+            def fullH:double (contentBottom - contentTop)
+            def room:double (contentBottom - cursorY)
+            if (room < (fullH * 0.35)) {
+                ; too little under what is there: the gallery starts a slide
+                room = fullH
+            }
+            def least:double galleryMinRow
+            if (least > (fullH * 0.45)) {
+                least = (fullH * 0.45)
+            }
+            def per:int (MdGallery.rowsPerPage(room gap least nRows))
+            rowH = ((room - (gap * (to_double (per - 1)))) / (to_double per))
+            if (rowH > fullH) {
+                rowH = fullH
+            }
+        }
+        def r:int 0
+        while (r < nRows) {
+            def row:[int] (itemAt rows r)
+            def widths:[double] (g.rowWidths(row cols w gap))
+            def y:double (this.reserve(rowH))
+            def last:boolean (r == (nRows - 1))
+            if ((strlen look.background) > 0) {
+                def bgH:double rowH
+                if (last == false) {
+                    bgH = (rowH + gap)
+                }
+                this.emit((MdBox.rect(x y w bgH look.background)))
+            }
+            def cx:double x
+            def k:int 0
+            while (k < (array_length row)) {
+                def idx:int (itemAt row k)
+                def cw:double (itemAt widths k)
+                this.galleryCell(g idx cx y cw rowH)
+                cx = ((cx + cw) + gap)
+                k = (k + 1)
+            }
+            cursorY = (y + rowH)
+            if (last == false) {
+                cursorY = (cursorY + gap)
+            }
+            r = (r + 1)
+        }
+        cursorY = (cursorY + style.paraSpacing)
+    }
+
+    ; One cell of a grid: its background, the picture (or a text cell's
+    ; words), the caption and the border, in that order.
+    fn galleryCell:void (g:MdGallery idx:int x:double y:double w:double h:double) {
+        def it:MdGalleryItem (itemAt g.items idx)
+        def cl:MdCellLook (g.cellLook(sheet it style))
+        def cap:MdCellLook (g.captionLook(sheet it style))
+        def capText:string it.caption
+        def capW:double ((((w - cl.padL) - cl.padR) - cap.padL) - cap.padR)
+        def capH:double 0.0
+        if ((it.isText == false) && (((strlen capText) > 0) && (g.caption != "none"))) {
+            capH = (this.linesHeight((this.galleryLines(capText cap capW))))
+        }
+        def pic:MdBox (this.galleryPicture(it))
+        def c:MdGalleryCell (g.placeCell(it idx x y w h cl cap capH (to_double pic.imageNaturalW) (to_double pic.imageNaturalH)))
+        if ((strlen cl.background) > 0) {
+            def bg:MdBox (MdBox.rect(x y w h cl.background))
+            bg.radius = cl.radius
+            this.emit(bg)
+        }
+        if it.isText {
+            this.galleryText(it.text cl c.capX c.capY c.capW c.capH true)
+        } {
+            def rounded:double 0.0
+            if ((((cl.padT + cl.padR) + cl.padB) + cl.padL) < 0.01) {
+                rounded = cl.radius
+            }
+            this.galleryPlace(pic c rounded)
+            if c.dim {
+                this.emit((MdBox.rect(c.dimX c.dimY c.dimW c.dimH (this.dimColor(cap)))))
+            }
+            if (capH > 0.0) {
+                this.galleryText(capText cap c.capX c.capY c.capW (c.capH + 0.5) false)
+            }
+        }
+        if ((cl.borderWidth > 0.0) && ((strlen cl.borderColor) > 0)) {
+            def o:MdBox (MdBox.outline(x y w h cl.borderColor cl.borderWidth))
+            o.radius = cl.radius
+            this.emit(o)
+        }
+    }
+
+    ; `layout=full`: each picture on a slide of its own, over the whole
+    ; page — and in print over the bleed past it — with no margins and no
+    ; header or footer. The first goes on the slide the gallery is on when
+    ; that slide holds nothing yet (a hidden title is nothing).
+    ; A hidden title written just before a full-page gallery names the
+    ; gallery's first slide, not the slide the break leaves behind: the
+    ; titles noted on `from` after the last thing drawn there move to `to`.
+    fn carryHidden:void (from:int to:int) {
+        if (hiddenOnPage != from) {
+            return
+        }
+        def last:int -1
+        def i:int 0
+        while (i < (array_length boxes)) {
+            def b:MdBox (itemAt boxes i)
+            if (b.page == from) {
+                def s:int b.srcStart
+                if (b.segSrc >= 0) {
+                    s = b.segSrc
+                }
+                if (s > last) {
+                    last = s
+                }
+            }
+            i = (i + 1)
+        }
+        def h:int 0
+        while (h < (array_length hiddenSrc)) {
+            if (((itemAt hiddenPage h) == from) && ((itemAt hiddenSrc h) > last)) {
+                set_at hiddenPage h to
+            }
+            h = (h + 1)
+        }
+        hiddenOnPage = to
+        def n:int (array_length headPage)
+        if ((n > 0) && ((itemAt headPage (n - 1)) == from)) {
+            set_at headPage (n - 1) to
+        }
+    }
+
+    fn galleryFull:void (g:MdGallery look:MdGalleryLook) {
+        def pw:double style.pageWidth
+        def ph:double style.pageHeight
+        def b:double 0.0
+        if style.forPrint {
+            b = style.bleed
+        }
+        ; the text keeps this far from the edge: half the page's margin,
+        ; and in print the safe area the printing house asked for
+        def inset:double (style.margin * 0.5)
+        if (style.forPrint && (style.safeArea > inset)) {
+            inset = style.safeArea
+        }
+        def k:int 0
+        while (k < (array_length g.items)) {
+            if ((k > 0) || ((cursorY - contentTop) > 0.5)) {
+                def from:int page
+                this.nextSlide()
+                if (k == 0) {
+                    this.carryHidden(from page)
+                }
+            }
+            push headerOff page
+            push footerOff page
+            def it:MdGalleryItem (itemAt g.items k)
+            def cl:MdCellLook (g.cellLook(sheet it style))
+            def cap:MdCellLook (g.captionLook(sheet it style))
+            def ground:string look.background
+            if ((strlen cl.background) > 0) {
+                ground = cl.background
+            }
+            if ((strlen ground) > 0) {
+                def gb:MdBox (MdBox.rect((0.0 - b) (0.0 - b) (pw + (b * 2.0)) (ph + (b * 2.0)) ground))
+                gb.bleeds = (b > 0.0)
+                this.emit(gb)
+            }
+            if it.isText {
+                this.galleryText(it.text cl (inset + cl.padL) (inset + cl.padT) (((pw - (inset * 2.0)) - cl.padL) - cl.padR) (((ph - (inset * 2.0)) - cl.padT) - cl.padB) true)
+            } {
+                def capText:string it.caption
+                if (g.caption == "none") {
+                    capText = ""
+                }
+                def capW:double (((pw - (inset * 2.0)) - cap.padL) - cap.padR)
+                def capH:double 0.0
+                if ((strlen capText) > 0) {
+                    capH = (this.linesHeight((this.galleryLines(capText cap capW))))
+                }
+                def band:double 0.0
+                if (capH > 0.0) {
+                    band = (((capH + cap.padT) + cap.padB) + inset)
+                    if (band > (ph * 0.4)) {
+                        band = (ph * 0.4)
+                    }
+                }
+                def pic:MdBox (this.galleryPicture(it))
+                def c (new MdGalleryCell())
+                c.item = k
+                ; the picture's place: the page and the bleed round it, less
+                ; the band a caption below takes; inside a cell's padding
+                def px:double ((0.0 - b) + cl.padL)
+                def py:double ((0.0 - b) + cl.padT)
+                def pwid:double (((pw + (b * 2.0)) - cl.padL) - cl.padR)
+                def phei:double (((ph + (b * 2.0)) - cl.padT) - cl.padB)
+                if ((g.caption == "below") && (band > 0.0)) {
+                    phei = (((ph + b) - band) - cl.padT)
+                }
+                MdGallery.fitPicture(c g.fit it.focusX it.focusY (to_double pic.imageNaturalW) (to_double pic.imageNaturalH) px py pwid phei)
+                this.galleryPlace(pic c cl.radius)
+                ; it is cut at the page's edge only where it reaches it
+                def last:int ((array_length boxes) - 1)
+                if (((b > 0.0) && (last >= 0)) && ((strlen pic.imagePath) > 0)) {
+                    def lb:MdBox (itemAt boxes last)
+                    lb.bleeds = true
+                }
+                if (capH > 0.0) {
+                    def cy:double (((ph - inset) - cap.padB) - capH)
+                    if (g.caption == "overlay") {
+                        def dy:double ((cy - cap.padT) - (inset * 0.5))
+                        def dim:MdBox (MdBox.rect((0.0 - b) dy (pw + (b * 2.0)) ((ph - dy) + b) (this.dimColor(cap))))
+                        dim.bleeds = (b > 0.0)
+                        this.emit(dim)
+                    }
+                    this.galleryText(capText cap (inset + cap.padL) cy capW (capH + 0.5) false)
+                }
+            }
+            k = (k + 1)
+        }
+        cursorY = contentBottom
+        fullPageDone = true
+    }
+
+    ; The picture an item names, as a box that knows its file and size;
+    ; `imagePath` is "" when the store has no such picture.
+    fn galleryPicture:MdBox (it:MdGalleryItem) {
+        def b:MdBox (new MdBox())
+        b.kind = 4
+        b.imageAlt = it.caption
+        if ((strlen b.imageAlt) == 0) {
+            b.imageAlt = it.src
+        }
+        if (! haveImages) {
+            missingImages = (missingImages + 1)
+            return b
+        }
+        def path:string (images.resolve(it.src docDir))
+        if ((strlen path) == 0) {
+            missingImages = (missingImages + 1)
+            return b
+        }
+        def st:VfsStat (images.stat(path))
+        if (! st.found) {
+            missingImages = (missingImages + 1)
+            return b
+        }
+        b.imagePath = path
+        b.imageNaturalW = st.pixelW
+        b.imageNaturalH = st.pixelH
+        return b
+    }
+
+    ; The picture where the cell says, or its name in brackets in that
+    ; place when there are no bytes for it.
+    fn galleryPlace:void (pic:MdBox c:MdGalleryCell radius:double) {
+        if ((strlen pic.imagePath) == 0) {
+            def lk (new MdCellLook())
+            lk.fontSize = (style.bodySize * 0.8)
+            lk.family = style.bodyFamily
+            lk.color = style.mutedColor
+            lk.align = "center"
+            this.emit((MdBox.outline(c.picX c.picY c.picW c.picH style.ruleColor 1.0)))
+            def first:int (array_length boxes)
+            this.galleryText(("[" + pic.imageAlt + "]") lk c.picX c.picY c.picW c.picH true)
+            def q:int first
+            while (q < (array_length boxes)) {
+                def qb:MdBox (itemAt boxes q)
+                qb.quiet = true
+                q = (q + 1)
+            }
+            return
+        }
+        pic.x = c.picX
+        pic.y = c.picY
+        pic.w = c.picW
+        pic.h = c.picH
+        pic.hasCrop = c.cropped
+        pic.cropX = c.cropX
+        pic.cropY = c.cropY
+        pic.cropW = c.cropW
+        pic.cropH = c.cropH
+        pic.radius = radius
+        this.emit(pic)
+    }
+
+    ; The band under an overlay caption: the caption's own background when
+    ; the sheet gives one, else the page's colour at 55 %, as `bg-dim`
+    ; lays the page over a slide's picture.
+    fn dimColor:string (cap:MdCellLook) {
+        if ((strlen cap.background) > 0) {
+            return cap.background
+        }
+        def paper:string style.pageBackground
+        if (((strlen paper) == 0) || (paper == "transparent")) {
+            paper = "#ffffff"
+        }
+        def c:EVGColor (EVGColor.parse(paper))
+        def hex:string (c.toHexString())
+        return (hex + "8C")
+    }
+
+    fn galleryLines:[MdLine] (text:string lk:MdCellLook w:double) {
+        def r (new MdRun())
+        r.text = text
+        r.family = lk.family
+        if ((strlen r.family) == 0) {
+            r.family = style.bodyFamily
+        }
+        r.size = lk.fontSize
+        r.bold = lk.bold
+        r.color = lk.color
+        def runs:[MdRun]
+        push runs r
+        def width:double w
+        if (width < 8.0) {
+            width = 8.0
+        }
+        return (this.breakRuns(runs width))
+    }
+
+    ; Words set in `x, y, w, h` in the look's type and alignment, as many
+    ; lines as fit; `middle`: centred down the box (a text cell).
+    fn galleryText:void (text:string lk:MdCellLook x:double y:double w:double h:double middle:boolean) {
+        def lines:[MdLine] (this.galleryLines(text lk w))
+        def total:double (this.linesHeight(lines))
+        def ty:double y
+        if (middle && (total < h)) {
+            ty = (y + ((h - total) * 0.5))
+        }
+        def first:int (array_length boxes)
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:MdLine (itemAt lines i)
+            if (((ty + ln.height) - y) > (h + 0.5)) {
+                ; what does not fit is left out rather than drawn over the
+                ; next cell
+                i = (array_length lines)
+            } {
+                def dx:double 0.0
+                if (lk.align == "center") {
+                    dx = ((w - ln.width) * 0.5)
+                }
+                if (lk.align == "end") {
+                    dx = (w - ln.width)
+                }
+                if (dx < 0.0) {
+                    dx = 0.0
+                }
+                this.emitLine(ln (x + dx) ty)
+                ty = (ty + ln.height)
+                i = (i + 1)
+            }
+        }
+        if (lk.align != "start") {
+            def word:string "center"
+            if (lk.align == "end") {
+                word = "right"
+            }
+            def k:int first
+            while (k < (array_length boxes)) {
+                def b:MdBox (itemAt boxes k)
+                if (b.kind == 0) {
+                    b.align = word
+                    b.alignX = x
+                    b.alignW = w
+                }
+                k = (k + 1)
+            }
+        }
     }
 
     ; The one image a paragraph holds, when that is ALL it holds. A caption

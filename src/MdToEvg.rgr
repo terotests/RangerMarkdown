@@ -161,6 +161,7 @@ class MdToEvg {
             c.w = box.w
             c.h = box.h
             c.thickness = box.strokeWidth
+            c.radius = box.radius
             this.tint(c box.stroke)
             push out.cmds c
             return
@@ -179,6 +180,15 @@ class MdToEvg {
             p.src = box.imagePath
             p.text = box.imageAlt
             p.a = 1.0
+            ; a gallery's `cover`: the part of the picture that fills the box
+            if box.hasCrop {
+                p.hasCrop = true
+                p.cropX = box.cropX
+                p.cropY = box.cropY
+                p.cropW = box.cropW
+                p.cropH = box.cropH
+            }
+            p.radius = box.radius
             push out.cmds p
             return
         }
@@ -493,6 +503,12 @@ class MdToEvg {
             ; picture's own proportions, so there is nothing to crop — and a
             ; `cover` that cropped a diagram's edge would be silent.
             img.objectFit = "contain"
+            ; a gallery's crop: an element has no source rectangle, so it
+            ; fills its box from the middle (the display list keeps the
+            ; exact part, `focus=` and all)
+            if b.hasCrop {
+                img.objectFit = "cover"
+            }
             img.sourceWidth = (to_double b.imageNaturalW)
             img.sourceHeight = (to_double b.imageNaturalH)
             return img
@@ -551,6 +567,80 @@ class MdToEvg {
     ; the pass be skipped for the elements this module owns; the style stays
     ; because an EMBEDDED diagram's subtree still goes through the engine, and
     ; it is the same tree.
+    ; The whole of a chart's words that were cut to fit (an axis title too long
+    ; even on two lines), under (px, py) on the page, or "" when the point is
+    ; on none. The chart is placed exactly as `paintBox` places it, so what a
+    ; reader points at is what was drawn there.
+    sfn cutTextAt:string (layout:MdLayout box:MdBox px:double py:double) {
+        if (box.kind != 3) {
+            return ""
+        }
+        def idx:int (layout.embeds.find(box.embedKind box.embedSource box.w))
+        if (idx < 0) {
+            return ""
+        }
+        def e:MdEmbedEntry (layout.embeds.entryAt(idx))
+        if (! e.ok) {
+            return ""
+        }
+        def root:EVGElement (unwrap e.root)
+        def dx:double (e.shiftIn(box.w))
+        MdToEvg.put(root (box.x + dx) box.y (box.w - dx) box.h)
+        def le:EVGLayout (new EVGLayout())
+        le.setPageSize(box.w box.h)
+        le.layout(root)
+        return (MdToEvg.altAt(layout root px py))
+    }
+
+    ; The `alt` of the text element under (px, py), turned with it: the point
+    ; is turned back about the element's own origin and then tested against
+    ; the ink of its words (the box around them is wider, see MdVegaRender).
+    sfn altAt:string (layout:MdLayout el:EVGElement px:double py:double) {
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def c:EVGElement (itemAt el.children i)
+            if (((strlen c.alt) > 0) && (c.tagName == "text")) {
+                def x0:double c.calculatedX
+                def y0:double c.calculatedY
+                def qx:double px
+                def qy:double py
+                if (c.rotate != 0.0) {
+                    def ox:double (x0 + (c.calculatedWidth * 0.5))
+                    def oy:double (y0 + (c.calculatedHeight * 0.5))
+                    if c.transformOriginX.isSet {
+                        ox = (x0 + c.transformOriginX.value)
+                    }
+                    if c.transformOriginY.isSet {
+                        oy = (y0 + c.transformOriginY.value)
+                    }
+                    def a:double ((0.0 - c.rotate) * 0.017453292519943295)
+                    def rx:double (px - ox)
+                    def ry:double (py - oy)
+                    qx = ((ox + (rx * (cos a))) - (ry * (sin a)))
+                    qy = ((oy + (rx * (sin a))) + (ry * (cos a)))
+                }
+                def size:double c.fontSize.value
+                def ink:double (layout.measureStyled(c.textContent c.fontFamily size (c.fontWeight == "bold") false))
+                def left:double x0
+                if (c.textAlign == "center") {
+                    left = ((x0 + (c.calculatedWidth * 0.5)) - (ink * 0.5))
+                }
+                if (c.textAlign == "right") {
+                    left = ((x0 + c.calculatedWidth) - ink)
+                }
+                if ((((qx >= left) && (qx <= (left + ink))) && (qy >= y0)) && (qy <= (y0 + (size * 1.25)))) {
+                    return c.alt
+                }
+            }
+            def inner:string (MdToEvg.altAt(layout c px py))
+            if ((strlen inner) > 0) {
+                return inner
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
     sfn put:void (el:EVGElement x:double y:double w:double h:double) {
         el.position = "absolute"
         el.left = (EVGUnit.px(x))
