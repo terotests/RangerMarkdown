@@ -173,8 +173,8 @@ class MdAttrs {
             if (MdAttrs.isSpaceCode(vc)) { break }
             ; a bare VALUE may also be a path or a share — `bg=media/kansi.jpg`,
             ; `width=60%` — which are what people type without quotes
-            ; and a code block's `lines=3-5,8|10`
-            if (! ((MdAttrs.isNameCode(vc)) || ((vc == 47) || ((vc == 37) || ((vc == 44) || (vc == 124)))))) { return -1 }
+            ; and a code block's `lines=3-5,8|10`, and a colour, `background=#fff8`
+            if (! ((MdAttrs.isNameCode(vc)) || ((vc == 47) || ((vc == 37) || ((vc == 44) || ((vc == 124) || (vc == 35))))))) { return -1 }
             e4 = (e4 + 1)
         }
         if (e4 == v) { return -1 }

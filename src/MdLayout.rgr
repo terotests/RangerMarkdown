@@ -49,6 +49,7 @@ Import "../../math/src/MathLayout.rgr"
 Import "MdHtml.rgr"
 Import "MdBlock.rgr"
 Import "MdTableSplit.rgr"
+Import "MdContainer.rgr"
 
 ; ----------------------------------------------------------------------------
 ; What the document looks like. Not a stylesheet yet — the values a stylesheet
@@ -241,6 +242,10 @@ class MdBox {
     ; a code block's highlight that a build step reveals (`lines=3-5|8`
     ; with `{.build}`): the step among the block's own, 0 = with the block
     def buildStep:int 0
+    ; a filled rectangle's rounded corners, and a `{container=bubble}`
+    ; plate's tail: how far it hangs below the bottom edge, near the left
+    def radius:double 0.0
+    def tail:double 0.0
 
     Constructor () {
     }
@@ -279,6 +284,8 @@ class MdBox {
         b.alignX = alignX
         b.alignW = alignW
         b.buildStep = buildStep
+        b.radius = radius
+        b.tail = tail
         return b
     }
 
@@ -1673,6 +1680,8 @@ class MdLayout {
     def floatW:double 0.0
     ; The slide so far holds its title and nothing else.
     def slideTitleOnly:boolean false
+    ; inside a `{container=…}` plate: a block in it does not get one of its own
+    def containerDepth:int 0
 
     ; ----------------------------------------------------------------------
     ; Text beside a narrow picture or drawing (FLOAT)
@@ -2079,7 +2088,12 @@ class MdLayout {
                 }
             }
         }
-        this.blockInner(node x w)
+        def plate:string (MdContainer.kindOf(node))
+        if (((strlen plate) > 0) && (containerDepth == 0)) {
+            this.containerBlock(node x w plate)
+        } {
+            this.blockInner(node x w)
+        }
         if scaled {
             this.restoreStyle(saved)
         }
@@ -2090,6 +2104,107 @@ class MdLayout {
             align = savedAlign
         }
         currentSrc = outerSrc
+    }
+
+    ; `{container=box}` / `{container=bubble}` under a block: the block laid
+    ; out inside a padded column, then a rounded plate under it on each page
+    ; it reached — put BEFORE its boxes, so it is painted first. What colour
+    ; the plate and the text are is `MdContainer.plan`'s question.
+    fn containerBlock:void (node:MdNode x:double w:double kind:string) {
+        def paper:string style.pageBackground
+        if (paper == "transparent") { paper = "" }
+        def p:MdContainer (MdContainer.plan(kind (MdContainer.fillOf(node)) style.containerBackground style.containerRadius paper style.textColor style.bodySize))
+        def savedInk:string style.textColor
+        if ((strlen p.ink) > 0) {
+            style.textColor = p.ink
+        }
+        def before:int (array_length boxes)
+        def startPage:int page
+        def top:double cursorY
+        cursorY = (cursorY + p.padY)
+        containerDepth = (containerDepth + 1)
+        this.blockInner(node (x + p.padX) (w - (p.padX * 2.0)))
+        containerDepth = (containerDepth - 1)
+        style.textColor = savedInk
+        def plates:[MdBox] (this.plates(p before startPage top x w))
+        if ((array_length plates) == 0) { return }
+        def last:MdBox (itemAt plates ((array_length plates) - 1))
+        ; the block's own space after it, kept below the plate (and its tail)
+        def inkBottom:double ((last.y + last.h) - p.padY)
+        def gap:double (cursorY - inkBottom)
+        if (gap < 0.0) { gap = 0.0 }
+        this.insertBoxes(before plates)
+        cursorY = (((last.y + last.h) + p.tail) + gap)
+    }
+
+    ; One plate per page the block's boxes are on, from `before`.
+    fn plates:[MdBox] (p:MdContainer before:int startPage:int top:double x:double w:double) {
+        def out:[MdBox]
+        def n:int (array_length boxes)
+        def pg:int startPage
+        while (pg <= page) {
+            def minY:double 0.0
+            def maxY:double 0.0
+            def minX:double 0.0
+            def maxX:double 0.0
+            def any:boolean false
+            def i:int before
+            while (i < n) {
+                def b:MdBox (itemAt boxes i)
+                if (b.page == pg) {
+                    if ((! any) || (b.y < minY)) { minY = b.y }
+                    if ((! any) || ((b.y + b.h) > maxY)) { maxY = (b.y + b.h) }
+                    if ((! any) || (b.x < minX)) { minX = b.x }
+                    if ((! any) || ((b.x + b.w) > maxX)) { maxX = (b.x + b.w) }
+                    any = true
+                }
+                i = (i + 1)
+            }
+            if any {
+                def pt:double (minY - p.padY)
+                if ((pg == startPage) && (top < pt)) { pt = top }
+                def px:double x
+                def pw:double w
+                if p.hug {
+                    px = (minX - p.padX)
+                    if (px < x) { px = x }
+                    pw = ((maxX + p.padX) - px)
+                    if ((px + pw) > (x + w)) { pw = ((x + w) - px) }
+                }
+                def plate:MdBox (MdBox.rect(px pt pw ((maxY + p.padY) - pt) p.fill))
+                plate.radius = p.radius
+                plate.page = pg
+                plate.srcStart = currentSrc
+                if (pg == page) {
+                    plate.tail = p.tail
+                }
+                push out plate
+            }
+            pg = (pg + 1)
+        }
+        return out
+    }
+
+    ; `add` put into the box list at `at`, ahead of what is there
+    fn insertBoxes:void (at:int add:[MdBox]) {
+        def out:[MdBox]
+        def n:int (array_length boxes)
+        def i:int 0
+        while (i < n) {
+            if (i == at) {
+                for add a:MdBox k {
+                    push out a
+                }
+            }
+            push out (itemAt boxes i)
+            i = (i + 1)
+        }
+        if (at >= n) {
+            for add a2:MdBox k2 {
+                push out a2
+            }
+        }
+        boxes = out
     }
 
     ; How a heading or paragraph sets its lines: `{.center}`, `{.right}`,

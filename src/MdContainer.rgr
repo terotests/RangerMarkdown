@@ -1,0 +1,238 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdContainer.rgr — a block set on a rounded plate of its own colour.
+; ============================================================================
+;
+; ````markdown
+; Text over a busy picture, readable again.
+; {container=bubble}
+;
+; The same on a plate of a colour of its own.
+; {container=box background=#fff8}
+; ````
+;
+; `box` is a rounded rectangle across the column. `bubble` is rounder, as wide
+; as its text, and has a tail at the bottom left — a speech bubble. Any other
+; word is a box; `none` / `off` is no plate.
+;
+; THE COLOUR. `background=` (or `bg=` when what follows is a colour, not a
+; picture) wins; else the theme's `container { background-color }`; else the
+; page's own colour at 85 % — the colour the theme's text was chosen against,
+; so it reads. A page with no colour of its own (a picture only) gets white or
+; black, whichever the text is written to stand on.
+;
+; THE INK. Whatever shows through a see-through plate is not known here — it
+; is a picture. So the contrast is taken at its WORST: the plate laid over
+; black and over white, and the lower of the two. When the text's own colour
+; does not reach 4.5:1 on that, the block is set in near-black or white,
+; whichever reads better. A plate that is opaque is exactly its colour.
+;
+; Nothing here measures or draws: `MdLayout.containerBlock` asks `plan` and
+; places the boxes. That is what lets this be tested without a layout.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "pkg:evg/EVGColor.rgr"
+
+class MdContainer {
+    ; "box" / "bubble", "" for none
+    def kind:string ""
+    ; the plate, `#RRGGBB` or `#RRGGBBAA`
+    def fill:string ""
+    ; the text colour inside, or "" for the block's own
+    def ink:string ""
+    def radius:double 0.0
+    def padX:double 0.0
+    def padY:double 0.0
+    ; a bubble's tail: how far it hangs below the plate, 0 for none
+    def tail:double 0.0
+    ; …and whether the plate hugs its text rather than filling the column
+    def hug:boolean false
+
+    Constructor () {
+    }
+
+    ; ----------------------------------------------------------------------
+    ; What the block asked for
+    ; ----------------------------------------------------------------------
+
+    sfn kindOf:string (node:MdNode) {
+        if (! (node.hasAttr("container"))) { return "" }
+        def v:string (MdContainer.lower((trim (node.attrValue("container")))))
+        if ((strlen v) == 0) { return "" }
+        if ((v == "none") || (v == "off")) { return "" }
+        if (v == "bubble") { return "bubble" }
+        return "box"
+    }
+
+    ; The colour the block names for its plate, "" when it names none.
+    ; `bg=` is also a slide's PICTURE (`{bg=media/kansi.jpg}` on a heading),
+    ; so it is a colour here only when it reads as one.
+    sfn fillOf:string (node:MdNode) {
+        if (node.hasAttr("background")) {
+            def c:EVGColor (EVGColor.parse((trim (node.attrValue("background")))))
+            if c.isSet {
+                return (MdContainer.hexOf(c))
+            }
+        }
+        if (node.hasAttr("bg")) {
+            def v:string (trim (node.attrValue("bg")))
+            if (MdContainer.colourLike(v)) {
+                def c2:EVGColor (EVGColor.parse(v))
+                if c2.isSet {
+                    return (MdContainer.hexOf(c2))
+                }
+            }
+        }
+        return ""
+    }
+
+    ; `#…`, `rgb(…)` / `rgba(…)`, or a bare word with no path in it
+    sfn colourLike:boolean (v:string) {
+        def n:int (strlen v)
+        if (n == 0) { return false }
+        if ((charAt v 0) == 35) { return true }
+        if ((indexOf v "rgb") == 0) { return true }
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt v i)
+            if ((c == 47) || (c == 46)) { return false }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The plan
+    ; ----------------------------------------------------------------------
+    ;
+    ; `own` the block's colour (`fillOf`), `themeFill` / `themeRadius` the
+    ; sheet's `container` rule ("" / negative when it says nothing), `paper`
+    ; the page's colour ("" when it has only a picture), `ink` the text colour
+    ; the block would be set in, `size` its body size in points.
+    sfn plan:MdContainer (kind:string own:string themeFill:string themeRadius:double paper:string ink:string size:double) {
+        def p:MdContainer (new MdContainer())
+        p.kind = kind
+        if ((strlen kind) == 0) { return p }
+        p.padX = (size * 0.8)
+        p.padY = (size * 0.5)
+        if (kind == "bubble") {
+            p.radius = (size * 1.1)
+            p.padX = (size * 1.0)
+            p.tail = (size * 0.8)
+            p.hug = true
+        } {
+            p.radius = (size * 0.45)
+        }
+        if (themeRadius >= 0.0) {
+            p.radius = themeRadius
+        }
+        def fill:string own
+        if ((strlen fill) == 0) { fill = themeFill }
+        if ((strlen fill) == 0) { fill = (MdContainer.defaultFill(paper ink)) }
+        p.fill = fill
+        p.ink = (MdContainer.inkOn(fill ink))
+        return p
+    }
+
+    sfn defaultFill:string (paper:string ink:string) {
+        def pc:EVGColor (EVGColor.parse(paper))
+        if ((strlen paper) > 0) {
+            if (pc.isSet && ((pc.alpha()) > 0.5)) {
+                return (MdContainer.hexOf((EVGColor.rgba((pc.red()) (pc.green()) (pc.blue()) 0.85))))
+            }
+        }
+        ; no colour of its own: the plate the ink was written to stand on
+        if ((MdContainer.luminance(ink)) > 0.4) {
+            return "#000000B3"
+        }
+        return "#FFFFFFD9"
+    }
+
+    ; The text colour that reads on `fill`: `ink` when it does, else the
+    ; better of near-black and white.
+    sfn inkOn:string (fill:string ink:string) {
+        if ((MdContainer.worstContrast(ink fill)) >= 4.5) { return "" }
+        def dark:double (MdContainer.worstContrast("#111111" fill))
+        def light:double (MdContainer.worstContrast("#FFFFFF" fill))
+        if (dark >= light) { return "#111111" }
+        return "#FFFFFF"
+    }
+
+    ; The contrast of `ink` on `fill` whatever is behind the plate: laid over
+    ; black and over white, the lower of the two.
+    sfn worstContrast:double (ink:string fill:string) {
+        def a:double (MdContainer.contrast(ink (MdContainer.over(fill 0))))
+        def b:double (MdContainer.contrast(ink (MdContainer.over(fill 255))))
+        if (a < b) { return a }
+        return b
+    }
+
+    ; `fill` laid over a grey `under` (0 black … 255 white), as `#RRGGBB`
+    sfn over:string (fill:string under:int) {
+        def c:EVGColor (EVGColor.parse(fill))
+        if (! c.isSet) {
+            return (MdContainer.hexOf((EVGColor.rgb(under under under))))
+        }
+        def a:double (c.alpha())
+        def u:double (to_double under)
+        def r:int (to_int ((((to_double (c.red())) * a) + (u * (1.0 - a))) + 0.5))
+        def g:int (to_int ((((to_double (c.green())) * a) + (u * (1.0 - a))) + 0.5))
+        def b:int (to_int ((((to_double (c.blue())) * a) + (u * (1.0 - a))) + 0.5))
+        return (MdContainer.hexOf((EVGColor.rgb(r g b))))
+    }
+
+    sfn contrast:double (a:string b:string) {
+        def la:double (MdContainer.luminance(a))
+        def lb:double (MdContainer.luminance(b))
+        if (la < lb) {
+            return ((lb + 0.05) / (la + 0.05))
+        }
+        return ((la + 0.05) / (lb + 0.05))
+    }
+
+    sfn luminance:double (hex:string) {
+        def c:EVGColor (EVGColor.parse(hex))
+        def r:double (MdContainer.channel((to_double (c.red()))))
+        def g:double (MdContainer.channel((to_double (c.green()))))
+        def b:double (MdContainer.channel((to_double (c.blue()))))
+        return (((0.2126 * r) + (0.7152 * g)) + (0.0722 * b))
+    }
+
+    sfn channel:double (v:double) {
+        def x:double (v / 255.0)
+        if (x <= 0.04045) { return (x / 12.92) }
+        def y:double ((x + 0.055) / 1.055)
+        def q:double (sqrt (sqrt y))
+        return (((y * y) * q) * (sqrt q))
+    }
+
+    sfn hexOf:string (c:EVGColor) {
+        def hex:string (c.toHexString())
+        def a:double (c.alpha())
+        if (a >= 0.999) {
+            return hex
+        }
+        def digits:string "0123456789ABCDEF"
+        def v:int (to_int ((a * 255.0) + 0.5))
+        def hi:int (idiv v 16)
+        def lo:int (v % 16)
+        return (hex + (strfromcode (charAt digits hi)) + (strfromcode (charAt digits lo)))
+    }
+
+    sfn lower:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c >= 65) && (c <= 90)) {
+                c = (c + 32)
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return out
+    }
+}
