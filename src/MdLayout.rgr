@@ -79,6 +79,10 @@ class MdRun {
     ; running off the end of the node it belongs to.
     def srcStart:int -1
     def srcEnd:int -1
+    ; The run stands for its whole span rather than spelling it — `©` for
+    ; `(c)`, 😉 for `:wink:` (`MdNode.subst`). Its offsets are the two ends
+    ; of the span and nothing between. Not a style, so not copied.
+    def atom:boolean false
     ; TeX math (`$…$`): the run is one unbreakable formula, its text a
     ; placeholder character, and `math` the source it is set from.
     def math:string ""
@@ -95,6 +99,9 @@ class MdRun {
     def kbd:boolean false
     def shift:int 0
     def shiftOf:double 0.0
+    ; A footnote reference: the number it draws. Not part of the style, so
+    ; not copied with it.
+    def noteRef:int 0
 
     Constructor () {
     }
@@ -139,6 +146,8 @@ class MdSeg {
     ; it is what a click turns into a caret.
     def srcStart:int -1
     def srcLen:int 0
+    ; from an atom run: the text covers srcLen characters as one
+    def atom:boolean false
     def math:string ""
     def mathDisplay:boolean false
     def underline:boolean false
@@ -149,6 +158,7 @@ class MdSeg {
     def kbd:boolean false
     def shift:int 0
     def shiftOf:double 0.0
+    def noteRef:int 0
 
     Constructor () {
     }
@@ -224,7 +234,13 @@ class MdBox {
     ; into an offset by measuring across it.
     def segSrc:int -1
     def segLen:int 0
-    ; 1 a header's, 2 a footer's: page furniture, not the document's text
+    ; The box's text stands for all of segSrc..segSrc+segLen at once (a
+    ; typographic replacement, an emoji): a caret is at one end of it or the
+    ; other, never at a character inside.
+    def segAtom:boolean false
+    ; 1 a header's, 2 a footer's: page furniture, not the document's text;
+    ; 3 the footnotes at the foot of a page, which ARE the document's text
+    ; but are placed by the page rather than where they were written
     def furniture:int 0
     ; text struck through (`~~…~~`, `<s>`, `<del>`): drawn muted on purpose,
     ; so a contrast check leaves it alone
@@ -258,6 +274,9 @@ class MdBox {
     ; a `{container=bubble}` plate's tail: how far it hangs below the
     ; bottom edge, near the left
     def tail:double 0.0
+    ; a footnote reference's number drawn here (the superscript), 0 for none.
+    ; The footnotes themselves are drawn as page furniture (`furniture` 3).
+    def noteRef:int 0
 
     Constructor () {
     }
@@ -289,6 +308,7 @@ class MdBox {
         b.srcStart = srcStart
         b.segSrc = segSrc
         b.segLen = segLen
+        b.segAtom = segAtom
         b.furniture = furniture
         b.strike = strike
         b.quiet = quiet
@@ -304,6 +324,7 @@ class MdBox {
         b.radius = radius
         b.bleeds = bleeds
         b.tail = tail
+        b.noteRef = noteRef
         return b
     }
 
@@ -411,6 +432,12 @@ class MdLayout {
     ; in the key — so switching the company template replayed boxes measured
     ; at the previous font size and drew the new one on top of them.
     def cacheStyleKey:string ""
+    ; …and how the document was READ: the typographer, the quotes its
+    ; language takes, the abbreviations it defines. Those are document-wide —
+    ; `*[HTML]: …` at the end turns every earlier "HTML" into an abbr, and
+    ; `lang: fi` changes every quote — so a block's source alone does not
+    ; say what its inlines are (`MdNode.readingSig`).
+    def cacheReading:string ""
 
     ; ----------------------------------------------------------------------
     ; The company template
@@ -437,12 +464,18 @@ class MdLayout {
     ;
     ;   1  MANDATORY   `{.slide}`, or a heading at or above `splitLevel`
     ;   2  FORBIDDEN   `{.no-break}`
-    ;   3  PREFERRED   any other heading, if the slide is more than half full
+    ;   3  PREFERRED   any other heading, when the section it opens does not
+    ;                  fit in the room left and does fit on a slide of its own
     ;   4  FALLBACK    overflow — which is what pagination already does
     ;
     ; …and one constraint that is not a break rule and is the thing that makes
     ; an automatic deck look hand-made: KEEP-WITH-NEXT, a heading is never the
     ; last thing on a slide.
+    ;
+    ; A slide that breaks goes on on a CONTINUATION, which says the slide's
+    ; title again at its top — always, whatever it begins with — and, when it
+    ; begins inside a section, that section's sub-heading under the title
+    ; (`emitSlideTitle`).
     def slides:boolean false
     ; `#` only, at 1. `2` means `#` and `##` each start a slide.
     def splitLevel:int 1
@@ -483,6 +516,25 @@ class MdLayout {
     ; `{heading=hidden}` on the slide's title: it names the slide and is
     ; not drawn, here or on a continuation slide
     def slideTitleHidden:boolean false
+    ; The SECTION the layout is in: the last sub-heading (deeper than
+    ; `splitLevel`) under the slide's title, until the next heading. A slide
+    ; a block spills onto from inside a section says that heading again
+    ; under the title — the reader of the second half of "Footnotes" is
+    ; told it is "Footnotes", not only "Plugins". Empty between a title and
+    ; its first sub-heading, and while a heading is itself being laid out,
+    ; so a continuation that begins WITH a sub-heading has the title alone
+    ; over it rather than the previous section's heading.
+    def sectionTitle:string ""
+    def sectionLevel:int 0
+    def sectionHidden:boolean false
+    ; What each continuation slide said again at its top, by slide: a slide
+    ; laid out again to shrink or grow it (`shrinkSlide`, `growSlide`) says
+    ; it again at the new size instead of losing it. Hidden ones are "".
+    def contPage:[int]
+    def contTitle:[string]
+    def contTitleLevel:[int]
+    def contSection:[string]
+    def contSectionLevel:[int]
     ; HIDDEN HEADINGS (`## Kesä {heading=hidden}`): the page each one names
     ; and where it is in the source. They draw no box, so a host that finds
     ; a block's slide by its boxes asks these (`pageOfHidden`).
@@ -712,7 +764,9 @@ class MdLayout {
         contentTop = style.margin
         contentBottom = 0.0
         cursorY = contentTop
+        this.startNotes(doc)
         this.layoutBody(doc)
+        this.placeNotesAtEnd()
         documentHeight = (cursorY + style.margin)
     }
 
@@ -724,6 +778,12 @@ class MdLayout {
         slideOverflows = 0
         slideTitle = ""
         slideTitleLevel = 0
+        this.clearSection()
+        clear contPage
+        clear contTitle
+        clear contTitleLevel
+        clear contSection
+        clear contSectionLevel
         this.layoutPaged(doc)
         slides = false
     }
@@ -780,6 +840,7 @@ class MdLayout {
         slidesShrunk = 0
         slideTitleOnly = false
         clear spillExcess
+        this.startNotes(doc)
         this.layoutBody(doc)
         slideTitleOnly = false
         if (slides && (tocLines == 0)) {
@@ -788,6 +849,7 @@ class MdLayout {
         if ((slides && (slideGrow > 1.01)) && (tocLines == 0)) {
             this.growSlides(doc)
         }
+        this.placeNotesPaged()
         this.emitFurniture()
         documentHeight = style.pageHeight
     }
@@ -1396,6 +1458,10 @@ class MdLayout {
         if paginate { return false }
         if style.wantToc { return false }
         if ((strlen docSource) == 0) { return false }
+        if (doc.readingSig != cacheReading) {
+            this.dropCache()
+            cacheReading = doc.readingSig
+        }
         cacheOn = true
         return true
     }
@@ -1430,7 +1496,13 @@ class MdLayout {
         if (a < 0) { a = 0 }
         if (b > n) { b = n }
         if (b < a) { b = a }
-        return (((to_string (to_int (w * 16.0))) + "\u0001") + (substring src a b))
+        def key:string (((to_string (to_int (w * 16.0))) + "\u0001") + (substring src a b))
+        ; a footnote's number is decided by the blocks BEFORE this one, so
+        ; the same text draws another number when one is added above it
+        if ((notesDoc.noteCount()) > 0) {
+            key = (key + "\u0001" + (MdLayout.noteSig(node)))
+        }
+        return key
     }
 
     fn cacheFind:int (key:string) {
@@ -1630,8 +1702,18 @@ class MdLayout {
                     fullPageDone = false
                     this.nextSlide()
                 }
-                if (this.slideBreakBefore(child i)) {
+                if (child.kind == "heading") {
+                    ; a heading closes the section it was in; a sub-heading
+                    ; opens its own once it has been laid out (below)
+                    this.clearSection()
+                }
+                if (this.slideBreakBefore(doc child i)) {
                     this.nextSlide()
+                    ; a sub-heading moved to the next slide is the slide
+                    ; going on: the title again over it, as any continuation
+                    if (this.continuesSlide(child)) {
+                        this.emitSlideTitle()
+                    }
                 }
                 this.keepWithNext(child i n doc)
                 if (child.kind == "heading") {
@@ -1684,6 +1766,11 @@ class MdLayout {
                 this.startFloat(doc i fromBox)
             }
             followH = 0.0
+            if (slides && (child.kind == "heading") && (child.level > splitLevel)) {
+                sectionTitle = (child.plainText())
+                sectionLevel = child.level
+                sectionHidden = (MdLayout.hiddenHeading(child))
+            }
             if slides {
                 def isTitle:boolean (opensSlide && (child.kind == "heading"))
                 if (isTitle && (MdLayout.bodyFollows(doc i splitLevel))) {
@@ -1745,6 +1832,20 @@ class MdLayout {
     def slideTitleOnly:boolean false
     ; inside a `{container=…}` plate: a block in it does not get one of its own
     def containerDepth:int 0
+
+    ; --- footnotes (see "Footnotes" below) --------------------------------
+    ; the document whose `notes` are drawn; empty: none
+    def notesDoc:MdNode (new MdNode())
+    ; per footnote, the page its first drawn reference is on (-1: not yet)
+    def noteFirstPage:[int]
+    ; per page, the room its footnotes have claimed at its foot
+    def noteRoom:[double]
+    ; drawing (or measuring) footnotes: their own references claim nothing
+    def inNotes:boolean false
+    ; a footnote's height, by number, size and column
+    def noteHeights:[string:double]
+    ; how much smaller footnotes are set than the text
+    def noteScale:double 0.78
 
     ; ----------------------------------------------------------------------
     ; Text beside a narrow picture or drawing (FLOAT)
@@ -1842,22 +1943,44 @@ class MdLayout {
     ; and taken back: the room a picture leaves under itself so that the
     ; text written under it is on the same slide.
     fn heightAfter:double (doc:MdNode i:int) {
-        def j:int (i + 1)
         if (! (MdLayout.bodyFollows(doc i splitLevel))) { return 0.0 }
+        return this.measureBlocks(doc (i + 1) 0)
+    }
+
+    ; How tall the run of blocks from `from` on is, laid out from the top and
+    ; taken back: every block that stays on the slide `from` is on, and, when
+    ; `level` is above 0, only up to the next heading at `level` or above —
+    ; the SECTION a sub-heading at `level` opens (see `sectionMovesOn`).
+    ; Nothing it laid out is left behind: boxes, headings, the slide count and
+    ; what a full-page gallery noted for the slides it would have opened.
+    fn measureBlocks:double (doc:MdNode from:int level:int) {
+        def n:int (doc.childCount())
+        if (from >= n) { return 0.0 }
         def savedBoxes:int (array_length boxes)
         def savedY:double cursorY
         def savedPage:int page
         def savedPageCount:int pageCount
         def savedOverflows:int slideOverflows
         def savedHeads:int (array_length headText)
+        def savedHeaderOff:int (array_length headerOff)
+        def savedFooterOff:int (array_length footerOff)
+        def savedNamed:int (array_length namedPage)
+        def savedHiddenOn:int hiddenOnPage
+        def savedFullDone:boolean fullPageDone
         def wasPaginate:boolean paginate
         paginate = false
         cursorY = 0.0
-        def n:int (doc.childCount())
+        def j:int from
         def going:boolean true
         while (going && (j < n)) {
             this.block((doc.childAt(j)) contentX contentW)
             going = (MdLayout.bodyFollows(doc j splitLevel))
+            if (going && (level > 0) && ((j + 1) < n)) {
+                def next:MdNode (doc.childAt((j + 1)))
+                if ((next.kind == "heading") && (next.level <= level)) {
+                    going = false
+                }
+            }
             j = (j + 1)
         }
         def h:double cursorY
@@ -1869,6 +1992,18 @@ class MdLayout {
             removeLast headPage
             removeLast headY
         }
+        while ((array_length headerOff) > savedHeaderOff) {
+            removeLast headerOff
+        }
+        while ((array_length footerOff) > savedFooterOff) {
+            removeLast footerOff
+        }
+        while ((array_length namedPage) > savedNamed) {
+            removeLast namedPage
+            removeLast namedText
+        }
+        hiddenOnPage = savedHiddenOn
+        fullPageDone = savedFullDone
         cursorY = savedY
         page = savedPage
         pageCount = savedPageCount
@@ -1917,7 +2052,7 @@ class MdLayout {
     ; ----------------------------------------------------------------------
     ; …and the four rules, in order
     ; ----------------------------------------------------------------------
-    fn slideBreakBefore:boolean (child:MdNode i:int) {
+    fn slideBreakBefore:boolean (doc:MdNode child:MdNode i:int) {
         ; Never before the first block, and never on a slide with nothing on
         ; it yet — a rule that fires twice in a row leaves a blank slide.
         if (i == 0) { return false }
@@ -1930,14 +2065,44 @@ class MdLayout {
         if (child.hasClass("slide")) { return true }
         if (child.kind == "heading") {
             if (child.level <= splitLevel) { return true }
-            ; 3. PREFERRED — any other heading, once the slide is more than
-            ; half full. Below half, a second heading is a subheading of what
-            ; is already there and belongs with it.
-            def used:double (cursorY - contentTop)
-            def room:double (contentBottom - contentTop)
-            if (used > (room * 0.5)) { return true }
+            ; 3. PREFERRED — any other heading, when the slide has to break
+            ; anyway: see `sectionMovesOn`.
+            return this.sectionMovesOn(doc i)
         }
         return false
+    }
+
+    ; 3. PREFERRED, in full. A sub-heading opens a SECTION: it and what
+    ; follows, up to the next heading at its level or above (or the next
+    ; slide's title). When the section fits in the room left, nothing
+    ; breaks — a slide is cut where it has to be, not wherever a heading
+    ; happens to fall below the middle (that rule sent the last line of
+    ; `### h3` … `###### h6` to a slide of its own with half the slide
+    ; empty). When it does not fit, the slide is going to break somewhere,
+    ; and the place to break is before the heading: the section starts at
+    ; the top of the continuation, under the title, whole. That holds only
+    ; when the section fits on a continuation of its own; one taller than
+    ; that is cut wherever it runs over, as before, and the continuation
+    ; says its heading again (`emitSlideTitle`). A slide that holds only
+    ; its title keeps the section: moving it would leave the title alone.
+    fn sectionMovesOn:boolean (doc:MdNode i:int) {
+        if slideTitleOnly { return false }
+        def child:MdNode (doc.childAt(i))
+        def h:double (this.measureBlocks(doc i child.level))
+        if ((cursorY + h) <= (contentBottom + fitSlack)) { return false }
+        def alone:double ((contentBottom - contentTop) - (this.continuationTitleHeight(false)))
+        return (h <= alone)
+    }
+
+    ; Whether a slide `child` was moved onto by a break is the same slide
+    ; going on — a sub-heading, which says the title again over it — rather
+    ; than a slide of its own: a title, or a block the author marked
+    ; `{.slide}`, which asked for a new slide and gets one as written.
+    fn continuesSlide:boolean (child:MdNode) {
+        if (child.kind != "heading") { return false }
+        if (child.level <= splitLevel) { return false }
+        if (child.hasClass("slide")) { return false }
+        return true
     }
 
     ; KEEP-WITH-NEXT. A heading with nothing under it is the one thing that
@@ -1955,6 +2120,9 @@ class MdLayout {
         if ((cursorY + need) > contentBottom) {
             if ((cursorY - contentTop) > 0.5) {
                 this.nextSlide()
+                if (this.continuesSlide(child)) {
+                    this.emitSlideTitle()
+                }
             }
         }
     }
@@ -2001,20 +2169,128 @@ class MdLayout {
     ; The title again, at the top of a slide a block spilled onto. Emitted
     ; here rather than through `blockInner`, because there is no node for it:
     ; it is the same heading, said twice.
+    ;
+    ; THE RULE, one for every continuation: the slide's title is said again
+    ; at the top, whether the continuation begins with a block cut in two,
+    ; a whole block or a sub-heading the break was moved before. When it
+    ; begins INSIDE a section, that section's sub-heading is said again
+    ; under the title, set and marked as the title is — its own level's
+    ; size and ink, no box of the source behind it (`segSrc` -1), and no
+    ; "(continued)" suffix, which the deck would have to translate.
     fn emitSlideTitle:void () {
-        if ((strlen slideTitle) == 0) { return }
-        if slideTitleHidden { return }
-        def size:double (style.headingSize(slideTitleLevel))
+        this.noteContinuation(page)
+        def said:boolean false
+        if (((strlen slideTitle) > 0) && (slideTitleHidden == false)) {
+            this.emitRepeatedHeading(slideTitle slideTitleLevel)
+            said = true
+        }
+        if (((strlen sectionTitle) > 0) && (sectionHidden == false)) {
+            if said {
+                cursorY = (cursorY + style.headingSpaceBefore)
+            }
+            this.emitRepeatedHeading(sectionTitle sectionLevel)
+        }
+    }
+
+    fn emitRepeatedHeading:void (text:string level:int) {
+        def size:double (style.headingSize(level))
         def h:double (size * style.lineHeight)
-        def b:MdBox (MdBox.text(slideTitle contentX cursorY contentW h))
+        def b:MdBox (MdBox.text(text contentX cursorY contentW h))
         b.family = style.headingFamily
         b.size = size
         b.bold = true
         ; the heading's own ink: it is the same title, and a dimmed one is
         ; text a reader at the back cannot make out
-        b.color = (style.headingInk(slideTitleLevel))
+        b.color = (style.headingInk(level))
         this.emit(b)
         cursorY = ((cursorY + h) + style.headingSpaceAfter)
+    }
+
+    ; How tall what `emitSlideTitle` says is, with the section's heading or
+    ; without it: the room a continuation has is the slide less this.
+    fn continuationTitleHeight:double (withSection:boolean) {
+        def h:double 0.0
+        def said:boolean false
+        if (((strlen slideTitle) > 0) && (slideTitleHidden == false)) {
+            h = (((style.headingSize(slideTitleLevel)) * style.lineHeight) + style.headingSpaceAfter)
+            said = true
+        }
+        if (withSection && ((strlen sectionTitle) > 0) && (sectionHidden == false)) {
+            if said {
+                h = (h + style.headingSpaceBefore)
+            }
+            h = ((h + ((style.headingSize(sectionLevel)) * style.lineHeight)) + style.headingSpaceAfter)
+        }
+        return h
+    }
+
+    fn noteContinuation:void (p:int) {
+        def t:string ""
+        if (slideTitleHidden == false) { t = slideTitle }
+        def st:string ""
+        if (sectionHidden == false) { st = sectionTitle }
+        def i:int (indexOf contPage p)
+        if (i < 0) {
+            push contPage p
+            push contTitle t
+            push contTitleLevel slideTitleLevel
+            push contSection st
+            push contSectionLevel sectionLevel
+            return
+        }
+        set_at contTitle i t
+        set_at contTitleLevel i slideTitleLevel
+        set_at contSection i st
+        set_at contSectionLevel i sectionLevel
+    }
+
+    ; Slide `p` laid out again from its top: what it said again as a
+    ; continuation, said again, and the title and section it was in made the
+    ; current ones for what follows on it.
+    fn resumeContinuation:void (p:int) {
+        def i:int (indexOf contPage p)
+        if (i < 0) { return }
+        slideTitle = (itemAt contTitle i)
+        slideTitleLevel = (itemAt contTitleLevel i)
+        slideTitleHidden = false
+        sectionTitle = (itemAt contSection i)
+        sectionLevel = (itemAt contSectionLevel i)
+        sectionHidden = false
+        this.emitSlideTitle()
+    }
+
+    ; Slide `p` went (shrunk into the one before it): its record goes and
+    ; every later slide's moves up one.
+    fn dropContinuation:void (p:int) {
+        def keepP:[int]
+        def keepT:[string]
+        def keepTL:[int]
+        def keepS:[string]
+        def keepSL:[int]
+        def i:int 0
+        while (i < (array_length contPage)) {
+            def cp:int (itemAt contPage i)
+            if (cp != p) {
+                if (cp > p) { cp = (cp - 1) }
+                push keepP cp
+                push keepT (itemAt contTitle i)
+                push keepTL (itemAt contTitleLevel i)
+                push keepS (itemAt contSection i)
+                push keepSL (itemAt contSectionLevel i)
+            }
+            i = (i + 1)
+        }
+        contPage = keepP
+        contTitle = keepT
+        contTitleLevel = keepTL
+        contSection = keepS
+        contSectionLevel = keepSL
+    }
+
+    fn clearSection:void () {
+        sectionTitle = ""
+        sectionLevel = 0
+        sectionHidden = false
     }
 
     sfn countHeadings:int (doc:MdNode) {
@@ -2162,9 +2438,11 @@ class MdLayout {
 
     fn reserve:double (h:double) {
         if paginate {
+            ; the room the page's footnotes have claimed is not the text's
+            def bottom:double (contentBottom - (this.noteRoomOn(page)))
             ; past the budget the rest stays on the last page: a block taller
             ; than any page is drawn cut, not spread over thousands
-            if (((cursorY + h) > (contentBottom + fitSlack)) && (page < (MdCssLimits.pageBudget()))) {
+            if (((cursorY + h) > (bottom + fitSlack)) && (page < (MdCssLimits.pageBudget()))) {
                 page = (page + 1)
                 pageCount = (page + 1)
                 cursorY = contentTop
@@ -2185,6 +2463,9 @@ class MdLayout {
         b.page = page
         b.srcStart = currentSrc
         push boxes b
+        if ((b.noteRef > 0) && (! inNotes)) {
+            this.noteSeen(b.noteRef page)
+        }
     }
 
     ; The first box a block produced, or -1. The two panes of the viewer are
@@ -2221,6 +2502,449 @@ class MdLayout {
             return (unwrap (get boxIndexAt k))
         }
         return -1
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Footnotes
+    ; ----------------------------------------------------------------------
+    ;
+    ; A reference is a raised number in the line (`collectRuns`). The notes
+    ; themselves go where a printed page puts them: at the foot of the page
+    ; — the slide — that first refers to them, small, numbered, under a short
+    ; rule. A definition draws nothing where it was written.
+    ;
+    ; Two halves, because a note's place is only known once the page is:
+    ;
+    ;   while laying out, a line that first refers to a note reserves the
+    ;   note's height at the foot of its page with it (`noteRoomFor`), and
+    ;   once placed claims it (`emit` → `noteSeen`), so the text after it
+    ;   breaks earlier and never runs into the notes;
+    ;
+    ;   after the pages are final — shrunk, grown — the notes are drawn
+    ;   (`placeNotesPaged`) from the boxes alone: whatever page the first
+    ;   reference's box ended up on is the page its note is on. The claims
+    ;   are bookkeeping for the breaks; the boxes are the truth.
+    ;
+    ; Without pages (`layoutContinuous`, one long column) there is no foot to
+    ; put them at, so they close the document, in number order, as the HTML
+    ; export ends with them.
+    ;
+    ; The notes' boxes are `furniture` 3: placed by the page, not by the flow
+    ; of blocks, which is what every reader of a block's boxes already
+    ; leaves aside. A labelled note's boxes carry its definition's source, so
+    ; a click on one finds the text that is drawn; an inline note's carry
+    ; none, because its text is inside the paragraph that refers to it and a
+    ; box there would claim to be part of that paragraph.
+
+    fn startNotes:void (doc:MdNode) {
+        notesDoc = doc
+        clear noteFirstPage
+        clear noteRoom
+        def i:int 0
+        while (i < (doc.noteCount())) {
+            push noteFirstPage -1
+            i = (i + 1)
+        }
+        inNotes = false
+    }
+
+    fn noteRoomOn:double (p:int) {
+        if ((p < 0) || (p >= (array_length noteRoom))) {
+            return 0.0
+        }
+        return (itemAt noteRoom p)
+    }
+
+    fn addNoteRoom:void (p:int h:double) {
+        while ((array_length noteRoom) <= p) {
+            push noteRoom 0.0
+        }
+        set_at noteRoom p ((itemAt noteRoom p) + h)
+    }
+
+    ; the gap from the text to the notes' rule, and from the rule to them
+    fn noteSepH:double () {
+        return (style.bodySize * 0.9)
+    }
+
+    ; Footnote `n` is referred to on page `p`: the first time, it claims its
+    ; room there.
+    fn noteSeen:void (n:int p:int) {
+        if ((n < 1) || (n > (array_length noteFirstPage))) { return }
+        if ((itemAt noteFirstPage (n - 1)) >= 0) { return }
+        set_at noteFirstPage (n - 1) p
+        def add:double (this.noteHeight(n))
+        if ((this.noteRoomOn(p)) <= 0.0) {
+            add = (add + (this.noteSepH()))
+        }
+        this.addNoteRoom(p add)
+    }
+
+    ; The room the notes a line refers to for the first time will claim.
+    fn noteRoomFor:double (ln:MdLine) {
+        if ((! paginate) || inNotes) { return 0.0 }
+        if ((array_length noteFirstPage) == 0) { return 0.0 }
+        def sum:double 0.0
+        def counted:[int]
+        def i:int 0
+        while (i < (array_length ln.segs)) {
+            def seg:MdSeg (itemAt ln.segs i)
+            def n:int seg.noteRef
+            if ((n >= 1) && (n <= (array_length noteFirstPage))) {
+                if ((itemAt noteFirstPage (n - 1)) < 0) {
+                    def seen:boolean false
+                    for counted cn:int ci {
+                        if (cn == n) {
+                            seen = true
+                        }
+                    }
+                    if (! seen) {
+                        push counted n
+                        sum = (sum + (this.noteHeight(n)))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if ((sum > 0.0) && ((this.noteRoomOn(page)) <= 0.0)) {
+            sum = (sum + (this.noteSepH()))
+        }
+        return sum
+    }
+
+    ; The claims again, from the boxes that are left — after a slide was cut
+    ; back to be laid out again.
+    fn retrackNotes:void () {
+        def i:int 0
+        while (i < (array_length noteFirstPage)) {
+            set_at noteFirstPage i -1
+            i = (i + 1)
+        }
+        clear noteRoom
+        def k:int 0
+        while (k < (array_length boxes)) {
+            def b:MdBox (itemAt boxes k)
+            if ((b.noteRef > 0) && (b.furniture == 0)) {
+                this.noteSeen(b.noteRef b.page)
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; How tall footnote `n` is, set as the notes are, in the text column.
+    fn noteHeight:double (n:int) {
+        def key:string ((to_string n) + "/" + (to_string style.bodySize) + "/" + (to_string contentW))
+        if (has noteHeights key) {
+            return (unwrap (get noteHeights key))
+        }
+        def one:[int]
+        push one n
+        def h:double (this.measureNotes(one contentX contentW))
+        set noteHeights key h
+        return h
+    }
+
+    ; The notes laid out for real and taken away again: their height.
+    fn measureNotes:double (list:[int] x:double w:double) {
+        def savedPaginate:boolean paginate
+        def savedPage:int page
+        def savedCount:int pageCount
+        def savedCursor:double cursorY
+        def savedIn:boolean inNotes
+        def savedSrc:int currentSrc
+        def from:int (array_length boxes)
+        paginate = false
+        inNotes = true
+        cursorY = 0.0
+        this.drawNoteList(list x w)
+        def bottom:double 0.0
+        def i:int from
+        while (i < (array_length boxes)) {
+            def b:MdBox (itemAt boxes i)
+            if ((b.y + b.h) > bottom) {
+                bottom = (b.y + b.h)
+            }
+            i = (i + 1)
+        }
+        while ((array_length boxes) > from) {
+            removeLast boxes
+        }
+        paginate = savedPaginate
+        page = savedPage
+        pageCount = savedCount
+        cursorY = savedCursor
+        inNotes = savedIn
+        currentSrc = savedSrc
+        return bottom
+    }
+
+    ; The notes in `list`, one under the other from the cursor, each its
+    ; number and then its blocks, set `noteScale` smaller than the text.
+    fn drawNoteList:void (list:[int] x:double w:double) {
+        def saved:[double] (this.styleNumbers())
+        this.scaleStyle(saved noteScale)
+        def wasTight:boolean inTightItem
+        inTightItem = true
+        def probe:MdRun (this.baseRun())
+        def widest:double 0.0
+        def k:int 0
+        while (k < (array_length list)) {
+            def mw:double (this.measureRun(((to_string (itemAt list k)) + ".") probe))
+            if (mw > widest) {
+                widest = mw
+            }
+            k = (k + 1)
+        }
+        def indent:double (widest + style.markerGap)
+        def i:int 0
+        while (i < (array_length list)) {
+            def n:int (itemAt list i)
+            def fd:MdNode (notesDoc.noteAt(n))
+            if (fd.kind == "footnote_def") {
+                def first:int (array_length boxes)
+                def top:double cursorY
+                this.blocks(fd (x + indent) (w - indent))
+                def markerY:double top
+                if (first < (array_length boxes)) {
+                    def fb:MdBox (this.firstTextBox(first))
+                    markerY = fb.y
+                }
+                def marker:string ((to_string n) + ".")
+                def mb:MdBox (MdBox.text(marker x markerY (this.measureRun(marker probe)) (style.bodySize * style.lineHeight)))
+                mb.family = style.bodyFamily
+                mb.size = style.bodySize
+                mb.color = style.mutedColor
+                this.emit(mb)
+                ; whose source the boxes name: a labelled note its
+                ; definition's, an inline one none (see above)
+                def j:int first
+                while (j < (array_length boxes)) {
+                    def nb:MdBox (itemAt boxes j)
+                    if ((strlen fd.info) > 0) {
+                        if ((nb.srcStart < 0) || (j == ((array_length boxes) - 1))) {
+                            nb.srcStart = fd.srcStart
+                        }
+                    } {
+                        nb.srcStart = -1
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        inTightItem = wasTight
+        this.restoreStyle(saved)
+    }
+
+    ; The notes, with their rule, on page `p` from `top`. Returns where they
+    ; end.
+    fn drawNotesAt:double (list:[int] p:int top:double) {
+        def savedPaginate:boolean paginate
+        def savedPage:int page
+        def savedIn:boolean inNotes
+        def savedSrc:int currentSrc
+        paginate = false
+        inNotes = true
+        page = p
+        def from:int (array_length boxes)
+        def ruleW:double (contentW * 0.25)
+        def rule:MdBox (MdBox.rect(contentX top ruleW 0.75 style.ruleColor))
+        this.emit(rule)
+        rule.srcStart = -1
+        cursorY = (top + (this.noteSepH() * 0.5))
+        this.drawNoteList(list contentX contentW)
+        def end:double cursorY
+        def i:int from
+        while (i < (array_length boxes)) {
+            def b:MdBox (itemAt boxes i)
+            b.furniture = 3
+            if ((b.y + b.h) > end) {
+                end = (b.y + b.h)
+            }
+            i = (i + 1)
+        }
+        paginate = savedPaginate
+        page = savedPage
+        inNotes = savedIn
+        currentSrc = savedSrc
+        return end
+    }
+
+    ; The footnotes `n` refers to (a note may have notes), not yet placed.
+    sfn notesWithin:void (node:MdNode first:[int] p:int list:[int]) {
+        if (node.kind == "footnote_ref") {
+            def m:int node.noteNumber
+            if ((m >= 1) && (m <= (array_length first))) {
+                if ((itemAt first (m - 1)) < 0) {
+                    set_at first (m - 1) p
+                    push list m
+                }
+            }
+        }
+        def i:int 0
+        while (i < (node.childCount())) {
+            MdLayout.notesWithin((node.childAt(i)) first p list)
+            i = (i + 1)
+        }
+    }
+
+    ; Each page's notes, at its foot: the notes whose first reference was
+    ; drawn on it, in number order, then the notes those refer to.
+    fn placeNotesPaged:void () {
+        def count:int (notesDoc.noteCount())
+        if (count == 0) { return }
+        def first:[int]
+        def i:int 0
+        while (i < count) {
+            push first -1
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length boxes)) {
+            def b:MdBox (itemAt boxes k)
+            def n:int b.noteRef
+            if (((n >= 1) && (n <= count)) && (b.furniture == 0)) {
+                if ((itemAt first (n - 1)) < 0) {
+                    set_at first (n - 1) b.page
+                }
+            }
+            k = (k + 1)
+        }
+        def savedCursor:double cursorY
+        def p:int 0
+        while (p < pageCount) {
+            def list:[int]
+            def m:int 1
+            while (m <= count) {
+                if ((itemAt first (m - 1)) == p) {
+                    push list m
+                }
+                m = (m + 1)
+            }
+            if ((array_length list) > 0) {
+                def j:int 0
+                while (j < (array_length list)) {
+                    MdLayout.notesWithin((notesDoc.noteAt((itemAt list j))) first p list)
+                    j = (j + 1)
+                }
+                def h:double (this.measureNotes(list contentX contentW))
+                def sep:double (this.noteSepH())
+                ; where this page's own text ends
+                def textEnd:double contentTop
+                def q:int 0
+                while (q < (array_length boxes)) {
+                    def tb:MdBox (itemAt boxes q)
+                    if ((tb.page == p) && (tb.furniture == 0)) {
+                        if ((tb.y + tb.h) > textEnd) {
+                            textEnd = (tb.y + tb.h)
+                        }
+                    }
+                    q = (q + 1)
+                }
+                def top:double ((contentBottom - h) - (sep * 0.5))
+                ; Text that reached into their room — a picture fitted to
+                ; the page, a reference in a table — has them under it
+                ; rather than over it.
+                if (top < (textEnd + (sep * 0.5))) {
+                    top = (textEnd + (sep * 0.5))
+                }
+                this.drawNotesAt(list p top)
+            }
+            p = (p + 1)
+        }
+        cursorY = savedCursor
+    }
+
+    ; One long column: the notes close the document.
+    fn placeNotesAtEnd:void () {
+        def count:int (notesDoc.noteCount())
+        if (count == 0) { return }
+        def list:[int]
+        def m:int 1
+        while (m <= count) {
+            push list m
+            m = (m + 1)
+        }
+        def top:double (cursorY + (this.noteSepH() * 0.5))
+        cursorY = (this.drawNotesAt(list page top))
+    }
+
+    ; The numbers of the footnotes `node` refers to, for the layout cache.
+    sfn noteSig:string (node:MdNode) {
+        if (node.kind == "footnote_ref") {
+            return ((to_string node.noteNumber) + ",")
+        }
+        def out:string ""
+        def i:int 0
+        while (i < (node.childCount())) {
+            out = (out + (MdLayout.noteSig((node.childAt(i)))))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Definition lists and `::: containers`
+    ; ----------------------------------------------------------------------
+
+    ; Each term bold, at the list's edge; each of its definitions under it,
+    ; indented as a list item's text is. A tight list keeps its definitions
+    ; as close as a tight list's items.
+    fn defList:void (node:MdNode x:double w:double) {
+        def wasTight:boolean inTightItem
+        def indent:double style.listIndent
+        def savedSrc:int currentSrc
+        def i:int 0
+        while (i < (node.childCount())) {
+            def c:MdNode (node.childAt(i))
+            if (c.kind == "dt") {
+                def base:MdRun (this.baseRun())
+                base.bold = true
+                def runs:[MdRun] (this.inlineRuns(c base))
+                if (c.srcStart >= 0) {
+                    currentSrc = c.srcStart
+                }
+                this.paragraph(runs x w)
+                currentSrc = savedSrc
+                cursorY = (cursorY + style.listTightSpacing)
+            }
+            if (c.kind == "dd") {
+                inTightItem = node.listTight
+                this.blocks(c (x + indent) (w - indent))
+                inTightItem = wasTight
+            }
+            i = (i + 1)
+        }
+        if node.listTight {
+            def extra:double (style.paraSpacing - style.listTightSpacing)
+            if (extra > 0.0) {
+                cursorY = (cursorY + extra)
+            }
+        }
+    }
+
+    ; Its title, when the opening line had one, bold over its blocks. The
+    ; plate around them is `containerBlock`'s, the one `{container=box}`
+    ; draws.
+    fn customContainer:void (node:MdNode x:double w:double) {
+        if ((strlen node.title) > 0) {
+            def tr:MdRun (this.baseRun())
+            tr.bold = true
+            tr.text = node.title
+            def runs:[MdRun]
+            push runs tr
+            this.paragraph(runs x w)
+            cursorY = (cursorY + style.listTightSpacing)
+        }
+        this.blocks(node x w)
+    }
+
+    ; A colour a sheet gives a property, as `#RRGGBB(AA)`; "" for none.
+    sfn sheetColour:string (got:CssComputed name:string) {
+        if (! (got.has(name))) { return "" }
+        def c:EVGColor (CssValue.color((got.get(name))))
+        if (! c.isSet) { return "" }
+        return (MdContainer.hexOf(c))
     }
 
     ; ----------------------------------------------------------------------
@@ -2267,7 +2991,9 @@ class MdLayout {
             }
         }
         def plate:string (MdContainer.kindOf(node))
-        if (((strlen plate) > 0) && (containerDepth == 0)) {
+        ; a `::: container` is a plate wherever it is — they nest, with more
+        ; colons outside; a block INSIDE a `{container=…}` plate gets none
+        if (((strlen plate) > 0) && ((containerDepth == 0) || (node.kind == "container"))) {
             this.containerBlock(node x w plate)
         } {
             this.blockInner(node x w)
@@ -2291,7 +3017,32 @@ class MdLayout {
     fn containerBlock:void (node:MdNode x:double w:double kind:string) {
         def paper:string style.pageBackground
         if (paper == "transparent") { paper = "" }
-        def p:MdContainer (MdContainer.plan(kind (MdContainer.fillOf(node)) style.containerBackground style.containerRadius paper style.textColor style.bodySize))
+        ; the block's own colour: its attribute, else what the sheet says
+        ; about its classes (`.warning { background-color }`)
+        def own:string (MdContainer.fillOf(node))
+        def radius:double style.containerRadius
+        if (((strlen sheetText) > 0) && ((node.classCount()) > 0)) {
+            def got:CssComputed (this.styleOf(node))
+            if ((strlen own) == 0) {
+                own = (MdLayout.sheetColour(got "background-color"))
+            }
+            if ((strlen own) == 0) {
+                own = (MdLayout.sheetColour(got "background"))
+            }
+            if (got.has("border-radius")) {
+                radius = (CssValue.fontPoints((got.get("border-radius")) radius))
+            }
+        }
+        ; A `::: warning` is a callout on the page, not text lifted off a
+        ; picture: on a page of its own colour the plate `{container=box}`
+        ; defaults to (that colour, nearly opaque) would not show. So with
+        ; nothing said, it takes the theme's own neutral surface — the one
+        ; code and table heads stand on.
+        def themeFill:string style.containerBackground
+        if (((strlen themeFill) == 0) && (node.kind == "container")) {
+            themeFill = style.codeBackground
+        }
+        def p:MdContainer (MdContainer.plan(kind own themeFill radius paper style.textColor style.bodySize))
         def savedInk:string style.textColor
         if ((strlen p.ink) > 0) {
             style.textColor = p.ink
@@ -2706,16 +3457,11 @@ class MdLayout {
             page = p
             pageCount = (p + 1)
             cursorY = contentTop
+            this.resumeContinuation(p)
             def j:int 0
             while (j < (array_length members)) {
                 def child:MdNode (doc.childAt((itemAt members j)))
-                if (child.kind == "heading") {
-                    if (child.level <= splitLevel) {
-                        slideTitle = (child.plainText())
-                        slideTitleLevel = child.level
-                    }
-                }
-                this.block(child contentX contentW)
+                this.relayoutBlock(child)
                 j = (j + 1)
             }
             def fits:boolean (page == p)
@@ -2740,6 +3486,7 @@ class MdLayout {
                     q = (q + 1)
                 }
                 this.dropSpillExcess((p + 1))
+                this.dropContinuation((p + 1))
                 page = (savedPage - 1)
                 pageCount = (savedPageCount - 1)
                 cursorY = savedCursor
@@ -2769,6 +3516,26 @@ class MdLayout {
         cursorY = savedCursor
         slideOverflows = savedOverflows
         return false
+    }
+
+    ; One block of a slide laid out again (shrunk or grown), keeping the
+    ; title and the section current as `bodyPass` does, so a continuation
+    ; it runs onto says the right ones.
+    fn relayoutBlock:void (child:MdNode) {
+        if (child.kind == "heading") {
+            this.clearSection()
+            if (child.level <= splitLevel) {
+                slideTitle = (child.plainText())
+                slideTitleLevel = child.level
+                slideTitleHidden = (MdLayout.hiddenHeading(child))
+            }
+        }
+        this.block(child contentX contentW)
+        if ((child.kind == "heading") && (child.level > splitLevel)) {
+            sectionTitle = (child.plainText())
+            sectionLevel = child.level
+            sectionHidden = (MdLayout.hiddenHeading(child))
+        }
     }
 
     fn growSlides:void (doc:MdNode) {
@@ -2858,16 +3625,11 @@ class MdLayout {
             this.growStyle(saved s)
             page = p
             cursorY = contentTop
+            this.resumeContinuation(p)
             def j:int 0
             while (j < (array_length members)) {
                 def child:MdNode (doc.childAt((itemAt members j)))
-                if (child.kind == "heading") {
-                    if (child.level <= splitLevel) {
-                        slideTitle = (child.plainText())
-                        slideTitleLevel = child.level
-                    }
-                }
-                this.block(child contentX contentW)
+                this.relayoutBlock(child)
                 j = (j + 1)
             }
             ; …and a heading that was one line stays one line: a title
@@ -3022,6 +3784,12 @@ class MdLayout {
     fn truncate:void (n:int) {
         while ((array_length boxes) > n) {
             removeLast boxes
+        }
+        ; what the boxes left say about the pages' footnotes
+        if ((notesDoc.noteCount()) > 0) {
+            if (! inNotes) {
+                this.retrackNotes()
+            }
         }
     }
 
@@ -3234,6 +4002,18 @@ class MdLayout {
         }
         if (kind == "math_block") {
             this.mathBlock(node x w)
+            return
+        }
+        ; drawn at the foot of the page that first refers to it (`placeNotes`)
+        if (kind == "footnote_def") {
+            return
+        }
+        if (kind == "dl") {
+            this.defList(node x w)
+            return
+        }
+        if (kind == "container") {
+            this.customContainer(node x w)
             return
         }
         ; anything unexpected still shows its contents rather than vanishing
@@ -3813,7 +4593,24 @@ class MdLayout {
                 r.text = c.literal
                 r.srcStart = c.srcStart
                 r.srcEnd = c.srcEnd
+                r.atom = c.subst
                 push out r
+            }
+            ; markdown-it's spans: drawn as their HTML tags are
+            if ((((kind == "sub") || (kind == "sup")) || (kind == "ins")) || ((kind == "mark") || (kind == "abbr"))) {
+                ; An abbreviation has nowhere to show its title on a slide, so
+                ; it is its text; the title goes to HTML as <abbr title>.
+                def xr:MdRun (cur.copyStyle())
+                if (kind != "abbr") {
+                    xr = (this.tagStyle(cur kind))
+                }
+                def nested:[MdRun] (this.collectRuns(c xr))
+                def ni:int 0
+                def nn:int (array_length nested)
+                while (ni < nn) {
+                    push out (itemAt nested ni)
+                    ni = (ni + 1)
+                }
             }
             if (kind == "softbreak") {
                 def sb:MdRun (cur.copyStyle())
@@ -3932,6 +4729,22 @@ class MdLayout {
                     push out (itemAt nested ni)
                     ni = (ni + 1)
                 }
+            }
+            if (kind == "footnote_ref") {
+                ; its number, raised, as a printed page sets it
+                def fr:MdRun (cur.copyStyle())
+                fr.text = (to_string c.noteNumber)
+                fr.shiftOf = cur.size
+                if (cur.shift != 0) {
+                    fr.shiftOf = cur.shiftOf
+                }
+                fr.size = (cur.size * 0.75)
+                fr.shift = 1
+                fr.color = style.linkColor
+                fr.noteRef = c.noteNumber
+                fr.srcStart = c.srcStart
+                fr.srcEnd = c.srcEnd
+                push out fr
             }
             if (kind == "image") {
                 ; An image the layout has no bytes for still says what it was.
@@ -4577,8 +5390,36 @@ class MdLayout {
     ; What an inline HTML tag makes of the style around it. Tags nobody draws
     ; (span, abbr's title, a link's target) leave the style as it was.
     fn htmlStyle:MdRun (cur:MdRun tg:MdHtmlTag) {
-        def r:MdRun (cur.copyStyle())
         def nm:string tg.name
+        def r:MdRun (this.tagStyle(cur nm))
+        if ((nm == "abbr") || (nm == "acronym")) {
+            if (tg.has("title")) {
+                r.underline = true
+            }
+        }
+        if (nm == "a") {
+            def href:string (tg.attr("href"))
+            if ((strlen href) > 0) {
+                r.link = href
+                r.color = style.linkColor
+            }
+        }
+        def col:string (MdHtml.styleProp((tg.attr("style")) "color"))
+        if ((strlen col) == 0) {
+            if (nm == "font") {
+                col = (tg.attr("color"))
+            }
+        }
+        if ((strlen col) > 0) {
+            r.color = col
+        }
+        return r
+    }
+
+    ; What an element of this name does to the style around it, whether it
+    ; came as HTML (`<sup>`) or as markdown (`^…^`, which is the same `sup`).
+    fn tagStyle:MdRun (cur:MdRun nm:string) {
+        def r:MdRun (cur.copyStyle())
         if ((nm == "b") || (nm == "strong")) { r.bold = true }
         if ((((nm == "i") || (nm == "em")) || ((nm == "cite") || (nm == "var"))) || (nm == "dfn")) { r.italic = true }
         if ((nm == "u") || (nm == "ins")) { r.underline = true }
@@ -4613,27 +5454,6 @@ class MdLayout {
         }
         if (nm == "small") { r.size = (cur.size * 0.85) }
         if (nm == "big") { r.size = (cur.size * 1.15) }
-        if ((nm == "abbr") || (nm == "acronym")) {
-            if (tg.has("title")) {
-                r.underline = true
-            }
-        }
-        if (nm == "a") {
-            def href:string (tg.attr("href"))
-            if ((strlen href) > 0) {
-                r.link = href
-                r.color = style.linkColor
-            }
-        }
-        def col:string (MdHtml.styleProp((tg.attr("style")) "color"))
-        if ((strlen col) == 0) {
-            if (nm == "font") {
-                col = (tg.attr("color"))
-            }
-        }
-        if ((strlen col) > 0) {
-            r.color = col
-        }
         return r
     }
 
@@ -4715,6 +5535,7 @@ class MdLayout {
             def b:MdBox (MdBox.text(seg.text sx ty seg.w lh))
             b.segSrc = seg.srcStart
             b.segLen = seg.srcLen
+            b.segAtom = seg.atom
             b.family = seg.family
             b.size = seg.size
             b.bold = seg.bold
@@ -4723,6 +5544,7 @@ class MdLayout {
             b.link = seg.link
             b.strike = seg.strike
             b.quiet = seg.quiet
+            b.noteRef = seg.noteRef
             this.emit(b)
             if (seg.underline || seg.strike) {
                 def base:double (ty + (this.baselineAt(seg.family seg.bold seg.italic seg.size)))
@@ -4846,7 +5668,10 @@ class MdLayout {
         def n:int (array_length lines)
         while (i < n) {
             def ln:MdLine (itemAt lines i)
-            def y:double (this.reserve(ln.height))
+            ; a line that first refers to a footnote needs the footnote's
+            ; room on its page too: without it the line goes on and its note
+            ; goes nowhere, so the two go to the next page together
+            def y:double (this.reserve((ln.height + (this.noteRoomFor(ln)))))
             def dx:double 0.0
             if (align == "center") {
                 dx = ((w - ln.width) / 2.0)
@@ -4939,6 +5764,14 @@ class MdLayout {
             } {
                 k = (k + 1)
             }
+        }
+        if b.segAtom {
+            ; the nearer END of what the glyph stands for
+            if ((hit * 2) < len) { return b.segSrc }
+            if ((hit * 2) == len) {
+                if ((want * 2.0) < b.w) { return b.segSrc }
+            }
+            return (b.segSrc + b.segLen)
         }
         def at:int (b.segSrc + hit)
         def stop:int (b.segSrc + b.segLen)
@@ -5238,6 +6071,12 @@ class MdLayout {
             }
             seg.srcLen = (upto - at)
             if (seg.srcLen < 0) { seg.srcLen = 0 }
+            if run.atom {
+                ; all of it or none of it: the run's text is not its source
+                seg.atom = true
+                seg.srcStart = run.srcStart
+                seg.srcLen = (run.srcEnd - run.srcStart)
+            }
         }
         seg.family = run.family
         seg.size = run.size
@@ -5255,6 +6094,7 @@ class MdLayout {
         seg.kbd = run.kbd
         seg.shift = run.shift
         seg.shiftOf = run.shiftOf
+        seg.noteRef = run.noteRef
         seg.x = usedWidth
         seg.w = (this.measureRun(openText run))
         push cur.segs seg
@@ -5455,8 +6295,8 @@ class MdLayout {
             return flat
         }
         def titleH:double 0.0
-        if (slides && ((strlen slideTitle) > 0)) {
-            titleH = (((style.headingSize(slideTitleLevel)) * style.lineHeight) + style.headingSpaceAfter)
+        if slides {
+            titleH = (this.continuationTitleHeight(true))
         }
         def firstRoom:double (contentBottom - cursorY)
         def nextRoom:double ((contentBottom - contentTop) - titleH)

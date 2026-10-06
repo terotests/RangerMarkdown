@@ -157,6 +157,7 @@ class MdToDocx {
         sec.marginLeftTwips = m
 
         this.blocks(root 0 0)
+        this.footnotes(root)
         ; …and say that something changed.
         ;
         ; `DocxLayout.layoutIfNeeded` compares its own `laidRevision` with the
@@ -181,6 +182,24 @@ class MdToDocx {
     fn block:void (node:MdNode listKind:int level:int) {
         def kind:string node.kind
         if (kind == "front_matter") { return }
+        ; written with the others at the end (`footnotes`)
+        if (kind == "footnote_def") { return }
+        if (kind == "dl") {
+            this.defList(node level)
+            return
+        }
+        if (kind == "container") {
+            ; its title, bold, then its blocks — a Word paragraph has no
+            ; plate to stand them on
+            if ((strlen node.title) > 0) {
+                def tp:Paragraph (doc.addParagraph())
+                tp.spaceAfterPt = style.listTightSpacing
+                tp.appendText(node.title (this.spanFor(true false false "")))
+                result.paragraphs = (result.paragraphs + 1)
+            }
+            this.blocks(node listKind level)
+            return
+        }
         if (kind == "heading") {
             def p:Paragraph (doc.addParagraph())
             p.styleId = ("Heading" + (to_string node.level))
@@ -325,6 +344,80 @@ class MdToDocx {
         }
     }
 
+    ; A definition list: each term a bold paragraph, each definition's blocks
+    ; indented under it as far as a list item's text.
+    fn defList:void (node:MdNode level:int) {
+        def i:int 0
+        while (i < (node.childCount())) {
+            def c:MdNode (node.childAt(i))
+            if (c.kind == "dt") {
+                def p:Paragraph (doc.addParagraph())
+                p.spaceAfterPt = style.listTightSpacing
+                p.lineSpacing = style.lineHeight
+                p.indentLeftPt = (style.listIndent * (to_double level))
+                this.inline(c p (this.spanFor(true false false "")))
+                MdDocSync.stamp(p c)
+                result.paragraphs = (result.paragraphs + 1)
+            }
+            if (c.kind == "dd") {
+                def before:int (array_length doc.paragraphs)
+                this.blocks(c 0 level)
+                def k:int before
+                while (k < (array_length doc.paragraphs)) {
+                    def dp:Paragraph (itemAt doc.paragraphs k)
+                    dp.indentLeftPt = (dp.indentLeftPt + style.listIndent)
+                    k = (k + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The footnotes, at the end of the document in number order, under a
+    ; short rule: the shape markdown-it's HTML gives them. Each starts with
+    ; its number, as its references (`[1]`) name it.
+    fn footnotes:void (root:MdNode) {
+        def n:int (root.noteCount())
+        if (n == 0) { return }
+        def hp:Paragraph (doc.addParagraph())
+        hp.appendText("———" (this.spanFor(false false false "")))
+        def i:int 1
+        while (i <= n) {
+            def fd:MdNode (root.noteAt(i))
+            def before:int (array_length doc.paragraphs)
+            def kids:int (fd.childCount())
+            def from:int 0
+            def np:Paragraph (doc.addParagraph())
+            np.spaceAfterPt = style.listTightSpacing
+            np.lineSpacing = style.lineHeight
+            def base:TextSpan (this.spanFor(false false false ""))
+            np.appendText(((to_string i) + ". ") base)
+            if (kids > 0) {
+                def lead:MdNode (fd.childAt(0))
+                if (lead.kind == "paragraph") {
+                    this.inline(lead np base)
+                    from = 1
+                }
+            }
+            result.paragraphs = (result.paragraphs + 1)
+            while (from < kids) {
+                this.block((fd.childAt(from)) 0 0)
+                from = (from + 1)
+            }
+            ; hung: the number out at the left, the text in line under it
+            def k:int before
+            while (k < (array_length doc.paragraphs)) {
+                def ip:Paragraph (itemAt doc.paragraphs k)
+                ip.indentLeftPt = (ip.indentLeftPt + style.listIndent)
+                if (k == before) {
+                    ip.indentFirstLinePt = (0.0 - style.listIndent)
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
     ; A markdown table, as a Word table. The columns share the text column
     ; evenly — markdown says nothing about widths, and Word re-fits them when
     ; a reader drags a border. The header row is bold on the style's header
@@ -435,12 +528,33 @@ class MdToDocx {
                 ss.colorHex = "57606A"
                 this.inline(c p ss)
             }
+            ; markdown-it's spans. `++ins++` is underlined, as Word's own
+            ; inserted text is; a TextSpan has no baseline shift and no
+            ; highlight, so `^sup^`, `~sub~` and `==mark==` keep their text in
+            ; the style around them — never dropped — and an abbreviation is
+            ; its text.
+            if (kind == "ins") {
+                def us:TextSpan (base.copy())
+                us.underline = true
+                this.inline(c p us)
+            }
+            if ((((kind == "sub") || (kind == "sup")) || (kind == "mark")) || (kind == "abbr")) {
+                this.inline(c p base)
+            }
             if (kind == "link") {
                 def ls:TextSpan (base.copy())
                 ls.hyperlink = c.destination
                 ls.underline = true
                 ls.colorHex = "0969DA"
                 this.inline(c p ls)
+            }
+            ; a footnote reference, as `[1]` a size down: a span here has no
+            ; raised baseline to give it
+            if (kind == "footnote_ref") {
+                def fs:TextSpan (base.copy())
+                fs.fontSizePt = (base.fontSizePt * 0.75)
+                fs.colorHex = "0969DA"
+                p.appendText(("[" + (to_string c.noteNumber) + "]") fs)
             }
             if (kind == "image") {
                 def alt:string (c.plainText())

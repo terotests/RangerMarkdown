@@ -33,6 +33,7 @@
 Import "MdNode.rgr"
 Import "MdChar.rgr"
 Import "MdEntities.rgr"
+Import "MdTypography.rgr"
 
 ; One run of `*`, `_` or `~`, waiting to find out what it is.
 class MdDelim {
@@ -89,7 +90,15 @@ class MdInline {
     def owner:MdNode (new MdNode())
     def subjBase:int 0
     def refs:[string:MdLinkRef]
+    ; the document's footnotes: which labels are defined, and the numbers
+    ; handed out as references are met (see `MdNotes`)
+    def notes:MdNotes (new MdNotes())
     def entities:MdEntities (new MdEntities())
+    ; What the document reads beyond CommonMark — markdown-it's plugins and
+    ; its typographer — and the abbreviations it defined. Shared with the
+    ; parser a `^…^` or `~…~` starts for its own contents, and with the block
+    ; parser that collects the definitions.
+    def opts:MdInlineOptions (new MdInlineOptions())
 
     ; the inline node list: nodes, and the links between them
     def nodes:[MdNode]
@@ -183,9 +192,22 @@ class MdInline {
     ; so that the checkbox is not three text nodes, and everything after it is
     ; that much further along.
     fn parseFrom:void (block:MdNode raw:string map:[string:MdLinkRef] base:int) {
-        owner = block
-        subject = (trim raw)
-        subjBase = (base + (MdInline.leadTrim(raw)))
+        this.parseRange(block block (trim raw) (base + (MdInline.leadTrim(raw))) map)
+        ; What markdown-it's core rules do after its inline pass, and for the
+        ; same reason here: an emoticon, an abbreviation and a pair of quotes
+        ; are found in the TEXT a line came out as, which is only known once
+        ; code spans, links and emphasis have taken their characters.
+        MdTypography.apply(block subject opts)
+    }
+
+    ; The parse itself: `text` is `owner`'s literal from `base` on, and the
+    ; nodes go to `target`. The two differ for the contents of `^…^` and
+    ; `~…~`, which are parsed by a parser of their own into the node that
+    ; holds them while their positions are still the block's.
+    fn parseRange:void (own:MdNode target:MdNode text:string base:int map:[string:MdLinkRef]) {
+        owner = own
+        subject = text
+        subjBase = base
         pos = 0
         refs = map
         clear nodes
@@ -201,7 +223,7 @@ class MdInline {
             more = (this.parseInline())
         }
         this.processEmphasis(-1)
-        this.collectInto(block)
+        this.collectInto(target)
     }
 
     fn collectInto:void (block:MdNode) {
@@ -294,8 +316,20 @@ class MdInline {
         if (c == 36) { handled = (this.parseDollar()) }
         if (c == 42) { handled = (this.handleDelim(c)) }
         if (c == 95) { handled = (this.handleDelim(c)) }
-        if (c == 126) { handled = (this.handleDelim(c)) }
+        if opts.extensions {
+            ; `~x~` and `^x^` first: a single tilde that closes on the same
+            ; word is a subscript (markdown-it-sub) before it is GFM's
+            ; one-tilde strikethrough, which is what it falls back to.
+            if ((c == 126) || (c == 94)) { handled = (this.parseSubSup(c)) }
+            ; `++` and `==` are delimiter runs, as `**` is (markdown-it-ins,
+            ; markdown-it-mark); one `+` or `=` is a character
+            if ((c == 43) || (c == 61)) {
+                if ((this.peekAt((pos + 1))) == c) { handled = (this.handleDelim(c)) }
+            }
+        }
+        if ((c == 126) && (! handled)) { handled = (this.handleDelim(c)) }
         if (c == 91) { handled = (this.parseOpenBracket()) }
+        if ((c == 94) && ((this.peekAt((pos + 1))) == 91)) { handled = (this.parseInlineNote()) }
         if (c == 33) { handled = (this.parseBang()) }
         if (c == 93) { handled = (this.parseCloseBracket()) }
         if (c == 60) {
@@ -305,7 +339,7 @@ class MdInline {
             }
         }
         if (c == 38) { handled = (this.parseEntity()) }
-        if (MdInline.isOrdinary(c)) { handled = (this.parseString()) }
+        if ((! handled) && (MdInline.isOrdinary(c))) { handled = (this.parseString()) }
         if (! handled) {
             pos = (pos + 1)
             def one:string (MdChar.fromCode(c))
@@ -343,6 +377,15 @@ class MdInline {
             if going {
                 def c:int (charAt subject pos)
                 def ordinary:boolean (MdInline.isOrdinary(c))
+                ; `^` is ordinary text unless it opens an inline footnote,
+                ; `^[…]`, or a `^sup^` / `++ins++` / `==mark==` that the
+                ; extensions read
+                if ((c == 94) && ((this.peekAt((pos + 1))) == 91)) {
+                    ordinary = false
+                }
+                if (ordinary && (pos > start)) {
+                    if (this.extensionAt(pos)) { ordinary = false }
+                }
                 if ordinary {
                     pos = (pos + 1)
                 } {
@@ -355,6 +398,75 @@ class MdInline {
         }
         def v:string (substring subject start pos)
         this.addText(v)
+        return true
+    }
+
+    ; Does a construct of the plugins start at `i`? `+`, `=` and `^` are
+    ; ordinary characters to CommonMark, so a run of text would carry them
+    ; past the place one opens. Asked only there, and only when the
+    ; document reads the plugins: `C++` is still one word of text.
+    fn extensionAt:boolean (i:int) {
+        if (! opts.extensions) { return false }
+        def c:int (charAt subject i)
+        if ((c == 43) || (c == 61)) {
+            return ((this.peekAt((i + 1))) == c)
+        }
+        if (c == 94) {
+            return ((this.subSupClose(i)) >= 0)
+        }
+        return false
+    }
+
+    ; ----------------------------------------------------------------------
+    ; `~sub~` and `^sup^` (markdown-it-sub, markdown-it-sup)
+    ; ----------------------------------------------------------------------
+    ;
+    ; Not delimiter runs: the content may not hold a space or a newline that
+    ; is not escaped, so `H~2~O` and `19^th^` are one word each and `x^2 + y`
+    ; is text. The closer is the next marker. A tilde that is half of `~~`
+    ; is strikethrough's, not this.
+    fn subSupClose:int (i:int) {
+        def n:int (strlen subject)
+        def m:int (charAt subject i)
+        if (m == 126) {
+            if ((this.peekAt((i - 1))) == 126) { return -1 }
+            if ((this.peekAt((i + 1))) == 126) { return -1 }
+        }
+        def j:int (i + 1)
+        while (j < n) {
+            def c:int (charAt subject j)
+            if (c == m) {
+                if (j == (i + 1)) { return -1 }
+                return j
+            }
+            if (((c == 32) || (c == 9)) || (c == 10)) { return -1 }
+            if (c == 92) {
+                j = (j + 2)
+            } {
+                j = (j + 1)
+            }
+        }
+        return -1
+    }
+
+    fn parseSubSup:boolean (c:int) {
+        def close:int (this.subSupClose(pos))
+        if (close < 0) { return false }
+        def kind:string (? (c == 126) "sub" "sup")
+        def node:MdNode (MdNode.create(kind))
+        node.srcStart = (this.srcAt(pos))
+        node.srcEnd = (this.srcAt((close + 1)))
+        node.srcKnown = true
+        ; The contents are inline markdown of their own — `^*a*^` — parsed
+        ; where they stand: same block, same offsets, its own delimiter stack
+        ; so a `*` inside cannot pair with one outside.
+        def inner:MdInline (new MdInline())
+        inner.opts = opts
+        inner.entities = entities
+        def from:int (pos + 1)
+        inner.parseRange(owner node (substring subject from close) (subjBase + from) refs)
+        this.appendNode(node)
+        pos = (close + 1)
         return true
     }
 
@@ -709,7 +821,7 @@ class MdInline {
     fn processEmphasis:void (stackBottom:int) {
         def openersBottom:[int]
         def ob:int 0
-        while (ob < 12) {
+        while (ob < 18) {
             push openersBottom stackBottom
             ob = (ob + 1)
         }
@@ -734,7 +846,10 @@ class MdInline {
                     if (opener == bottom) { break }
                     def od0:MdDelim (itemAt delims opener)
                     def oddMatch:boolean false
-                    if (cd.canOpen || od0.canClose) {
+                    ; the rule of three is emphasis's; `++` and `==` pair two
+                    ; by two whatever the lengths
+                    def counts:boolean ((cd.cc != 43) && (cd.cc != 61))
+                    if (counts && (cd.canOpen || od0.canClose)) {
                         if ((cd.origdelims % 3) != 0) {
                             def sum:int (od0.origdelims + cd.origdelims)
                             if ((sum % 3) == 0) { oddMatch = true }
@@ -753,7 +868,15 @@ class MdInline {
                     def useDelims:int 1
                     if ((cd.numdelims >= 2) && (od.numdelims >= 2)) { useDelims = 2 }
                     def strike:boolean (cd.cc == 126)
+                    def pairOfTwo:boolean ((cd.cc == 43) || (cd.cc == 61))
                     def allowed:boolean true
+                    if pairOfTwo {
+                        ; markdown-it-ins / -mark: a pair is two characters
+                        ; at each end, and a run left with one has none
+                        useDelims = 2
+                        if (cd.numdelims < 2) { allowed = false }
+                        if (od.numdelims < 2) { allowed = false }
+                    }
                     if strike {
                         ; GFM strikes through with one or two tildes and with
                         ; nothing else: three is a fence, not emphasis.
@@ -792,6 +915,8 @@ class MdInline {
 
                         def kind:string (? (useDelims == 1) "emph" "strong")
                         if strike { kind = "strike" }
+                        if (cd.cc == 43) { kind = "ins" }
+                        if (cd.cc == 61) { kind = "mark" }
                         def wrap:MdNode (MdNode.create(kind))
                         wrap.srcStart = wrapStart
                         wrap.srcEnd = wrapEnd
@@ -862,6 +987,8 @@ class MdInline {
         if (cc == 95) { return (2 + m) }
         if (cc == 42) { return (5 + m) }
         if (cc == 126) { return (8 + m) }
+        if (cc == 43) { return (11 + m) }
+        if (cc == 61) { return (14 + m) }
         return 0
     }
 
@@ -869,6 +996,11 @@ class MdInline {
     ; Links and images
     ; ----------------------------------------------------------------------
     fn parseOpenBracket:boolean () {
+        if ((this.peekAt((pos + 1))) == 94) {
+            if (this.parseNoteRef()) {
+                return true
+            }
+        }
         def startPos:int pos
         pos = (pos + 1)
         def idx:int (this.addText("["))
@@ -877,6 +1009,139 @@ class MdInline {
         ; which is what `normalizeReference` then strips.
         this.pushBracket(idx startPos false)
         return true
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Footnotes (markdown-it-footnote)
+    ; ----------------------------------------------------------------------
+
+    ; `[^label]`, when a definition of `label` exists: the label runs to the
+    ; first `]` and may hold no space and no line break. Tried before a link,
+    ; as the plugin's rule is, so `[^1]` is never a shortcut reference. A
+    ; label nobody defined is left to the link rules — text, usually.
+    fn parseNoteRef:boolean () {
+        def n:int (strlen subject)
+        def i:int (pos + 2)
+        while (i < n) {
+            def c:int (charAt subject i)
+            if ((c == 32) || (c == 10)) { return false }
+            if (c == 93) { break }
+            i = (i + 1)
+        }
+        if (i >= n) { return false }
+        if (i == (pos + 2)) { return false }
+        def label:string (substring subject (pos + 2) i)
+        if (! (notes.hasLabel(label))) { return false }
+        def ref:MdNode (MdNode.create("footnote_ref"))
+        ref.info = label
+        notes.refer(ref (notes.defOf(label)))
+        this.appendNode(ref)
+        pos = (i + 1)
+        return true
+    }
+
+    ; `^[text of the note]`: a footnote written where it is referenced. Its
+    ; text runs to the matching `]` — brackets nest, and a backslash escape
+    ; or a code span does not count — and is parsed as inline markdown of its
+    ; own. Its body is a `footnote_def` with no label, holding one paragraph,
+    ; and it is numbered with the others, in the order they are met.
+    fn parseInlineNote:boolean () {
+        def start:int pos
+        def labelStart:int (pos + 2)
+        def labelEnd:int (this.matchingBracket((pos + 1)))
+        if (labelEnd < 0) { return false }
+        def fd:MdNode (MdNode.create("footnote_def"))
+        fd.srcStart = (this.srcAt(start))
+        fd.srcEnd = (this.srcAt((labelEnd + 1)))
+        fd.srcKnown = true
+        def ref:MdNode (MdNode.create("footnote_ref"))
+        ; numbered before its own text is read, so a note inside it comes after
+        notes.refer(ref fd)
+        def para:MdNode (MdNode.create("paragraph"))
+        para.open = false
+        ; the paragraph's map is the slice of this block's map its text is
+        ; in, so every node in it says where it was typed
+        def from:int (subjBase + labelStart)
+        def len:int (labelEnd - labelStart)
+        def k:int 0
+        while (k < (array_length owner.mapLit)) {
+            para.addMapPiece((itemAt owner.mapLit k) (itemAt owner.mapSrc k) (itemAt owner.mapLen k))
+            k = (k + 1)
+        }
+        para.shiftMap(from len)
+        para.srcStart = (this.srcAt(labelStart))
+        para.srcEnd = (this.srcAt(labelEnd))
+        def body:string (substring subject labelStart labelEnd)
+        def inner:MdInline (new MdInline())
+        inner.entities = entities
+        inner.notes = notes
+        inner.parseFrom(para body refs 0)
+        fd.add(para)
+        this.appendNode(ref)
+        pos = (labelEnd + 1)
+        return true
+    }
+
+    ; Where the `]` that closes the `[` at `open` is, or -1.
+    fn matchingBracket:int (open:int) {
+        def n:int (strlen subject)
+        def level:int 1
+        def i:int (open + 1)
+        while (i < n) {
+            def c:int (charAt subject i)
+            if (c == 92) {
+                i = (i + 2)
+                continue
+            }
+            if (c == 96) {
+                ; a code span is one token: its brackets are not brackets
+                def run:int 0
+                def j:int i
+                while ((j < n) && ((charAt subject j) == 96)) {
+                    j = (j + 1)
+                    run = (run + 1)
+                }
+                def close:int (MdInline.closingTicks(subject j run))
+                if (close >= 0) {
+                    i = (close + run)
+                } {
+                    i = j
+                }
+                continue
+            }
+            if (c == 91) {
+                level = (level + 1)
+            }
+            if (c == 93) {
+                level = (level - 1)
+                if (level == 0) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Where a run of exactly `run` backticks starts at or after `from`, or -1.
+    sfn closingTicks:int (v:string from:int run:int) {
+        def n:int (strlen v)
+        def i:int from
+        while (i < n) {
+            if ((charAt v i) == 96) {
+                def j:int i
+                while ((j < n) && ((charAt v j) == 96)) {
+                    j = (j + 1)
+                }
+                if ((j - i) == run) {
+                    return i
+                }
+                i = j
+            } {
+                i = (i + 1)
+            }
+        }
+        return -1
     }
 
     fn parseBang:boolean () {
@@ -1450,6 +1715,9 @@ class MdInline {
         if (MdInline.isUriAutolink(body)) {
             def node:MdNode (MdNode.create("link"))
             node.destination = body
+            ; an autolink's text IS its address: nothing typographic or
+            ; emoji may happen to it (`info` is what markdown-it calls it)
+            node.info = "auto"
             def label:MdNode (MdNode.text(body))
             this.stampNode(label bodyStart close)
             node.add(label)
@@ -1460,6 +1728,7 @@ class MdInline {
         if (MdInline.isEmailAutolink(body)) {
             def node2:MdNode (MdNode.create("link"))
             node2.destination = ("mailto:" + body)
+            node2.info = "auto"
             def label2:MdNode (MdNode.text(body))
             this.stampNode(label2 bodyStart close)
             node2.add(label2)
@@ -1924,6 +2193,49 @@ class MdInline {
             set map norm ref
         }
         return (pos - startPos)
+    }
+
+    ; `*[HTML]: Hyper Text Markup Language` — markdown-it-abbr's definition,
+    ; one line, at the head of what the block parser hands over. Like a link
+    ; reference it is not content: the block parser strips it, and the label
+    ; becomes an `abbr` wherever it stands as a whole word in the document's
+    ; text (`MdTypography`). The first definition of a label wins.
+    ;
+    ; Returns the number of characters consumed, the newline included, or 0.
+    fn parseAbbreviation:int (text:string) {
+        def n:int (strlen text)
+        if (n < 3) { return 0 }
+        if ((charAt text 0) != 42) { return 0 }
+        if ((charAt text 1) != 91) { return 0 }
+        def i:int 2
+        def labelEnd:int -1
+        def label:string ""
+        while ((i < n) && (labelEnd < 0)) {
+            def c:int (charAt text i)
+            if ((c == 91) || (c == 10)) { return 0 }
+            if (c == 93) {
+                labelEnd = i
+            } {
+                if ((c == 92) && ((i + 1) < n)) {
+                    i = (i + 1)
+                }
+                label = (label + (substring text i (i + 1)))
+                i = (i + 1)
+            }
+        }
+        if (labelEnd < 0) { return 0 }
+        if ((labelEnd + 1) >= n) { return 0 }
+        if ((charAt text (labelEnd + 1)) != 58) { return 0 }
+        def eol:int (labelEnd + 2)
+        while ((eol < n) && ((charAt text eol) != 10)) {
+            eol = (eol + 1)
+        }
+        def title:string (trim (substring text (labelEnd + 2) eol))
+        if ((strlen label) == 0) { return 0 }
+        if ((strlen title) == 0) { return 0 }
+        opts.defineAbbreviation(label title)
+        if (eol < n) { return (eol + 1) }
+        return eol
     }
 
     ; Spaces, then a newline or the end. Consumes the newline.

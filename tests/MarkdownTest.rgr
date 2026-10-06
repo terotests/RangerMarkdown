@@ -230,6 +230,7 @@ class MarkdownTest {
         this.blocks()
         this.inlines()
         this.gfm()
+        this.markdownIt()
         this.sourceMap()
         this.layout()
         this.evg()
@@ -335,6 +336,132 @@ class MarkdownTest {
         this.eq("front matter kind" head.kind "front_matter")
         this.eq("front matter body" head.literal "title: T\n")
         this.eqInt("front matter blocks" (fm.childCount()) 2)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; markdown-it's typographer and plugins, which a deck reads
+    ; ----------------------------------------------------------------------
+    ;
+    ; markdown-it's own demo document is the oracle for every expectation
+    ; here: each string is what markdown-it 14 with `typographer: true` and
+    ; markdown-it-{sub,sup,ins,mark,emoji,abbr} renders for the same input.
+    fn markdownIt:void () {
+        this.eq("(c) (r) (tm) +-, any case"
+            (this.html("(c) (C) (r) (R) (tm) (TM) +-\n"))
+            "<p>" + (MarkdownTest.cp(169)) + " " + (MarkdownTest.cp(169)) + " " + (MarkdownTest.cp(174)) + " " + (MarkdownTest.cp(174)) + " " + (MarkdownTest.cp(8482)) + " " + (MarkdownTest.cp(8482)) + " " + (MarkdownTest.cp(177)) + "</p>\n")
+        this.eq("dots, and ?.. !.."
+            (this.html("test.. test... test..... test?..... test!....\n"))
+            "<p>test" + (MarkdownTest.cp(8230)) + " test" + (MarkdownTest.cp(8230)) + " test" + (MarkdownTest.cp(8230)) + " test?.. test!..</p>\n")
+        this.eq("!!!!!! ???? ,, -- ---"
+            (this.html("!!!!!! ???? ,,  -- ---\n"))
+            "<p>!!! ??? ,  " + (MarkdownTest.cp(8211)) + " " + (MarkdownTest.cp(8212)) + "</p>\n")
+        this.eq("dashes as markdown-it sets them"
+            (this.html("a--b a -- b a---b a----b\n"))
+            "<p>a" + (MarkdownTest.cp(8211)) + "b a " + (MarkdownTest.cp(8211)) + " b a" + (MarkdownTest.cp(8212)) + "b a----b</p>\n")
+        this.eq("smart quotes"
+            (this.html("\"Smartypants, double quotes\" and 'single quotes'\n"))
+            "<p>" + (MarkdownTest.cp(8220)) + "Smartypants, double quotes" + (MarkdownTest.cp(8221)) + " and " + (MarkdownTest.cp(8216)) + "single quotes" + (MarkdownTest.cp(8217)) + "</p>\n")
+        this.eq("an apostrophe in a word"
+            (this.html("it's rock'n'roll\n"))
+            "<p>it" + (MarkdownTest.cp(8217)) + "s rock" + (MarkdownTest.cp(8217)) + "n" + (MarkdownTest.cp(8217)) + "roll</p>\n")
+        this.eq("quotes pair across an emphasis"
+            (this.html("\"*a*\" b\n"))
+            "<p>" + (MarkdownTest.cp(8220)) + "<em>a</em>" + (MarkdownTest.cp(8221)) + " b</p>\n")
+        ; Never in code, an address, raw HTML or an escape.
+        this.eq("not in a code span"
+            (this.html("`\"a\" -- (c)` (c)\n"))
+            "<p><code>&quot;a&quot; -- (c)</code> " + (MarkdownTest.cp(169)) + "</p>\n")
+        this.eq("not in an autolink"
+            (this.html("<http://a.example/(c)--x> (c)\n"))
+            "<p><a href=\"http://a.example/(c)--x\">http://a.example/(c)--x</a> " + (MarkdownTest.cp(169)) + "</p>\n")
+        this.eq("not in a bare address"
+            (this.html("http://a.example/a--b... (c)\n"))
+            "<p>http://a.example/a--b... " + (MarkdownTest.cp(169)) + "</p>\n")
+        this.eq("not in a link's address"
+            (this.html("[x--y](http://a.example/a--b)\n"))
+            "<p><a href=\"http://a.example/a--b\">x" + (MarkdownTest.cp(8211)) + "y</a></p>\n")
+        this.eq("not in raw HTML"
+            (this.html("<span title=\"a--b\">(c)</span>\n"))
+            "<p><span title=\"a--b\">" + (MarkdownTest.cp(169)) + "</span></p>\n")
+        this.eq("not an escaped quote"
+            (this.html("\\\"a\\\"\n"))
+            "<p>&quot;a&quot;</p>\n")
+        this.eq("not in math"
+            (this.html("$a--b$ --\n"))
+            "<p>" + (this.mathHtml("a--b")) + " " + (MarkdownTest.cp(8211)) + "</p>\n")
+
+        print "-- emoji (markdown-it-emoji) --"
+        this.eq("shortcodes"
+            (this.html("Classic markup: :wink: :cry: :laughing: :yum:\n"))
+            "<p>Classic markup: " + (MarkdownTest.cp(128521)) + " " + (MarkdownTest.cp(128546)) + " " + (MarkdownTest.cp(128518)) + " " + (MarkdownTest.cp(128523)) + "</p>\n")
+        this.eq("emoticons"
+            (this.html("Shortcuts (emoticons): :-) :-( 8-) ;)\n"))
+            "<p>Shortcuts (emoticons): " + (MarkdownTest.cp(128515)) + " " + (MarkdownTest.cp(128550)) + " " + (MarkdownTest.cp(128526)) + " " + (MarkdownTest.cp(128521)) + "</p>\n")
+        this.eq("in a heading too"
+            (this.html("# h1 Heading 8-)\n"))
+            "<h1>h1 Heading " + (MarkdownTest.cp(128526)) + "</h1>\n")
+        this.eq("an unknown name and an emoticon glued to a word stay text"
+            (this.html("http://a.example x:P :no_such_emoji: :+1:\n"))
+            "<p>http://a.example x:P :no_such_emoji: " + (MarkdownTest.cp(128077)) + "</p>\n")
+
+        print "-- sub, sup, ins, mark --"
+        this.eq("superscript and subscript"
+            (this.html("- 19^th^\n- H~2~O\n"))
+            "<ul>\n<li>19<sup>th</sup></li>\n<li>H<sub>2</sub>O</li>\n</ul>\n")
+        this.eq("a space ends a sup; ~~ is still strikethrough"
+            (this.html("x^a b^ 2^10^ ~~s~~\n"))
+            "<p>x^a b^ 2<sup>10</sup> <del>s</del></p>\n")
+        this.eq("inserted" (this.html("++Inserted text++\n")) "<p><ins>Inserted text</ins></p>\n")
+        this.eq("marked" (this.html("==Marked text==\n")) "<p><mark>Marked text</mark></p>\n")
+        this.eq("one + or = is a character, and C++ is a word"
+            (this.html("C++ and a = b and a == b\n"))
+            "<p>C++ and a = b and a == b</p>\n")
+        this.eq("spans nest"
+            (this.html("==a *b*== ++c **d**++\n"))
+            "<p><mark>a <em>b</em></mark> <ins>c <strong>d</strong></ins></p>\n")
+        def sd:MdNode (MdBlock.parseText("19^th^\n"))
+        def sp:MdNode (sd.childAt(0))
+        def sup:MdNode (sp.childAt(1))
+        this.eq("the tree has a sup node" sup.kind "sup")
+        this.eqInt("…spanning ^th^ in the source" sup.srcStart 2)
+        this.eqInt("…to its closing ^" sup.srcEnd 6)
+
+        print "-- abbreviations (markdown-it-abbr) --"
+        def ab:string "This is HTML abbreviation example.\n\nIt converts \"HTML\", but keep intact partial entries like \"xxxHTMLyyy\" and so on.\n\n*[HTML]: Hyper Text Markup Language\n"
+        this.eq("whole words only, and the definition is not drawn"
+            (this.html(ab))
+            "<p>This is <abbr title=\"Hyper Text Markup Language\">HTML</abbr> abbreviation example.</p>\n<p>It converts " + (MarkdownTest.cp(8220)) + "<abbr title=\"Hyper Text Markup Language\">HTML</abbr>" + (MarkdownTest.cp(8221)) + ", but keep intact partial entries like " + (MarkdownTest.cp(8220)) + "xxxHTMLyyy" + (MarkdownTest.cp(8221)) + " and so on.</p>\n")
+        def ad:MdNode (MdBlock.parseText(ab))
+        this.eqInt("the definition's paragraph is gone" (ad.childCount()) 2)
+        this.eq("the longest label first"
+            (this.html("*[AB]: Short\n*[ABBR]: Long\n\nABBR and AB.\n"))
+            "<p><abbr title=\"Long\">ABBR</abbr> and <abbr title=\"Short\">AB</abbr>.</p>\n")
+
+        print "-- switched by the front matter, and off for CommonMark --"
+        this.eq("typographer: false"
+            (this.html("---\ntypographer: false\n---\n\n\"a\" -- (c) :wink:\n"))
+            "<p>&quot;a&quot; -- (c) " + (MarkdownTest.cp(128521)) + "</p>\n")
+        this.eq("lang: fi sets Finnish quotes"
+            (this.html("---\nlang: fi\n---\n\n\"a\" ja 'b'\n"))
+            "<p>" + (MarkdownTest.cp(8221)) + "a" + (MarkdownTest.cp(8221)) + " ja " + (MarkdownTest.cp(8217)) + "b" + (MarkdownTest.cp(8217)) + "</p>\n")
+        this.eq("lang: sv-SE too"
+            (this.html("---\nlang: sv-SE\n---\n\n\"a\"\n"))
+            "<p>" + (MarkdownTest.cp(8221)) + "a" + (MarkdownTest.cp(8221)) + "</p>\n")
+        def strict:MdNode (MdBlock.parseCommonMark("\"a\" -- (c) :wink: ^x^ ==y== H~2~O\n\n*[A]: b\n"))
+        this.eq("CommonMark reads none of it"
+            (MdToHtml.render(strict))
+            "<p>&quot;a&quot; -- (c) :wink: ^x^ ==y== H<del>2</del>O</p>\n<p>*[A]: b</p>\n")
+    }
+
+    ; An astral character, spelled so every target reads it the same.
+    sfn cp:string (c:int) {
+        return (MdChar.fromCode(c))
+    }
+
+    fn mathHtml:string (tex:string) {
+        def d:MdNode (MdBlock.parseText((("$" + tex) + "$\n")))
+        def h:string (MdToHtml.render(d))
+        return (substring h 3 ((strlen h) - 5))
     }
 
     fn sourceMap:void () {

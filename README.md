@@ -37,6 +37,7 @@ npm run markdown:srcmap:test   # a character in the picture names one in the fil
 npm run markdown:srcmap:spec   # …scored over CommonMark's own 652 examples
 npm run markdown:attrs:test    # `{.class}` attaches to the right block, and to nothing else
 npm run markdown:container:test # `{container=box|bubble}`: a rounded plate under a block, text that reads on it
+npm run markdown:plugins:test  # markdown-it's footnotes, definition lists and ::: containers, and reference images
 npm run markdown:css:test      # a template says it, the style holds it, nothing else moves
 npm run markdown:slides:test   # columns, and where a slide breaks
 npm run markdown:pptx:test     # the deck goes out and comes back the same deck
@@ -214,7 +215,9 @@ never builds a string of tags.
 | blocks | ATX and setext headings, paragraphs, thematic breaks, fenced and indented code, block quotes, bullet and ordered lists with tight/loose flow, HTML blocks (all seven start conditions), link reference definitions |
 | inlines | emphasis and strong (the full delimiter stack, including the rule of three), code spans, links and images in all four forms, autolinks, raw HTML, HTML5 named and numeric entities, backslash escapes, hard breaks |
 | GFM | tables with column alignment, task lists, strikethrough |
+| markdown-it | its `typographer` (`(c)` → ©, `...` → …, `--` → –, `"…"` → “…”; `typographer: false` in the front matter turns it off, `lang: fi`/`sv` sets ” ” ’ ’), and its plugins sub `~x~`, sup `^x^`, ins `++x++`, mark `==x==`, emoji `:wink:` `;)` and abbr `*[HTML]: …` (`src/MdTypography.rgr`). `MdBlock.parseCommonMark` reads none of them; the parity score is taken with it |
 | beyond both | YAML front matter, and ```mermaid, ```plantuml, ```dot, ```d2 and ```vega-lite fences drawn as diagrams and charts |
+| markdown-it plugins | footnotes (`[^label]`, `[^label]: …` with indented continuation, `^[inline]`) drawn at the foot of the slide or page that first refers to them; definition lists (`:` and `~` markers, lazy lines, blocks inside a definition); `::: name title` containers, nested with more colons, drawn on a plate and styled by `.name` |
 
 Every block carries `srcStart` / `srcEnd` — byte offsets into the text it came
 from — so a viewer can put a caret back where a reader clicked.

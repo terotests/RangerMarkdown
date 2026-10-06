@@ -73,6 +73,7 @@ class MdToHtml {
         tight = false
         if (n.kind == "document") {
             this.walkChildren(n)
+            this.footnotes(n)
         } {
             this.walk(n)
         }
@@ -82,6 +83,7 @@ class MdToHtml {
     sfn render:string (doc:MdNode) {
         def r:MdToHtml (new MdToHtml())
         r.walkChildren(doc)
+        r.footnotes(doc)
         return r.out
     }
 
@@ -177,6 +179,19 @@ class MdToHtml {
             this.lit("<del>")
             this.walkChildren(node)
             this.lit("</del>")
+            return
+        }
+        ; markdown-it's plugins, as markdown-it writes them
+        if ((((kind == "sub") || (kind == "sup")) || (kind == "ins")) || (kind == "mark")) {
+            this.lit((("<" + kind) + ">"))
+            this.walkChildren(node)
+            this.lit((("</" + kind) + ">"))
+            return
+        }
+        if (kind == "abbr") {
+            this.lit((("<abbr title=\"" + (MdToHtml.escape(node.title))) + "\">"))
+            this.walkChildren(node)
+            this.lit("</abbr>")
             return
         }
         if (kind == "link") {
@@ -337,7 +352,138 @@ class MdToHtml {
             this.walkTable(node)
             return
         }
+        ; --- markdown-it's plugins, as they render ---------------------
+        if (kind == "footnote_ref") {
+            def fnId:string (to_string node.noteNumber)
+            def refId:string fnId
+            if (node.noteSub > 0) {
+                refId = (fnId + ":" + (to_string node.noteSub))
+            }
+            this.lit(("<sup class=\"footnote-ref\"><a href=\"#fn" + fnId + "\" id=\"fnref" + refId + "\">[" + refId + "]</a></sup>"))
+            return
+        }
+        ; drawn with the others at the end (`footnotes`), not where it stands
+        if (kind == "footnote_def") {
+            return
+        }
+        if (kind == "dl") {
+            def wasTight3:boolean tight
+            this.cr()
+            this.lit("<dl>")
+            this.cr()
+            def di:int 0
+            while (di < (node.childCount())) {
+                tight = node.listTight
+                this.walk((node.childAt(di)))
+                di = (di + 1)
+            }
+            tight = wasTight3
+            this.cr()
+            this.lit("</dl>")
+            this.cr()
+            return
+        }
+        if (kind == "dt") {
+            this.cr()
+            this.lit("<dt>")
+            this.walkChildren(node)
+            this.lit("</dt>")
+            this.cr()
+            return
+        }
+        if (kind == "dd") {
+            this.cr()
+            this.lit("<dd>")
+            this.walkChildren(node)
+            this.lit("</dd>")
+            this.cr()
+            return
+        }
+        if (kind == "container") {
+            def wasTight4:boolean tight
+            tight = false
+            this.cr()
+            this.lit(("<div class=\"" + (MdToHtml.escape(node.info)) + "\">"))
+            this.cr()
+            if ((strlen node.title) > 0) {
+                this.lit(("<p class=\"container-title\"><strong>" + (MdToHtml.escape(node.title)) + "</strong></p>"))
+                this.cr()
+            }
+            this.walkChildren(node)
+            this.cr()
+            this.lit("</div>")
+            this.cr()
+            tight = wasTight4
+            return
+        }
         this.walkChildren(node)
+    }
+
+    ; The footnotes, after the document, in number order — markdown-it-
+    ; footnote's own markup: a rule, then a list whose items each end with a
+    ; link back to every reference made to them.
+    fn footnotes:void (doc:MdNode) {
+        def n:int (doc.noteCount())
+        if (n == 0) { return }
+        def wasTight:boolean tight
+        tight = false
+        this.cr()
+        this.lit("<hr class=\"footnotes-sep\" />")
+        this.cr()
+        this.lit("<section class=\"footnotes\">")
+        this.cr()
+        this.lit("<ol class=\"footnotes-list\">")
+        this.cr()
+        def i:int 1
+        while (i <= n) {
+            def fd:MdNode (doc.noteAt(i))
+            def id:string (to_string i)
+            this.lit(("<li id=\"fn" + id + "\" class=\"footnote-item\">"))
+            def back:string ""
+            def k:int 0
+            while (k < fd.noteRefs) {
+                def rid:string id
+                if (k > 0) {
+                    rid = (id + ":" + (to_string k))
+                }
+                ; ↩ and the text-style selector, so iOS does not draw an emoji
+                back = (back + " <a href=\"#fnref" + rid + "\" class=\"footnote-backref\">" + (MdChar.fromCode(8617)) + (MdChar.fromCode(65038)) + "</a>")
+                k = (k + 1)
+            }
+            ; the back-links go inside the last paragraph, as the plugin
+            ; puts them, and after the note when it ends in something else
+            def kids:int (fd.childCount())
+            def c:int 0
+            while (c < kids) {
+                def b:MdNode (fd.childAt(c))
+                if (b.kind == "paragraph") {
+                    ; the first one hugs the <li>, as markdown-it writes it
+                    if (c > 0) {
+                        this.cr()
+                    }
+                    this.lit("<p>")
+                    this.walkChildren(b)
+                    if (c == (kids - 1)) {
+                        this.lit(back)
+                        back = ""
+                    }
+                    this.lit("</p>")
+                    this.cr()
+                } {
+                    this.walk(b)
+                }
+                c = (c + 1)
+            }
+            this.lit(back)
+            this.lit("</li>")
+            this.cr()
+            i = (i + 1)
+        }
+        this.lit("</ol>")
+        this.cr()
+        this.lit("</section>")
+        this.cr()
+        tight = wasTight
     }
 
     ; A gallery as figures: `<figure class="gallery">` holding one figure

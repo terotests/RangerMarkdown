@@ -12,6 +12,11 @@
 ; {container=box background=#fff8}
 ; ````
 ;
+; A markdown-it container (`::: warning` … `:::`) is a `box` too, and takes
+; `{container=bubble}` / `{container=none}` after its closing line like any
+; block. Its name is its class, so a sheet's `.warning { background-color }`
+; is its plate's colour (`MdLayout.containerBlock`).
+;
 ; `box` is a rounded rectangle across the column. `bubble` is rounder, as wide
 ; as its text, and has a tail at the bottom left — a speech bubble. Any other
 ; word is a box; `none` / `off` is no plate.
@@ -58,7 +63,11 @@ class MdContainer {
     ; ----------------------------------------------------------------------
 
     sfn kindOf:string (node:MdNode) {
-        if (! (node.hasAttr("container"))) { return "" }
+        if (! (node.hasAttr("container"))) {
+            ; `::: warning` … `:::` is a box unless it says otherwise
+            if (node.kind == "container") { return "box" }
+            return ""
+        }
         def v:string (MdContainer.lower((trim (node.attrValue("container")))))
         if ((strlen v) == 0) { return "" }
         if ((v == "none") || (v == "off")) { return "" }

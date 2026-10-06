@@ -74,6 +74,7 @@ class MdHtmlTest {
         this.testAlign()
         this.testTable()
         this.testPptx()
+        this.testMarkdownIt()
         print ("passed=" + (to_string passed) + " failed=" + (to_string failed))
         if (failed == 0) {
             print "ALL PASS"
@@ -252,5 +253,78 @@ class MdHtmlTest {
             s = (s + 1)
         }
         this.check("an HTML table goes into the deck as a drawn group" found)
+    }
+
+    ; markdown-it's spans in markdown rather than in tags — `^th^ ~2~
+    ; ++ins++ ==mark==` — drawn as the tags above are, and the typographer's
+    ; and the emoji's replacements drawn as the characters they stand for.
+    fn testMarkdownIt:void () {
+        def src:string "Big 19^th^ and H~2~O, ++under++ and ==lit== (c) :wink: HTML.\n\n*[HTML]: Hyper Text Markup Language\n"
+        def l:MdLayout (MdHtmlTest.laidOut(src))
+        def big:MdBox (MdHtmlTest.box(l "Big 19"))
+        def th:MdBox (MdHtmlTest.box(l "th"))
+        this.check("^th^ is drawn" (th.kind == 0))
+        this.check("…smaller" (th.size < big.size))
+        this.check("…and higher than the line" (th.y < big.y))
+        def two:MdBox (MdHtmlTest.box(l "2"))
+        this.check("~2~ is drawn smaller" ((two.kind == 0) && (two.size < big.size)))
+        this.check("…and lower than the line" (two.y > big.y))
+        def u:MdBox (MdHtmlTest.box(l "under"))
+        this.check("++under++ has a line under it" ((MdHtmlTest.rectsUnder(l u "")) >= 1))
+        def m:MdBox (MdHtmlTest.box(l "lit"))
+        this.check("==lit== has the highlight behind it" ((MdHtmlTest.rectsUnder(l m l.style.markBackground)) == 1))
+        def c:MdBox (MdHtmlTest.box(l (strfromcode 169)))
+        this.check("(c) is drawn as the copyright sign" (c.kind == 0))
+        this.check("…which stands for all three characters of (c)" ((c.segSrc == (indexOf src "(c)")) && (c.segLen == 3)))
+        this.check("…as one" c.segAtom)
+        def w:MdBox (MdHtmlTest.box(l (MdChar.fromCode(128521))))
+        this.check(":wink: is drawn as the emoji" (w.kind == 0))
+        this.check("…standing for the shortcode" (w.segLen == 6))
+        this.check("an abbreviation is drawn as its text" ((MdHtmlTest.box(l "HTML")).kind == 0))
+        def any:boolean false
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 0) && ((indexOf b.text "Hyper") >= 0)) { any = true }
+            if ((b.kind == 0) && ((indexOf b.text "*[") >= 0)) { any = true }
+            i = (i + 1)
+        }
+        this.check("…and its definition is not drawn at all" (any == false))
+
+        ; …and ==mark== is a highlighted run in the .pptx
+        def deckSrc:string "# Deck\n\n## Slide\n\nA ==lit== word.\n"
+        def doc:MdNode (MdBlock.parseText(deckSrc))
+        def dl:MdLayout (new MdLayout())
+        dl.applySlideMeta(doc)
+        dl.setDocSource(deckSrc)
+        dl.layoutSlides(doc)
+        def conv:MdToPptx (new MdToPptx())
+        def deck:PptxDeck (conv.deck(doc dl))
+        def lit:boolean false
+        def plain:boolean false
+        def sx:int 0
+        while (sx < (array_length deck.pres.slides)) {
+            def sl:PptxSlide (itemAt deck.pres.slides sx)
+            def k:int 0
+            while (k < (array_length sl.shapes)) {
+                def sh:PptxShape (itemAt sl.shapes k)
+                def pi:int 0
+                while (pi < (array_length sh.text.paragraphs)) {
+                    def par:PptxParagraph (itemAt sh.text.paragraphs pi)
+                    def ri:int 0
+                    while (ri < (array_length par.runs)) {
+                        def run:PptxTextRun (itemAt par.runs ri)
+                        if ((run.text == "lit") && run.highlight.isSet) { lit = true }
+                        if (((indexOf run.text "word") >= 0) && (run.highlight.isSet == false)) { plain = true }
+                        ri = (ri + 1)
+                    }
+                    pi = (pi + 1)
+                }
+                k = (k + 1)
+            }
+            sx = (sx + 1)
+        }
+        this.check("==lit== is a highlighted run in the deck" lit)
+        this.check("…and the words around it are not" plain)
     }
 }

@@ -164,7 +164,9 @@ rules on top, in this order:
 ```
   1  MANDATORY     an explicit {.slide}, or a heading at or above split-level
   2  FORBIDDEN     an explicit {.no-break}
-  3  PREFERRED     any other heading, if the slide is more than half full
+  3  PREFERRED     any other heading, when the section it opens (up to the
+                   next heading at its level or above) does not fit in the
+                   room left and does fit on a continuation of its own
   4  FALLBACK      overflow — which is what paged layout already does
 ```
 
@@ -227,7 +229,7 @@ that is right every time. Three, chosen per deck:
 
 | `overflow:` | what happens |
 | --- | --- |
-| `split` *(default)* | a continuation slide, its title repeated. Honest and ugly. |
+| `split` *(default)* | a continuation slide, its title repeated — whatever it begins with — and, when it begins inside a `###` section, that section's heading under the title. Honest and ugly. |
 | `shrink` | PowerPoint's own `normAutofit`, which the model already has a field for |
 | `clip` | leave it over the edge and REPORT it — for a deck somebody is going to hand-fix anyway |
 

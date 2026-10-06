@@ -233,8 +233,8 @@ class MdSlidesTest {
         c.eqInt("…and the next one the slide after" (MdSlidesTest.slideOf(l "Second")) 2)
         c.eqInt("the title keeps its own" (MdSlidesTest.slideOf(l "Title")) 0)
         c.eqInt("…with the paragraph under it" (MdSlidesTest.slideOf(l "Opening line.")) 0)
-        ; 3. PREFERRED: a deeper heading on a slide barely started is a
-        ; subheading of what is there and stays with it.
+        ; 3. PREFERRED: a deeper heading whose section fits in the room left
+        ; is a subheading of what is there and stays with it.
         c.eqInt("a deeper heading near the top stays" (MdSlidesTest.slideOf(l "Under second")) 2)
 
         ; 1. MANDATORY by attribute, on a block that is not a heading at all.
@@ -1085,6 +1085,118 @@ class MdSlidesTest {
         c.ok("a long table is still split" (far.pageCount > 1))
     }
 
+    ; ----------------------------------------------------------------------
+    ; Where a slide with sections breaks, and what its continuations say.
+    ; A `##` slide with `###` sections under it (markdown-it's demo deck,
+    ; "Plugins") overflowed with its breaks wherever the room ran out, so a
+    ; continuation began with the last line of "Footnotes" and "### Definition
+    ; lists" started under it; a continuation that began with a sub-heading
+    ; had no title at all, the others had the slide's. And a slide of six
+    ; heading lines put its sixth on a slide of its own with half the room
+    ; left, because a deeper heading below the middle always broke.
+    fn sections:void (c:SlideCheck) {
+        print "-- sections, and what a continuation says --"
+        def css:string "deck { split-level: 2 } page { width: 720pt; height: 300pt; padding: 20pt } document { font-size: 14pt }"
+        ; six heading lines fit: none of them is sent on alone
+        def hs:string "## h2 Heading\n### h3 Heading\n#### h4 Heading\n##### h5 Heading\n###### h6 Heading\n\n## Horizontal Rules\n\n---\n"
+        def hl:MdLayout (MdSlidesTest.asSlides(hs css))
+        c.eqInt("a heading that fits stays on its slide" (MdSlidesTest.slideOf(hl "h6 Heading")) 0)
+        c.eqInt("…and the next title is the next slide" (MdSlidesTest.slideOf(hl "Horizontal Rules")) 1)
+
+        ; three sections, the second too tall for the room the first leaves
+        def src:string "## Plugins\n\nIntro line.\n\n### Alpha\n\nA one.\n\nA two.\n\nA three.\n\n### Beta\n\nB one.\n\nB two.\n\nB three.\n\nB four.\n\n### Gamma\n\nG one.\n\n## Next\n\nText.\n"
+        def l:MdLayout (MdSlidesTest.asSlides(src css))
+        def sa:int (MdSlidesTest.slideOf(l "Alpha"))
+        def sb:int (MdSlidesTest.slideOf(l "Beta"))
+        c.eqInt("the first section is on the title's slide" sa 0)
+        c.eqInt("the section that does not fit starts the next slide" sb 1)
+        c.eqInt("…whole" (MdSlidesTest.slideOf(l "B four.")) sb)
+        c.eqInt("…and nothing of it was left behind" (MdSlidesTest.slideOf(l "B one.")) sb)
+        c.ok("a continuation that begins with a sub-heading says the title" (MdSlidesTest.repeatedOn(l "Plugins" sb)))
+        c.ok("…above the sub-heading" ((MdSlidesTest.yOnOf(l "Plugins" sb)) < (MdSlidesTest.yOf(l "Beta"))))
+        c.ok("…and does not say the section before it" ((MdSlidesTest.repeatedOn(l "Alpha" sb)) == false))
+        c.eqInt("no slide ends on a heading" (MdSlidesTest.slidesEndingOnAHeading(l)) 0)
+
+        ; a section taller than any slide is cut where it runs over, and the
+        ; continuation says the title and the section's heading again
+        def long:string "## Plugins\n\nIntro line.\n\n### Footnotes\n\n"
+        def i:int 0
+        while (i < 24) {
+            long = ((long + "Note ") + (to_string i)) + ".\n\n"
+            i = (i + 1)
+        }
+        long = (long + "### Tail\n\nT one.\n\nT two.\n\nT three.\n\nT four.\n\nLast.\n")
+        def ll:MdLayout (MdSlidesTest.asSlides(long css))
+        c.eqInt("a section too tall for a slide stays where it starts" (MdSlidesTest.slideOf(ll "Footnotes")) 0)
+        c.ok("…and is cut" (ll.pageCount > 1))
+        c.ok("its continuation says the title" (MdSlidesTest.repeatedOn(ll "Plugins" 1)))
+        c.ok("…and the section's heading under it" (MdSlidesTest.repeatedOn(ll "Footnotes" 1)))
+        c.ok("…in that order" ((MdSlidesTest.yOnOf(ll "Plugins" 1)) < (MdSlidesTest.yOnOf(ll "Footnotes" 1))))
+        c.ok("…set as the section's heading is" ((MdSlidesTest.sizeOnOf(ll "Footnotes" 1)) == (MdSlidesTest.sizeOf(ll "Footnotes"))))
+        c.ok("…above the text that goes on" ((MdSlidesTest.yOnOf(ll "Footnotes" 1)) < (MdSlidesTest.firstBodyY(ll 1))))
+        def tail:int (MdSlidesTest.slideOf(ll "Tail"))
+        c.ok("the next section, which fits a slide, starts one" ((tail > (MdSlidesTest.slideOf(ll "Note 23."))) && ((MdSlidesTest.slideOf(ll "Last.")) == tail)))
+        c.ok("a slide that begins with the next section says the title" (MdSlidesTest.repeatedOn(ll "Plugins" tail)))
+        c.ok("…and not the section before it" ((MdSlidesTest.repeatedOn(ll "Footnotes" tail)) == false))
+        c.eqInt("no slide ends on a heading" (MdSlidesTest.slidesEndingOnAHeading(ll)) 0)
+
+        ; a continuation that is laid out again larger keeps its title
+        def gsrc:string ("---\nslide-grow: 1.6\n---\n\n" + src)
+        def gl:MdLayout (MdSlidesTest.asSlides(gsrc css))
+        def gb:int (MdSlidesTest.slideOf(gl "Beta"))
+        c.ok("a grown continuation keeps its title" (MdSlidesTest.repeatedOn(gl "Plugins" gb)))
+    }
+
+    ; Whether `want` was said again (no source behind it) on slide `p`.
+    sfn repeatedOn:boolean (l:MdLayout want:string p:int) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 0) && (b.page == p) && (b.segSrc < 0) && (b.text == want)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn yOnOf:double (l:MdLayout want:string p:int) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 0) && (b.page == p) && (b.text == want)) {
+                return b.y
+            }
+            i = (i + 1)
+        }
+        return (0.0 - 1.0)
+    }
+
+    sfn sizeOnOf:double (l:MdLayout want:string p:int) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 0) && (b.page == p) && (b.text == want)) {
+                return b.size
+            }
+            i = (i + 1)
+        }
+        return 0.0
+    }
+
+    ; The top of the first box on slide `p` that came from the source.
+    sfn firstBodyY:double (l:MdLayout p:int) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 0) && (b.page == p) && (b.segSrc >= 0)) {
+                return b.y
+            }
+            i = (i + 1)
+        }
+        return (0.0 - 1.0)
+    }
+
     fn run:void () {
         def c:SlideCheck (new SlideCheck())
         print "== MdSlidesTest =="
@@ -1103,6 +1215,7 @@ class MdSlidesTest {
         this.overlays(c)
         this.longTable(c)
         this.tableSpill(c)
+        this.sections(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {

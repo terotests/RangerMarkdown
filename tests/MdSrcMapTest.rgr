@@ -196,6 +196,52 @@ class MdSrcMapTest {
             (lay.srcAtPoint(10.0 (0.0 - 500.0) (0.0 - 1.0))) -1)
     }
 
+    ; `©` is one character drawn for the three of `(c)`. Its node spans all
+    ; three, its box says so, and a click on either half of the glyph lands
+    ; on an END of `(c)` — never inside it, where a keystroke would split the
+    ; markup. The text around it keeps its character-for-character map.
+    fn replaced:void (c:SrcMapCheck) {
+        def src:string "ab (c) cd\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def subs:[MdNode]
+        MdSrcMapTest.collect(doc "text" subs)
+        def sign:MdNode (new MdNode())
+        def found:boolean false
+        def i:int 0
+        while (i < (array_length subs)) {
+            def t:MdNode (itemAt subs i)
+            if t.subst {
+                sign = t
+                found = true
+            }
+            i = (i + 1)
+        }
+        c.ok("(c) became a replacement node" found)
+        c.eqStr("…whose literal is the sign" sign.literal (strfromcode 169))
+        c.eqStr("…and whose span is all of (c)" (MdSrcMapTest.spanOf(src sign)) "(c)")
+        c.eqStr("the text after it still reads back" (MdSrcMapTest.spanOfNth(src "text" 2)) " cd")
+
+        def lay:MdLayout (new MdLayout())
+        lay.layoutContinuous(doc 900.0)
+        def bi:int -1
+        def k:int 0
+        while (k < (array_length lay.boxes)) {
+            def b:MdBox (itemAt lay.boxes k)
+            if ((b.kind == 0) && (b.text == (strfromcode 169))) { bi = k }
+            k = (k + 1)
+        }
+        c.ok("the sign is drawn" (bi >= 0))
+        if (bi < 0) { return }
+        def box:MdBox (itemAt lay.boxes bi)
+        c.eqInt("its box starts at the (" box.segSrc 3)
+        c.eqInt("…and covers three characters" box.segLen 3)
+        def midY:double (box.y + (box.h * 0.5))
+        c.eqInt("a click on its left half is before (c)"
+            (lay.srcAtPoint((box.x + (box.w * 0.25)) midY (0.0 - 1.0))) 3)
+        c.eqInt("a click on its right half is after (c)"
+            (lay.srcAtPoint((box.x + (box.w * 0.75)) midY (0.0 - 1.0))) 6)
+    }
+
     ; ----------------------------------------------------------------------
     fn run:void () {
         def c:SrcMapCheck (new SrcMapCheck())
@@ -297,8 +343,13 @@ class MdSrcMapTest {
         this.sweep(c "entities" "&copy; &#35; &amp;amp;\n")
         this.sweep(c "html" "<div>\nraw\n</div>\n\nafter <b>inline</b> here\n")
 
+        this.sweep(c "typographer" "\"Quotes\" (c) a--b it's... !!!! :wink: 8-) x^2^ H~2~O ++i++ ==m== HTML\n\n*[HTML]: Hyper\n")
+
         print "-- from a point on the page, back to a character in the file --"
         this.pointBack(c)
+
+        print "-- a replacement stands for the whole of its source --"
+        this.replaced(c)
 
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
