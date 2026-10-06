@@ -57,6 +57,10 @@ class MdEmbedEntry {
     ; the room a figure was fitted to (`MdEmbedCache.figureRoom`); another
     ; room draws it again
     def room:double -1.0
+    ; the height a slide's layout gave a chart or figure that was drawn
+    ; taller than its room (the text written over and under it took the
+    ; rest), 0 for none: it is drawn again that high (`MdEmbedCache.askRoom`)
+    def fitH:double 0.0
     def root@(optional):EVGElement
 
     Constructor () {
@@ -170,6 +174,8 @@ class MdEmbedCache {
     ; Set, the room comes from the page being laid out (`fitPage`), so a
     ; turned or resized page is not drawn with the room of the page before.
     def chartRoomKept:double -1.0
+    ; a layout gave a drawing another room than it was drawn for (askRoom)
+    def roomAsked:boolean false
     ; Files the charts read (`"data": {"url": "data/cars.json"}`): the host
     ; fetches them and hands them over, url and text, and a chart's url data
     ; is its rows (MdVegaRender.withFiles). A file arriving draws the charts
@@ -484,6 +490,31 @@ class MdEmbedCache {
 
     fn entryAt:MdEmbedEntry (i:int) {
         return (itemAt entries i)
+    }
+
+    ; the box a slide's layout last gave a drawing (askRoom), 0 for none
+    fn fitFor:double (kind:string source:string width:double) {
+        def i:int (this.find(kind source width))
+        if (i < 0) { return 0.0 }
+        def e:MdEmbedEntry (itemAt entries i)
+        return e.fitH
+    }
+
+    ; A slide's layout gave the chart or figure `kind`/`source` a box `h`
+    ; high, other than the room it was drawn for: it is drawn again for it
+    ; (stale) and `roomAsked` says the host should prepare and lay out once
+    ; more (MdDiagram.refit). A chart grown to the slide's room ran down
+    ; over the line written under it, its box cut and its drawing not.
+    fn askRoom:void (kind:string source:string width:double h:double) {
+        def i:int (this.find(kind source width))
+        if (i < 0) { return }
+        def e:MdEmbedEntry (itemAt entries i)
+        def d:double (e.fitH - h)
+        if (d < 0.0) { d = (0.0 - d) }
+        if (d <= 1.0) { return }
+        e.fitH = h
+        e.stale = true
+        roomAsked = true
     }
 
     fn add:void (e:MdEmbedEntry) {

@@ -401,7 +401,8 @@ class MdCss {
         style.tableHeadBackground = (this.color(got "background-color" style.tableHeadBackground))
         style.cellPadX = (this.len(got "padding-left" style.cellPadX))
         style.cellPadY = (this.len(got "padding-top" style.cellPadY))
-        this.rest(got "border-color,background-color,padding-left,padding-top")
+        style.tableSize = (this.size(got "font-size" style.tableSize))
+        this.rest(got "border-color,background-color,padding-left,padding-top,font-size")
     }
 
     ; `img { justify-content: center; max-height: 300px }`

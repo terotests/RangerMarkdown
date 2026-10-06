@@ -130,6 +130,9 @@ class MdStyle {
     def tableHeadBackground:string "#f6f8fa"
     def cellPadX:double 7.0
     def cellPadY:double 5.0
+    ; the size a table's text is set at, 0 for the body's
+    ; (`table { font-size }`)
+    def tableSize:double 0.0
 
     def pageWidth:double 595.28
     def pageHeight:double 841.89
@@ -252,6 +255,7 @@ class MdStyle {
         out = ((out + "/") + markerColor)
         out = ((((out + " table ") + tableBorder) + "/") + tableHeadBackground)
         out = ((((out + "/") + (to_string cellPadX)) + "/") + (to_string cellPadY))
+        out = ((out + "/") + (to_string tableSize))
         out = ((((out + " page ") + (to_string pageWidth)) + "/") + (to_string pageHeight))
         out = ((out + "/") + (to_string margin))
         if forPrint {

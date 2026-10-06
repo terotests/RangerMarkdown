@@ -76,6 +76,26 @@ class MdDiagram {
         return (width * 0.75)
     }
 
+    ; The room a chart or figure is drawn for: `room`, or less when a
+    ; layout gave it a box `fitH` high (its padding inside it).
+    sfn fitRoom:double (room:double fitH:double pad:double) {
+        if (fitH <= 0.0) { return room }
+        def inner:double (fitH - (pad * 2.0))
+        if (inner < 1.0) { inner = 1.0 }
+        if ((room > 0.0) && (room < inner)) { return room }
+        return inner
+    }
+
+    ; After a slide layout: a chart or figure that got a smaller box than
+    ; it was drawn for (MdEmbedCache.askRoom) is drawn for that box, and
+    ; true says the host lays the slides out once more with it.
+    sfn refit:boolean (doc:MdNode cache:MdEmbedCache width:double styleName:string) {
+        if (! cache.roomAsked) { return false }
+        cache.roomAsked = false
+        MdDiagram.prepare(doc cache width styleName)
+        return true
+    }
+
     ; Render every drawable fence in the document at `width`, into the cache
     ; the layout will ask. Called before layout, because a page cannot be
     ; broken around a diagram whose height nobody has asked for yet.
@@ -147,11 +167,19 @@ class MdDiagram {
     sfn render:void (node:MdNode cache:MdEmbedCache width:double styleName:string word:string notation:string) {
         def already:int (cache.find(word node.literal width))
         def wanted:boolean (cache.wanted(node.srcStart))
+        ; the box the last layout gave it, when that was less than it was
+        ; drawn for (MdEmbedCache.askRoom): kept across drawings
+        def fitH:double 0.0
+        if (already >= 0) {
+            def was0:MdEmbedEntry (cache.entryAt(already))
+            fitH = was0.fitH
+        }
+        def pad0:double (MdDiagram.padding())
         ; a figure fitted to another room (moved under a heading of another
         ; level) is drawn again
         if ((already >= 0) && (notation == "figure")) {
             def had:MdEmbedEntry (cache.entryAt(already))
-            if ((had.deferred == false) && (had.room != (cache.figureRoom(width)))) {
+            if ((had.deferred == false) && (had.room != (MdDiagram.fitRoom((cache.figureRoom(width)) fitH pad0)))) {
                 had.stale = true
             }
         }
@@ -188,6 +216,10 @@ class MdDiagram {
         e.kind = word
         e.source = node.literal
         e.atWidth = width
+        e.fitH = fitH
+        ; the tallest a grown chart may be: the slide's room, or the box the
+        ; layout had for it under the text around it
+        def chartH:double (MdDiagram.fitRoom(cache.chartMaxH fitH pad0))
         e.at = node.srcStart
 
         def pad:double (MdDiagram.padding())
@@ -208,7 +240,12 @@ class MdDiagram {
             text = (MdVegaRender.withDefaults(text (MdVegaRender.mergeDefaults((cache.scopedConfig()) cache.chartConfig))))
             text = (MdVegaRender.withoutContainer(text))
             if (cache.chartGrow > 1.0) {
-                text = (MdVegaRender.grown(text width pad cache.chartGrow cache.chartMaxH))
+                text = (MdVegaRender.grown(text width pad cache.chartGrow chartH))
+            } {
+                ; not grown, and still held to the box a slide gave it
+                if (fitH > 0.0) {
+                    text = (MdVegaRender.grown(text width pad 1.0 chartH))
+                }
             }
             text = (MdVegaRender.limitsByFont(text))
         }
@@ -220,7 +257,7 @@ class MdDiagram {
             }
             ; a slide's figure fills its room (`chartMaxH`, the same limit
             ; a grown chart has)
-            def room:double (cache.figureRoom(width))
+            def room:double (MdDiagram.fitRoom((cache.figureRoom(width)) fitH pad))
             e.room = room
             ; set in the middle of a slide's room; at the top of a section's
             ; (the text goes on under it) and of a figure given a width (the
@@ -244,10 +281,10 @@ class MdDiagram {
         ; scaled down to the column it can still come out taller than a
         ; slide's room (two views side by side, each 200 high): it is drawn
         ; again in the width that makes it the room's height.
-        if (((notation == "vega") && (cache.chartGrow > 1.0)) && (cache.chartMaxH > 1.0)) {
-            def roomH:double (cache.chartMaxH + (pad * 2.0))
+        if (((notation == "vega") && (cache.chartGrow > 1.0)) && (chartH > 1.0)) {
+            def roomH:double (chartH + (pad * 2.0))
             if ((sc.worldH > (roomH + 1.0)) && (sc.worldW > 1.0)) {
-                def narrower:double (((sc.worldW - (pad * 2.0)) * (cache.chartMaxH / (sc.worldH - (pad * 2.0)))) + (pad * 2.0))
+                def narrower:double (((sc.worldW - (pad * 2.0)) * (chartH / (sc.worldH - (pad * 2.0)))) + (pad * 2.0))
                 sc = (MdDiagram.sceneFor(notation text styleName narrower pad))
             }
         }

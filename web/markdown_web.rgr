@@ -328,6 +328,12 @@ class MarkdownEdit {
             if slideMode {
                 layout.applySlideMeta(doc)
                 layout.layoutSlides(doc)
+                ; a chart given less room than it was drawn for is drawn
+                ; for its box, and the slides laid out with it
+                if (MdDiagram.refit(doc layout.embeds (this.contentWidth()) styleName)) {
+                    diagrams = (layout.embeds.count())
+                    layout.layoutSlides(doc)
+                }
             } {
                 layout.layoutPaged(doc)
             }
@@ -1973,6 +1979,9 @@ class MarkdownWeb {
         MdDiagram.prepare(edit.doc deck.embeds cw styleName)
         deck.setDocSource(edit.source)
         deck.layoutSlides(edit.doc)
+        if (MdDiagram.refit(edit.doc deck.embeds cw styleName)) {
+            deck.layoutSlides(edit.doc)
+        }
         def x (new MdToPptx())
         def d:PptxDeck (x.deck(edit.doc deck))
         pptxSummary = (x.result.describe())
@@ -2237,6 +2246,9 @@ class MarkdownWeb {
         MdDiagram.prepare(edit.doc print.embeds cw styleName)
         if edit.slideMode {
             print.layoutSlides(edit.doc)
+            if (MdDiagram.refit(edit.doc print.embeds cw styleName)) {
+                print.layoutSlides(edit.doc)
+            }
         } {
             print.layoutPaged(edit.doc)
         }

@@ -141,7 +141,7 @@ class MdContainer {
         if ((strlen fill) == 0) { fill = themeFill }
         if ((strlen fill) == 0) { fill = (MdContainer.defaultFill(paper ink)) }
         p.fill = fill
-        p.ink = (MdContainer.inkOn(fill ink))
+        p.ink = (MdContainer.inkOnPaper(fill ink paper))
         return p
     }
 
@@ -167,6 +167,37 @@ class MdContainer {
         def light:double (MdContainer.worstContrast("#FFFFFF" fill))
         if (dark >= light) { return "#111111" }
         return "#FFFFFF"
+    }
+
+    ; …and when no ink reads on the plate whatever is behind it (a faint
+    ; tint such as `#00000010`, see-through to anything), the page's own
+    ; colour is what is behind it: judged on the plate laid over the paper.
+    ; Taken at its worst, near-black and white both came out at 1.1:1 and
+    ; white won the tie, so a grey card on a white slide had white text.
+    sfn inkOnPaper:string (fill:string ink:string paper:string) {
+        def worst:string (MdContainer.inkOn(fill ink))
+        if (((strlen worst) == 0) || ((strlen paper) == 0)) { return worst }
+        def pc:EVGColor (EVGColor.parse(paper))
+        if ((! pc.isSet) || ((pc.alpha()) < 0.99)) { return worst }
+        def dark:double (MdContainer.worstContrast("#111111" fill))
+        def light:double (MdContainer.worstContrast("#FFFFFF" fill))
+        if ((dark >= 4.5) || (light >= 4.5)) { return worst }
+        def under:string (MdContainer.overColour(fill paper))
+        if ((MdContainer.contrast(ink under)) >= 4.5) { return "" }
+        if ((MdContainer.contrast("#111111" under)) >= (MdContainer.contrast("#FFFFFF" under))) { return "#111111" }
+        return "#FFFFFF"
+    }
+
+    ; `fill` laid over an opaque `paper`, as `#RRGGBB`
+    sfn overColour:string (fill:string paper:string) {
+        def c:EVGColor (EVGColor.parse(fill))
+        def u:EVGColor (EVGColor.parse(paper))
+        if (! c.isSet) { return (MdContainer.hexOf((EVGColor.rgb((u.red()) (u.green()) (u.blue()))))) }
+        def a:double (c.alpha())
+        def r:int (to_int ((((to_double (c.red())) * a) + ((to_double (u.red())) * (1.0 - a))) + 0.5))
+        def g:int (to_int ((((to_double (c.green())) * a) + ((to_double (u.green())) * (1.0 - a))) + 0.5))
+        def b:int (to_int ((((to_double (c.blue())) * a) + ((to_double (u.blue())) * (1.0 - a))) + 0.5))
+        return (MdContainer.hexOf((EVGColor.rgb(r g b))))
     }
 
     ; The contrast of `ink` on `fill` whatever is behind the plate: laid over

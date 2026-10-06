@@ -238,6 +238,10 @@ class MdBox {
     ; typographic replacement, an emoji): a caret is at one end of it or the
     ; other, never at a character inside.
     def segAtom:boolean false
+    ; the slide's title said again on a continuation (`emitSlideTitle`):
+    ; laid out while a block was, but not part of it, so the plate around
+    ; a box and the extent text floats beside leave it out
+    def retold:boolean false
     ; 1 a header's, 2 a footer's: page furniture, not the document's text;
     ; 3 the footnotes at the foot of a page, which ARE the document's text
     ; but are placed by the page rather than where they were written
@@ -309,6 +313,7 @@ class MdBox {
         b.segSrc = segSrc
         b.segLen = segLen
         b.segAtom = segAtom
+        b.retold = retold
         b.furniture = furniture
         b.strike = strike
         b.quiet = quiet
@@ -1736,36 +1741,7 @@ class MdLayout {
             def fromBox:int (array_length boxes)
             def fromHead:int (array_length headText)
             push blockFirstPage page
-            def bx:double contentX
-            def bw:double contentW
-            if floatOn {
-                if ((page == floatPage) && (MdLayout.besideable(child splitLevel))) {
-                    bx = floatX
-                    bw = floatW
-                } {
-                    this.endFloat()
-                }
-            }
-            followH = 0.0
-            followBeside = false
-            if (slides && (child.kind == "paragraph")) {
-                if ((MdLayout.loneImage(child)).kind == "image") {
-                    followH = (this.heightAfter(doc i))
-                    if ((i + 1) < (doc.childCount())) {
-                        followBeside = (MdLayout.besideable((doc.childAt((i + 1))) splitLevel))
-                    }
-                }
-            }
-            if floatOn {
-                this.block(child bx bw)
-                if ((page != floatPage) || (cursorY >= floatBottom)) {
-                    this.endFloat()
-                }
-            } {
-                this.blockCached(child docSource contentX contentW)
-                this.startFloat(doc i fromBox)
-            }
-            followH = 0.0
+            this.placeBlock(doc i true)
             if (slides && (child.kind == "heading") && (child.level > splitLevel)) {
                 sectionTitle = (child.plainText())
                 sectionLevel = child.level
@@ -1858,6 +1834,59 @@ class MdLayout {
     ; now has the paragraphs, lists and quotes after it set in the rest of
     ; the column, beside it, while they start above its bottom — the way a
     ; CSS float wraps. Under the figure the column is full width again.
+    ; Block `i` laid out where the body pass puts it: beside the picture,
+    ; chart or table before it while that left a float open, else across
+    ; the column, with the text after a picture or chart given room under
+    ; it. The first pass reuses a block laid out before (`cached`); a slide
+    ; laid out again to shrink or grow it (`relayoutBlock`) goes through
+    ; here too, so the text that went beside a table there still does.
+    fn placeBlock:void (doc:MdNode i:int cached:boolean) {
+        def child:MdNode (doc.childAt(i))
+        def fromBox:int (array_length boxes)
+        def bx:double contentX
+        def bw:double contentW
+        if floatOn {
+            if ((page == floatPage) && (MdLayout.besideable(child splitLevel))) {
+                bx = floatX
+                bw = floatW
+            } {
+                this.endFloat()
+            }
+        }
+        followH = 0.0
+        followBeside = false
+        if (slides && (child.kind == "paragraph")) {
+            if ((MdLayout.loneImage(child)).kind == "image") {
+                followH = (this.heightAfter(doc i))
+                if ((i + 1) < (doc.childCount())) {
+                    followBeside = (MdLayout.besideable((doc.childAt((i + 1))) splitLevel))
+                }
+            }
+        }
+        ; a chart or diagram given the room under its heading leaves the
+        ; text written under it on the slide too (see `embed`)
+        if (slides && (child.kind == "embed")) {
+            followH = (this.heightAfter(doc i))
+            if ((i + 1) < (doc.childCount())) {
+                followBeside = (MdLayout.besideable((doc.childAt((i + 1))) splitLevel))
+            }
+        }
+        if floatOn {
+            this.block(child bx bw)
+            if ((page != floatPage) || (cursorY >= floatBottom)) {
+                this.endFloat()
+            }
+        } {
+            if cached {
+                this.blockCached(child docSource contentX contentW)
+            } {
+                this.block(child contentX contentW)
+            }
+            this.startFloat(doc i fromBox)
+        }
+        followH = 0.0
+    }
+
     sfn besideable:boolean (node:MdNode splitLevel:int) {
         if ((node.kind == "paragraph") && ((MdLayout.loneImage(node)).kind != "image")) { return true }
         if (node.kind == "list") { return true }
@@ -1880,8 +1909,49 @@ class MdLayout {
             if ((c.kind == 3) || (c.kind == 4)) { at = k }
             k = (k - 1)
         }
+        if ((at < 0) && (child.kind == "table")) {
+            this.startFloatAt(child (this.extentOn(fromBox page)))
+            return
+        }
         if (at < 0) { return }
         def b:MdBox (itemAt boxes at)
+        this.startFloatAt(child b)
+    }
+
+    ; The boxes from `from` on that are on page `p`, as one box (kind -1
+    ; when there are none): a table's cells, the thing beside which text
+    ; goes when it was given a width.
+    fn extentOn:MdBox (from:int p:int) {
+        def e:MdBox (new MdBox())
+        e.kind = -1
+        def right:double 0.0
+        def bottom:double 0.0
+        def k:int from
+        while (k < (array_length boxes)) {
+            def c:MdBox (itemAt boxes k)
+            if ((c.page == p) && (c.retold == false)) {
+                if (e.kind < 0) {
+                    e.kind = 1
+                    e.page = p
+                    e.x = c.x
+                    e.y = c.y
+                    right = (c.x + c.w)
+                    bottom = (c.y + c.h)
+                }
+                if (c.x < e.x) { e.x = c.x }
+                if (c.y < e.y) { e.y = c.y }
+                if ((c.x + c.w) > right) { right = (c.x + c.w) }
+                if ((c.y + c.h) > bottom) { bottom = (c.y + c.h) }
+            }
+            k = (k + 1)
+        }
+        e.w = (right - e.x)
+        e.h = (bottom - e.y)
+        return e
+    }
+
+    fn startFloatAt:void (child:MdNode b:MdBox) {
+        if (b.kind < 0) { return }
         if (b.page != page) { return }
         def side:string (this.floatSide(child b))
         if ((strlen side) == 0) { return }
@@ -2207,6 +2277,7 @@ class MdLayout {
         ; the heading's own ink: it is the same title, and a dimmed one is
         ; text a reader at the back cannot make out
         b.color = (style.headingInk(level))
+        b.retold = true
         this.emit(b)
         cursorY = ((cursorY + h) + style.headingSpaceAfter)
     }
@@ -3085,7 +3156,7 @@ class MdLayout {
             def i:int before
             while (i < n) {
                 def b:MdBox (itemAt boxes i)
-                if (b.page == pg) {
+                if ((b.page == pg) && (b.retold == false)) {
                     if ((! any) || (b.y < minY)) { minY = b.y }
                     if ((! any) || ((b.y + b.h) > maxY)) { maxY = (b.y + b.h) }
                     if ((! any) || (b.x < minX)) { minX = b.x }
@@ -3463,12 +3534,13 @@ class MdLayout {
             pageCount = (p + 1)
             cursorY = contentTop
             this.resumeContinuation(p)
+            floatOn = false
             def j:int 0
             while (j < (array_length members)) {
-                def child:MdNode (doc.childAt((itemAt members j)))
-                this.relayoutBlock(child)
+                this.relayoutBlock(doc (itemAt members j))
                 j = (j + 1)
             }
+            this.endFloat()
             def fits:boolean (page == p)
             this.restoreStyle(saved)
             if fits {
@@ -3526,7 +3598,8 @@ class MdLayout {
     ; One block of a slide laid out again (shrunk or grown), keeping the
     ; title and the section current as `bodyPass` does, so a continuation
     ; it runs onto says the right ones.
-    fn relayoutBlock:void (child:MdNode) {
+    fn relayoutBlock:void (doc:MdNode i:int) {
+        def child:MdNode (doc.childAt(i))
         if (child.kind == "heading") {
             this.clearSection()
             if (child.level <= splitLevel) {
@@ -3535,7 +3608,7 @@ class MdLayout {
                 slideTitleHidden = (MdLayout.hiddenHeading(child))
             }
         }
-        this.block(child contentX contentW)
+        this.placeBlock(doc i false)
         if ((child.kind == "heading") && (child.level > splitLevel)) {
             sectionTitle = (child.plainText())
             sectionLevel = child.level
@@ -3631,12 +3704,13 @@ class MdLayout {
             page = p
             cursorY = contentTop
             this.resumeContinuation(p)
+            floatOn = false
             def j:int 0
             while (j < (array_length members)) {
-                def child:MdNode (doc.childAt((itemAt members j)))
-                this.relayoutBlock(child)
+                this.relayoutBlock(doc (itemAt members j))
                 j = (j + 1)
             }
+            this.endFloat()
             ; …and a heading that was one line stays one line: a title
             ; broken in two to be larger is not larger, it is worse
             def headsNow:int (MdLayout.headingLines(boxes b0 (array_length boxes) ((itemAt saved 0) * s * 1.15)))
@@ -3713,6 +3787,7 @@ class MdLayout {
         push v style.cellPadX
         push v style.cellPadY
         push v style.embedSpacing
+        push v style.tableSize
         return v
     }
 
@@ -3738,6 +3813,7 @@ class MdLayout {
         style.cellPadX = ((itemAt v 18) * s)
         style.cellPadY = ((itemAt v 19) * s)
         style.embedSpacing = ((itemAt v 20) * s)
+        style.tableSize = ((itemAt v 21) * s)
     }
 
     ; GROW's scale: everything on the slide larger except the slide titles
@@ -4507,15 +4583,51 @@ class MdLayout {
         ; scene into its box, and a heading alone on one slide with its
         ; diagram on the next reads as two broken slides. Only when most of
         ; the slide is still free; a diagram under a full slide moves on.
+        ;
+        ; The room is less what is written under it on the same slide
+        ; (`followH`, as a picture's): a chart filling the slide down to the
+        ; margin pushed a one-line source or takeaway under it onto a slide
+        ; of its own. Text that goes beside a narrow one (startFloat) takes
+        ; no room under it.
         if (slides && paginate) {
             def full:double (contentBottom - contentTop)
             def avail:double (contentBottom - cursorY)
-            def under:boolean (slideTitleOnly && (avail >= (full * 0.2)))
-            if ((h > avail) && ((avail >= (full * 0.45)) || under)) {
+            def room:double avail
+            ; …and the space between them
+            def below:double 0.0
+            if (followH > 0.0) {
+                below = (followH + style.embedSpacing)
+            }
+            if ((followBeside && ((strlen want) > 0)) && (useW <= (contentW * 0.75))) {
+                if (((contentW - useW) - (style.bodySize * 1.2)) >= (contentW * 0.25)) {
+                    below = 0.0
+                }
+            }
+            if ((below > 0.0) && ((avail - below) >= (full * 0.3))) {
+                avail = (avail - below)
+            }
+            def under:boolean (slideTitleOnly && (room >= (full * 0.2)))
+            def held:boolean ((h > avail) && ((room >= (full * 0.45)) || under))
+            if held {
                 h = avail
             }
             if (h > full) {
                 h = full
+            }
+            ; A chart or figure is drawn for a room: one cut to a smaller
+            ; box would run over what is under it, so it is drawn again for
+            ; the box (MdDiagram.refit); one held smaller before and with
+            ; more room now is drawn for that.
+            def notation:string (MdEmbedKinds.notationOf(kind))
+            if (drawn && ((notation == "vega") || (notation == "figure"))) {
+                def had:double (embeds.fitFor(kind node.literal useW))
+                if held {
+                    embeds.askRoom(kind node.literal useW h)
+                } {
+                    if ((had > 0.0) && (avail > (had + 1.0))) {
+                        embeds.askRoom(kind node.literal useW avail)
+                    }
+                }
             }
         }
         def y:double (this.reserve(h))
@@ -6217,7 +6329,11 @@ class MdLayout {
         def head:MdNode (node.childAt(0))
         def cols:int (head.childCount())
         if (cols == 0) { return }
-        def widths:[double] (this.tableWidths(node w))
+        ; `{width=60%}` under it: that share of the column, and the text
+        ; after it beside it (startFloat)
+        def tw:double (MdEmbedKinds.widthOf((node.attrValue("width")) w))
+        def was:double (this.tableTextOn())
+        def widths:[double] (this.gridWidths(node tw))
         ; the header rows, said again on every slide the table continues on
         def heads:int 0
         while ((heads < rows) && (MdLayout.isHeadRow((node.childAt(heads))))) {
@@ -6265,6 +6381,7 @@ class MdLayout {
                 hr2 = (hr2 + 1)
             }
         }
+        style.bodySize = was
         cursorY = (cursorY + style.paraSpacing)
     }
 
@@ -7042,6 +7159,24 @@ class MdLayout {
     ; implementation of this would be a second table algorithm to keep in
     ; step with the first. One algorithm, two callers.
     fn tableWidths:[double] (node:MdNode w:double) {
+        def was:double (this.tableTextOn())
+        def out:[double] (this.gridWidths(node w))
+        style.bodySize = was
+        return out
+    }
+
+    ; A table's text is set at `table { font-size }` when the sheet gives
+    ; one: the body's size is that while the table is measured and drawn,
+    ; and what it was is returned to be put back.
+    fn tableTextOn:double () {
+        def was:double style.bodySize
+        if (style.tableSize > 0.0) {
+            style.bodySize = style.tableSize
+        }
+        return was
+    }
+
+    fn gridWidths:[double] (node:MdNode w:double) {
         def widths:[double]
         def rows:int (node.childCount())
         if (rows == 0) { return widths }
@@ -7115,9 +7250,17 @@ class MdLayout {
         }
         def j:int 0
         if (total <= w) {
-            ; It fits as written.
+            ; It fits as written. On a slide it spans its column (or the
+            ; `width` it was given), the room left shared out as each column
+            ; is wide: a five-column table of short cells filled the left
+            ; half of the slide and left the right half empty.
+            def extra:double 0.0
+            if (slides && (total > 0.0)) {
+                extra = (w - total)
+            }
             while (j < cols) {
-                push widths (itemAt natural j)
+                def nat:double (itemAt natural j)
+                push widths (nat + (extra * (nat / total)))
                 j = (j + 1)
             }
         } {
