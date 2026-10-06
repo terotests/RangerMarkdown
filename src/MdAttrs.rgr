@@ -38,6 +38,7 @@
 ; ============================================================================
 
 Import "MdNode.rgr"
+Import "MdChar.rgr"
 
 class MdAttrs {
     sfn isSpaceCode:boolean (c:int) {
@@ -224,5 +225,13 @@ class MdAttrs {
         }
         if (head == 0) { return -1 }
         return i
+    }
+
+    ; `{heading=hidden}` (or `none` / `off`) on a heading: it names its
+    ; slide, is in the contents and is read out, and is not drawn.
+    sfn headingHidden:boolean (n:MdNode) {
+        if (n.kind != "heading") { return false }
+        def v:string (MdChar.lower((trim (n.attrValue("heading")))))
+        return (((v == "hidden") || (v == "none")) || (v == "off"))
     }
 }

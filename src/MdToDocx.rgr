@@ -28,6 +28,7 @@
 ; ============================================================================
 
 Import "MdNode.rgr"
+Import "MdGallery.rgr"
 Import "MdStyle.rgr"
 Import "MdEmbedKinds.rgr"
 Import "MdEmbed.rgr"
@@ -248,6 +249,10 @@ class MdToDocx {
                 qi = (qi + 1)
             }
             result.quotes = (result.quotes + 1)
+            return
+        }
+        if (MdGallery.isGallery(node)) {
+            this.gallery(node)
             return
         }
         if ((kind == "code_block") || (kind == "html_block")) {
@@ -545,6 +550,39 @@ class MdToDocx {
         push p.images di
         result.pictures = (result.pictures + 1)
         return true
+    }
+
+    ; A gallery in a document: each picture at its own size with its
+    ; caption under it in italics, a text cell as a paragraph. A page of
+    ; Word has no grid to put them in that the reader can still edit.
+    fn gallery:void (node:MdNode) {
+        def g:MdGallery (MdGallery.of(node))
+        def i:int 0
+        while (i < (array_length g.items)) {
+            def it:MdGalleryItem (itemAt g.items i)
+            if it.isText {
+                def tp:Paragraph (doc.addParagraph())
+                tp.appendText(it.text (this.spanFor(false false false "")))
+                result.paragraphs = (result.paragraphs + 1)
+            } {
+                def pp:Paragraph (doc.addParagraph())
+                def img:MdNode (MdNode.create("image"))
+                img.destination = it.src
+                def alt:string it.caption
+                if ((strlen alt) == 0) {
+                    alt = it.src
+                }
+                if ((this.picture(img pp alt)) == false) {
+                    pp.appendText(("[" + alt + "]") (this.spanFor(false true false "")))
+                }
+                if (((strlen it.caption) > 0) && (g.caption != "none")) {
+                    def cp:Paragraph (doc.addParagraph())
+                    cp.appendText(it.caption (this.spanFor(false true false "")))
+                    result.paragraphs = (result.paragraphs + 1)
+                }
+            }
+            i = (i + 1)
+        }
     }
 
     fn spanFor:TextSpan (bold:boolean italic:boolean mono:boolean link:string) {
