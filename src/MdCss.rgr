@@ -191,6 +191,7 @@ class MdCss {
         this.link(style (this.forTag("a")))
         this.rule(style (this.forTag("hr")))
         this.quote(style (this.forTag("blockquote")))
+        this.container(style (this.forTag("container")))
         this.list(style (this.forTag("list")))
         this.item(style (this.forTag("li")))
         this.table(style (this.forTag("table")))
@@ -373,6 +374,14 @@ class MdCss {
         style.quoteIndent = (this.len(got "padding-left" style.quoteIndent))
         style.quotePadY = (this.len(got "padding-top" style.quotePadY))
         this.rest(got "color,border-color,border-width,padding-left,padding-top")
+    }
+
+    ; the plate under a `{container=…}` block
+    fn container:void (style:MdStyle got:CssComputed) {
+        style.containerBackground = (this.color(got "background" style.containerBackground))
+        style.containerBackground = (this.color(got "background-color" style.containerBackground))
+        style.containerRadius = (this.len(got "border-radius" style.containerRadius))
+        this.rest(got "background,background-color,border-radius")
     }
 
     fn list:void (style:MdStyle got:CssComputed) {

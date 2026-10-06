@@ -36,6 +36,7 @@ npm run markdown:semantic:test # …and that every toggle is its own inverse
 npm run markdown:srcmap:test   # a character in the picture names one in the file
 npm run markdown:srcmap:spec   # …scored over CommonMark's own 652 examples
 npm run markdown:attrs:test    # `{.class}` attaches to the right block, and to nothing else
+npm run markdown:container:test # `{container=box|bubble}`: a rounded plate under a block, text that reads on it
 npm run markdown:css:test      # a template says it, the style holds it, nothing else moves
 npm run markdown:slides:test   # columns, and where a slide breaks
 npm run markdown:pptx:test     # the deck goes out and comes back the same deck

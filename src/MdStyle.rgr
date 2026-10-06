@@ -103,6 +103,12 @@ class MdStyle {
     ; over everything.
     def quoteColor:string "#57606a"
 
+    ; `{container=box}` / `{container=bubble}`: the theme's plate,
+    ; `container { background-color; border-radius }`. "" / negative leave it
+    ; to `MdContainer.plan` (the page's colour, a radius from the text size).
+    def containerBackground:string ""
+    def containerRadius:double -1.0
+
     def listIndent:double 22.0
     def markerGap:double 8.0
     ; The colour of a list's bullets and numbers: `list { color }`. Empty
@@ -240,6 +246,7 @@ class MdStyle {
         out = ((((out + " quote ") + quoteColor) + "/") + quoteBarColor)
         out = ((((out + "/") + (to_string quoteBarWidth)) + "/") + (to_string quoteIndent))
         out = ((out + "/") + (to_string quotePadY))
+        out = ((((out + " container ") + containerBackground) + "/") + (to_string containerRadius))
         out = ((((out + " list ") + (to_string listIndent)) + "/") + (to_string markerGap))
         out = ((out + "/") + (to_string listTightSpacing))
         out = ((out + "/") + markerColor)
