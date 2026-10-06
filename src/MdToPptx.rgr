@@ -1124,7 +1124,7 @@ class MdToPptx {
         if ((((k == "math") || (k == "strong")) || ((k == "emph") || (k == "code"))) || (k == "link")) {
             return true
         }
-        if (k == "footnote_ref") {
+        if ((k == "footnote_ref") || (k == "mark")) {
             return true
         }
         def i:int 0
@@ -1273,6 +1273,7 @@ class MdToPptx {
             def st (new PptxTextRun)
             tmpl.copyStyleTo(st)
             st.color = tmpl.color
+            st.highlight = tmpl.highlight
             if (node.kind == "strong") {
                 st.bold = true
                 st.boldSet = true
@@ -1288,6 +1289,25 @@ class MdToPptx {
             while (si < (node.childCount())) {
                 this.collectRuns((node.childAt(si)) st out)
                 si = (si + 1)
+            }
+            return
+        }
+        ; `==mark==`: the highlight the layout draws behind it, as the
+        ; run's own (`a:highlight`). PowerPoint has no baseline shift or
+        ; underline here, so `^sup^ ~sub~ ++ins++` keep their text in the
+        ; style around them.
+        if (node.kind == "mark") {
+            def mk (new PptxTextRun)
+            tmpl.copyStyleTo(mk)
+            mk.color = tmpl.color
+            if ((strlen layout.style.markColor) > 0) {
+                mk.color = (PptxApi.colorOf(layout.style.markColor))
+            }
+            mk.highlight = (PptxApi.colorOf(layout.style.markBackground))
+            def mi:int 0
+            while (mi < (node.childCount())) {
+                this.collectRuns((node.childAt(mi)) mk out)
+                mi = (mi + 1)
             }
             return
         }
@@ -1353,6 +1373,8 @@ class MdToPptx {
             def r2 (new PptxTextRun)
             tmpl.copyStyleTo(r2)
             r2.color = tmpl.color
+            ; a `==mark==` around it (`copyStyleTo` leaves the highlight)
+            r2.highlight = tmpl.highlight
             r2.text = t
             push out r2
             return

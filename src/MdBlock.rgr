@@ -36,6 +36,7 @@ Import "MdChar.rgr"
 Import "MdInline.rgr"
 Import "MdEmbedKinds.rgr"
 Import "MdAttrs.rgr"
+Import "MdFrontMatter.rgr"
 
 class MdBlock {
     def doc:MdNode (MdNode.create("document"))
@@ -85,8 +86,21 @@ class MdBlock {
     ; ----------------------------------------------------------------------
     ; Entry point
     ; ----------------------------------------------------------------------
+    ; A document as a deck reads it: CommonMark and GFM, markdown-it's
+    ; plugins (`~sub~ ^sup^ ++ins++ ==mark==`, `:emoji:`, `*[abbr]:`) and its
+    ; typographer, which the front matter can switch off (`typographer:
+    ; false`).
     sfn parseText:MdNode (text:string) {
         def p:MdBlock (new MdBlock())
+        return (p.run(text))
+    }
+
+    ; …and as the specification reads it: no plugins and no typographer,
+    ; whatever the front matter says. What the parity score is taken against,
+    ; since `"` and `--` and `^` are characters to CommonMark.
+    sfn parseCommonMark:MdNode (text:string) {
+        def p:MdBlock (new MdBlock())
+        p.inline.opts.commonMarkOnly()
         return (p.run(text))
     }
 
@@ -112,6 +126,9 @@ class MdBlock {
             }
         }
         def i:int (this.frontMatter(lines count))
+        ; Before the first block: an abbreviation is defined while the
+        ; blocks are read, and only a document that reads the plugins has any.
+        inline.opts.readMeta((MdFrontMatter.of(doc)))
         while (i < count) {
             def ln:string (itemAt lines i)
             this.incorporateLine(ln)
@@ -132,6 +149,7 @@ class MdBlock {
         inline.notes = notes
         this.processInlines(doc doc 0)
         doc.notes = notes.list
+        doc.readingSig = (inline.opts.signature())
         return doc
     }
 
@@ -1855,9 +1873,20 @@ class MdBlock {
             if (n == 0) { going = false }
             if going {
                 def c:int (charAt rest 0)
-                if (c != 91) { going = false }
+                if (c != 91) {
+                    going = false
+                    ; `*[HTML]: …`, markdown-it-abbr's definition, comes off
+                    ; the front the same way a link reference does
+                    if ((c == 42) && inline.opts.extensions) {
+                        def took:int (inline.parseAbbreviation(rest))
+                        if (took > 0) {
+                            rest = (substring rest took n)
+                            going = true
+                        }
+                    }
+                }
             }
-            if going {
+            if (going && ((strlen rest) > 0) && ((charAt rest 0) == 91)) {
                 def taken:int (inline.parseReference(rest refs))
                 if (taken == 0) {
                     going = false

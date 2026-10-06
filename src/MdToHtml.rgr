@@ -181,6 +181,19 @@ class MdToHtml {
             this.lit("</del>")
             return
         }
+        ; markdown-it's plugins, as markdown-it writes them
+        if ((((kind == "sub") || (kind == "sup")) || (kind == "ins")) || (kind == "mark")) {
+            this.lit((("<" + kind) + ">"))
+            this.walkChildren(node)
+            this.lit((("</" + kind) + ">"))
+            return
+        }
+        if (kind == "abbr") {
+            this.lit((("<abbr title=\"" + (MdToHtml.escape(node.title))) + "\">"))
+            this.walkChildren(node)
+            this.lit("</abbr>")
+            return
+        }
         if (kind == "link") {
             if (standalone && (MdToHtml.runsScript(node.destination false))) {
                 this.lit("<a>")

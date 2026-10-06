@@ -17,6 +17,9 @@
 ;            heading thematic_break table table_row table_cell
 ;   inlines  text softbreak linebreak code html_inline emph strong strike
 ;            link image
+;   …and markdown-it's plugins, which a deck reads and CommonMark does not:
+;            sub (`~x~`) sup (`^x^`) ins (`++x++`) mark (`==x==`)
+;            abbr (`*[HTML]: …`, the title in `title`)
 ;
 ; …and the blocks of markdown-it's standard plugins, under their names:
 ;
@@ -127,6 +130,19 @@ class MdNode {
     ; step must not then overwrite it. Without this the link took the span of
     ; its own closing bracket, which is valid, ordered, and wrong.
     def srcKnown:boolean false
+    ; A text node that STANDS FOR its source rather than spelling it: `©`
+    ; for `(c)`, `…` for `...`, 😉 for `:wink:`. Its literal and its span are
+    ; different strings of different lengths, and the correspondence is the
+    ; whole span to the whole literal — there is no fourth character of `©`
+    ; to put a caret after. Every other text node maps character for
+    ; character, which is what the layout's offset arithmetic assumes; this
+    ; flag is how a run tells it not to.
+    def subst:boolean false
+    ; On the document node: everything document-wide the inlines were read
+    ; with (`MdInlineOptions.signature`). The same block source reads to
+    ; different nodes under a different one, so a layout cache keyed on the
+    ; source has to be keyed on this too.
+    def readingSig:string ""
 
     ; ------------------------------------------------------------------
     ; What the document said this block IS — `{.lead #totals cols=3}`
@@ -519,6 +535,9 @@ class MdNode {
         }
         if (kind == "dl") {
             attrs = (attrs + " tight=\"" + (? listTight "true" "false") + "\"")
+        }
+        if (kind == "abbr") {
+            attrs = (attrs + " title=\"" + (MdNode.xmlEscape(title)) + "\"")
         }
         def hasLit:boolean false
         if (kind == "text") { hasLit = true }

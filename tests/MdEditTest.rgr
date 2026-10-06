@@ -84,6 +84,8 @@ class MdEditTest {
         this.vertical(c)
         this.roundTrip(c)
         this.tableCells(c)
+        this.replacedGlyph(c)
+        this.readingChanges(c)
         this.cacheHolds(c)
 
         print ""
@@ -396,6 +398,84 @@ class MdEditTest {
         def lb:MdBox (itemAt e.layout.boxes li)
         c.eqInt("the header cell points at the header" hb.segSrc (indexOf src "Tulos"))
         c.eqInt("the last row points at the last row" lb.segSrc (indexOf src "Lisenssit"))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A typographic replacement is edited as the source it came from
+    ; ----------------------------------------------------------------------
+    ;
+    ; `(c)` is drawn as `©`, one glyph for three characters. A click on the
+    ; glyph has to put the caret at an END of `(c)`, so that typing goes
+    ; before or after the markup and never into the middle of it — and a
+    ; caret that is somewhere inside `(c)` (an arrow key walks through the
+    ; source) is drawn at the glyph's left edge until it has passed all three.
+    fn replacedGlyph:void (c:EditCheck) {
+        print "-- a replaced glyph is edited as its source --"
+        def src:string "ab (c) cd\n"
+        def e:MdEditController (MdEditTest.fresh(src))
+        e.ensureLayout()
+        def bi:int (MdEditTest.boxOf(e (strfromcode 169)))
+        c.ok("the sign is drawn" (bi >= 0))
+        if (bi < 0) { return }
+        def b:MdBox (itemAt e.layout.boxes bi)
+        def cy:double (b.y + (b.h / 2.0))
+
+        e.clickAt((b.x + (b.w * 0.2)) cy false)
+        c.eqInt("a click on the left of the sign is before (c)" (e.caret()) 3)
+        e.clickAt((b.x + (b.w * 0.8)) cy false)
+        c.eqInt("a click on the right of it is after (c)" (e.caret()) 6)
+
+        e.setCaret(3)
+        def x3:double (e.caretX())
+        e.setCaret(5)
+        def x5:double (e.caretX())
+        e.setCaret(6)
+        def x6:double (e.caretX())
+        c.ok("a caret inside (c) is drawn before the sign" ((fabs (x5 - x3)) < 0.01))
+        c.ok("…and after it once past the )" ((fabs (x6 - (b.x + b.w))) < 0.01))
+        c.ok("…which is right of where it started" (x6 > x3))
+
+        e.clickAt((b.x + (b.w * 0.8)) cy false)
+        e.insertText("!")
+        c.eqStr("typing there goes after the markup" (e.text()) "ab (c)! cd\n")
+        e.undo()
+        c.eqStr("and undo gives the bytes back" (e.text()) src)
+    }
+
+    ; `lang: fi` changes every quote in the document, and no block's source
+    ; changes with it: the cache must not replay the English ones.
+    fn readingChanges:void (c:EditCheck) {
+        print "-- a front matter change re-reads every block --"
+        def src:string "---\nlang: en\n---\n\nsay \"hi\" now\n\nlast\n"
+        def e:MdEditController (MdEditTest.fresh(src))
+        e.setViewWidth(820.0)
+        e.ensureLayout()
+        def open:string ((strfromcode 8220) + "hi")
+        c.ok("English quotes open with “" ((MdEditTest.boxWith(e open)) >= 0))
+        e.setCaret(10)
+        e.insertText("fi")
+        e.setCaret(12)
+        e.deleteForward()
+        e.deleteForward()
+        e.ensureLayout()
+        c.ok("the front matter now says fi" ((indexOf (e.text()) "lang: fi") >= 0))
+        def fin:string ((strfromcode 8221) + "hi")
+        c.ok("…and the cached paragraph is drawn with Finnish quotes" ((MdEditTest.boxWith(e fin)) >= 0))
+        c.ok("…not the English ones" ((MdEditTest.boxWith(e open)) < 0))
+    }
+
+    ; The first text box whose text contains this string, or -1.
+    sfn boxWith:int (e:MdEditController t:string) {
+        def i:int 0
+        def n:int (array_length e.layout.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt e.layout.boxes i)
+            if (b.kind == 0) {
+                if ((indexOf b.text t) >= 0) { return i }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
     }
 
     ; The first text box drawing exactly this string, or -1.

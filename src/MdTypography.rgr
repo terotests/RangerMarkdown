@@ -1,0 +1,1548 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdTypography.rgr — what markdown-it does to a line's TEXT after parsing it.
+; ============================================================================
+;
+;   (c) (tm) (r) +-  ...  ?.....  !!!!!!  ,,  --  ---      © ™ ® ± … ?.. !!! , – —
+;   "Smartypants" and 'single quotes', it's                “…” ‘…’ ’
+;   :wink: :cry:  :-)  8-)  ;)                             😉 😢 😃 😎 😉
+;   HTML, with `*[HTML]: Hyper Text Markup Language`      <abbr title="…">HTML</abbr>
+;
+; markdown-it's `typographer` (its core rules `replacements` and
+; `smartquotes`), markdown-it-emoji and markdown-it-abbr. All four are core
+; rules there — they run after the inline pass, over the text tokens it left —
+; and they are a pass after the inline parse here for the same reason: a code
+; span, a link's address, an autolink and a piece of raw HTML have to have
+; taken their characters first, because none of those may be touched. Neither
+; may a bare address in the text (`https://a--b.example`) or an attribute
+; block (`{data-x="y"}`) left in a line; those are fenced off before anything
+; else looks.
+;
+; **What a replacement does to the source map.** A text node maps character
+; for character to the file, and the layout's caret arithmetic depends on it.
+; `©` is one character standing for three, so it cannot sit in such a node.
+; Every replacement that changes the length becomes a text node of its own,
+; flagged `subst`, whose span is the WHOLE source it came from — a click on
+; `©` lands on `(c)`, before it or after it, and never in its middle. A curly
+; quote is one character for one, so it stays where it was and the map stays
+; exact.
+;
+; **The unit of work** is a GROUP: a run of sibling text nodes that are
+; verbatim (their span is as long as their text) and contiguous in the file —
+; what markdown-it would have as one text token. CommonMark's parser splits
+; text at every `!` and `[`, and `!!!!!!` has to be seen as one run. Inside a
+; group the text is a list of CELLS, one per character to begin with, each
+; carrying its source span; a replacement merges cells, an abbreviation tags
+; them, and at the end each group is written back as nodes — unchanged groups
+; are left exactly as the parser made them.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdChar.rgr"
+Import "MdAttrs.rgr"
+Import "MdEmoji.rgr"
+Import "MdFrontMatter.rgr"
+
+; What a document reads beyond CommonMark, and what it defined.
+class MdInlineOptions {
+    ; markdown-it's plugins: sub, sup, ins, mark, emoji, abbr
+    def extensions:boolean true
+    ; markdown-it's `typographer`: the replacements and the quotes
+    def typographer:boolean true
+    ; set by `commonMarkOnly`: the front matter may not switch anything on
+    def locked:boolean false
+    ; the quotes, as code points: double open, double close, single open,
+    ; single close — English by default, ” ” ’ ’ for Finnish and Swedish
+    def dq1:int 8220
+    def dq2:int 8221
+    def sq1:int 8216
+    def sq2:int 8217
+    ; abbreviations, longest label first (which is the order they are
+    ; tried in), and the title of each
+    def abbrLabels:[string]
+    def abbrTitles:[string:string]
+
+    Constructor () {
+    }
+
+    fn commonMarkOnly:void () {
+        extensions = false
+        typographer = false
+        locked = true
+    }
+
+    ; `typographer: false` and `lang: fi` in the front matter.
+    fn readMeta:void (meta:MdMeta) {
+        if locked { return }
+        typographer = (meta.flag("typographer" true))
+        def lang:string (MdChar.lower((trim (meta.get("lang" "")))))
+        def two:string lang
+        if ((strlen lang) > 2) {
+            def sep:int (charAt lang 2)
+            if ((sep == 45) || (sep == 95)) {
+                two = (substring lang 0 2)
+            }
+        }
+        if ((two == "fi") || (two == "sv")) {
+            dq1 = 8221
+            dq2 = 8221
+            sq1 = 8217
+            sq2 = 8217
+        }
+    }
+
+    ; Everything above as one string: two documents read with the same one
+    ; read the same block source to the same nodes.
+    fn signature:string () {
+        def sig:string "x"
+        if extensions { sig = "e" }
+        if typographer { sig = (sig + "t") }
+        sig = (((((((sig + ":") + (to_string dq1)) + ",") + (to_string dq2)) + ",") + (to_string sq1)) + ",")
+        sig = (sig + (to_string sq2))
+        def i:int 0
+        def n:int (array_length abbrLabels)
+        while (i < n) {
+            def l:string (itemAt abbrLabels i)
+            def t:string (?? (get abbrTitles l) "")
+            sig = ((((((sig + "|") + (to_string (strlen l))) + ":") + l) + "=") + t)
+            i = (i + 1)
+        }
+        return sig
+    }
+
+    fn defineAbbreviation:void (label:string title:string) {
+        if (has abbrTitles label) { return }
+        set abbrTitles label title
+        def len:int (strlen label)
+        def out:[string]
+        def placed:boolean false
+        def i:int 0
+        def n:int (array_length abbrLabels)
+        while (i < n) {
+            def l:string (itemAt abbrLabels i)
+            if ((! placed) && ((strlen l) < len)) {
+                push out label
+                placed = true
+            }
+            push out l
+            i = (i + 1)
+        }
+        if (! placed) { push out label }
+        abbrLabels = out
+    }
+
+    ; One table for the process: it is 1900 names, and a document is parsed
+    ; again on every keystroke.
+    fn emoji:MdEmoji () {
+        return (MdEmoji.__singleton())
+    }
+
+    fn abbrTitle:string (label:string) {
+        return (?? (get abbrTitles label) "")
+    }
+
+    fn hasAbbreviations:boolean () {
+        return ((array_length abbrLabels) > 0)
+    }
+}
+
+; One character of a group, or what a replacement made of several.
+class MdTypoCell {
+    def text:string ""
+    ; its source, [a, b)
+    def a:int 0
+    def b:int 0
+    ; 0 a character as typed, 1 an emoji, 2 a typographic replacement,
+    ; 3 a character no rule may touch (an address, an attribute block)
+    def kind:int 0
+    ; the abbreviation it is part of, an index into the group's titles, or -1
+    def abbr:int -1
+
+    Constructor () {
+    }
+
+    sfn make:MdTypoCell (text:string a:int b:int kind:int abbr:int) {
+        def c:MdTypoCell (new MdTypoCell())
+        c.text = text
+        c.a = a
+        c.b = b
+        c.kind = kind
+        c.abbr = abbr
+        return c
+    }
+
+    fn first:int () {
+        if ((strlen text) == 0) { return 32 }
+        return (charAt text 0)
+    }
+
+    fn last:int () {
+        def n:int (strlen text)
+        if (n == 0) { return 32 }
+        return (charAt text (n - 1))
+    }
+}
+
+; A run of sibling text nodes markdown-it would have read as one text token.
+class MdTypoGroup {
+    def parent:MdNode (new MdNode())
+    def first:int 0
+    def count:int 0
+    def text:string ""
+    def base:int 0
+    def level:int 0
+    def cells:[MdTypoCell]
+    def hasCells:boolean false
+    def changed:boolean false
+    def titles:[string]
+
+    Constructor () {
+    }
+
+    fn ensureCells:void () {
+        if hasCells { return }
+        hasCells = true
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            push cells (MdTypoCell.make((substring text i (i + 1)) (base + i) ((base + i) + 1) 0 -1))
+            i = (i + 1)
+        }
+    }
+
+    fn cellCount:int () {
+        return (array_length cells)
+    }
+
+    fn cellAt:MdTypoCell (i:int) {
+        return (itemAt cells i)
+    }
+}
+
+; One step of the quote pass's walk: a text a quote may be in, a piece of
+; content that is only context, a line break, or a tag's edge.
+class MdQuoteItem {
+    ; 0 text, 1 other content, 2 break, 3 tag
+    def kind:int 0
+    def level:int 0
+    def text:string ""
+    def cells:[MdTypoCell]
+    ; a group that no rule but the quotes touched has no cells: its quotes
+    ; are put straight into its nodes, at offsets into `text`
+    def direct:boolean false
+    def group:MdTypoGroup (new MdTypoGroup())
+
+    Constructor () {
+    }
+
+    sfn make:MdQuoteItem (kind:int level:int text:string) {
+        def q:MdQuoteItem (new MdQuoteItem())
+        q.kind = kind
+        q.level = level
+        q.text = text
+        return q
+    }
+}
+
+; A quote waiting for its partner.
+class MdQuoteOpen {
+    def item:int 0
+    def pos:int 0
+    def single:boolean false
+    def level:int 0
+
+    Constructor () {
+    }
+}
+
+class MdTypography {
+    def opts:MdInlineOptions (new MdInlineOptions())
+    def groups:[MdTypoGroup]
+    ; the walk in document order: a group (by index), or a quote item
+    def walkGroup:[int]
+    def walkItem:[MdQuoteItem]
+    ; the walk is for the quotes, and only kept when there are any
+    def walking:boolean true
+
+    Constructor () {
+    }
+
+    ; Everything, on one block's inlines.
+    ; `raw` is the text the block's inlines were parsed from: a block with
+    ; nothing in it any rule could take is not walked at all, which is most
+    ; of them.
+    sfn apply:void (block:MdNode raw:string o:MdInlineOptions) {
+        if ((! o.extensions) && (! o.typographer)) { return }
+        if (o.typographer && (MdTypography.hasQuote(raw))) {
+        } {
+            if (! (MdTypography.wantsText(raw o))) { return }
+        }
+        def t:MdTypography (new MdTypography())
+        t.opts = o
+        t.walking = (o.typographer && (MdTypography.hasQuote(raw)))
+        t.run(block)
+    }
+
+    fn run:void (block:MdNode) {
+        this.collect(block 0)
+        def n:int (array_length groups)
+        if (n == 0) { return }
+        def quotes:boolean false
+        if (! walking) { quotes = true }
+        def i:int 0
+        while (i < n) {
+            def g:MdTypoGroup (itemAt groups i)
+            if (opts.typographer && (! quotes)) {
+                quotes = (MdTypography.hasQuote(g.text))
+            }
+            if (this.wants(g.text)) {
+                g.ensureCells()
+                this.protect(g)
+                if opts.extensions {
+                    this.emojiPass(g)
+                    this.abbrPass(g)
+                }
+                if opts.typographer {
+                    this.replacePass(g)
+                }
+            }
+            i = (i + 1)
+        }
+        if (walking && quotes) {
+            this.quotePass()
+        }
+        ; written back last to first, so a group's child indices are still
+        ; the ones it was found at
+        def j:int (n - 1)
+        while (j >= 0) {
+            def g2:MdTypoGroup (itemAt groups j)
+            if g2.changed {
+                this.rebuild(g2)
+            }
+            j = (j - 1)
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The walk
+    ; ----------------------------------------------------------------------
+
+    ; A text node whose span is its text, character for character.
+    sfn verbatim:boolean (n:MdNode) {
+        if (n.kind != "text") { return false }
+        if n.subst { return false }
+        if (n.srcStart < 0) { return false }
+        return ((n.srcEnd - n.srcStart) == (strlen n.literal))
+    }
+
+    fn pushItem:void (q:MdQuoteItem) {
+        if (! walking) { return }
+        push walkGroup -1
+        push walkItem q
+    }
+
+    fn collect:void (parent:MdNode level:int) {
+        def i:int 0
+        def n:int (parent.childCount())
+        while (i < n) {
+            def c:MdNode (parent.childAt(i))
+            if (MdTypography.verbatim(c)) {
+                def g:MdTypoGroup (new MdTypoGroup())
+                g.parent = parent
+                g.first = i
+                g.level = level
+                g.base = c.srcStart
+                def text:string c.literal
+                def end:int c.srcEnd
+                def j:int (i + 1)
+                def going:boolean true
+                while (going && (j < n)) {
+                    def d:MdNode (parent.childAt(j))
+                    if ((MdTypography.verbatim(d)) && (d.srcStart == end)) {
+                        text = (text + d.literal)
+                        end = d.srcEnd
+                        j = (j + 1)
+                    } {
+                        going = false
+                    }
+                }
+                g.count = (j - i)
+                g.text = text
+                push groups g
+                if walking {
+                    push walkGroup ((array_length groups) - 1)
+                    push walkItem (MdQuoteItem.make(0 level ""))
+                }
+                i = j
+            } {
+                this.collectOne(c level)
+                i = (i + 1)
+            }
+        }
+    }
+
+    fn collectOne:void (c:MdNode level:int) {
+        def k:string c.kind
+        if ((k == "softbreak") || (k == "linebreak")) {
+            this.pushItem((MdQuoteItem.make(2 level "")))
+            return
+        }
+        def container:boolean false
+        if ((k == "emph") || (k == "strong")) { container = true }
+        if ((k == "strike") || (k == "ins")) { container = true }
+        if ((k == "mark") || (k == "sub")) { container = true }
+        if ((k == "sup") || (k == "abbr")) { container = true }
+        ; a link's text, but not an autolink's, which IS its address
+        if ((k == "link") && (c.info != "auto")) { container = true }
+        if container {
+            this.pushItem((MdQuoteItem.make(3 level "")))
+            this.collect(c (level + 1))
+            this.pushItem((MdQuoteItem.make(3 level "")))
+            return
+        }
+        ; code, math, raw HTML, an entity, an escape, a picture's alt text:
+        ; context for a quote beside it, and nothing to change
+        if (! walking) { return }
+        def content:string c.literal
+        if ((k != "text") && (k != "code") && (k != "math") && (k != "html_inline")) {
+            content = (c.plainText())
+        }
+        this.pushItem((MdQuoteItem.make(1 level content)))
+    }
+
+    sfn hasQuote:boolean (text:string) {
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt text i)
+            if ((c == 34) || (c == 39)) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Is there anything in this text a rule other than the quotes could
+    ; take? Asked of every run of text in the document, so it looks at a
+    ; character and the one after it and builds nothing: most prose has
+    ; none of these and is left exactly as the parser made it.
+    fn wants:boolean (text:string) {
+        return (MdTypography.wantsText(text opts))
+    }
+
+    sfn wantsText:boolean (text:string opts:MdInlineOptions) {
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt text i)
+            ; letters and spaces are most of any text and start nothing,
+            ; but for the B, x and X of an emoticon
+            def look:boolean ((c < 65) && (c != 32))
+            if ((((c == 66) || (c == 120)) || (c == 88)) || (c == 8230)) { look = true }
+            if (((c >= 91) && (c <= 96)) || ((c >= 123) && (c <= 127))) { look = true }
+            if look {
+            def d:int -1
+            if ((i + 1) < n) { d = (charAt text (i + 1)) }
+            if opts.typographer {
+                if (c == 40) {
+                    def lc:int (MdChar.foldCase(d))
+                    if (((lc == 99) || (lc == 114)) || (lc == 116)) { return true }
+                }
+                if ((c == 43) && (d == 45)) { return true }
+                if ((c == 46) && (d == 46)) { return true }
+                if ((c == 44) && (d == 44)) { return true }
+                if ((c == 45) && (d == 45)) { return true }
+                if (((c == 63) || (c == 33)) && ((d == 63) || (d == 33))) { return true }
+                if (c == 8230) { return true }
+            }
+            if opts.extensions {
+                if ((c == 58) && (d >= 0)) {
+                    ; a shortcode, or an emoticon's eyes
+                    if (MdTypography.isNameChar(d)) { return true }
+                    if (MdTypography.emoticonMouth(d)) { return true }
+                }
+                if ((c == 59) && (((d == 41) || (d == 40)) || (d == 45))) { return true }
+                if ((c == 60) && (((d == 51) || (d == 47)) || (d == 92))) { return true }
+                if ((d == 45) && ((((c == 56) || (c == 66)) || (c == 120)) || (c == 88))) { return true }
+            }
+            }
+            i = (i + 1)
+        }
+        if (opts.extensions && (opts.hasAbbreviations())) {
+            def k:int 0
+            def m:int (array_length opts.abbrLabels)
+            while (k < m) {
+                if (MdTypography.contains(text (itemAt opts.abbrLabels k))) { return true }
+                k = (k + 1)
+            }
+        }
+        return false
+    }
+
+    ; What may follow the `:` of an emoticon: `:)` `:-)` `:'(` `:,)` `:"(`
+    ; `:|` `:*` `:/` `:@` `:$` and the letters, which isNameChar has.
+    sfn emoticonMouth:boolean (d:int) {
+        if (((d == 41) || (d == 40)) || ((d == 45) || (d == 39))) { return true }
+        if (((d == 44) || (d == 34)) || ((d == 124) || (d == 42))) { return true }
+        return (((d == 47) || (d == 64)) || (d == 36))
+    }
+
+    ; Could there be an address or an attribute block in this text at all?
+    sfn mayFence:boolean (t:string) {
+        def n:int (strlen t)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt t i)
+            if (c == 123) { return true }
+            if ((c == 58) && ((i + 2) < n)) {
+                if (((charAt t (i + 1)) == 47) && ((charAt t (i + 2)) == 47)) { return true }
+            }
+            if (((c == 46) && (i >= 3)) && ((MdChar.foldCase((charAt t (i - 1)))) == 119)) {
+                if ((MdChar.lower((substring t (i - 3) i))) == "www") { return true }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn contains:boolean (v:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen v)
+        if (n == 0) { return false }
+        def i:int 0
+        while ((i + n) <= m) {
+            if ((substring v i (i + n)) == needle) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; ----------------------------------------------------------------------
+    ; What no rule may touch
+    ; ----------------------------------------------------------------------
+    ;
+    ; A bare address (`https://…`, `www.…`) up to the next space, and a
+    ; `{…}` that reads as an attribute block. markdown-it's linkify would
+    ; have made the first a link; the second is an instruction, not prose.
+    fn protect:void (g:MdTypoGroup) {
+        def t:string g.text
+        if (! (MdTypography.mayFence(t))) { return }
+        def n:int (strlen t)
+        def i:int 0
+        while (i < n) {
+            def stop:int (MdTypography.addressEnd(t i))
+            if (stop < 0) {
+                stop = (MdTypography.attrEnd(t i))
+            }
+            if (stop > i) {
+                def k:int i
+                while (k < stop) {
+                    def cell:MdTypoCell (g.cellAt(k))
+                    cell.kind = 3
+                    k = (k + 1)
+                }
+                i = stop
+            } {
+                i = (i + 1)
+            }
+        }
+    }
+
+    ; Where an address that starts at `i` ends, or -1.
+    sfn addressEnd:int (t:string i:int) {
+        def n:int (strlen t)
+        if (i > 0) {
+            if (MdChar.isAlnum((charAt t (i - 1)))) { return -1 }
+        }
+        def j:int i
+        def scheme:boolean false
+        while ((j < n) && (MdChar.isLetter((charAt t j)))) {
+            j = (j + 1)
+        }
+        if ((j > i) && ((j + 2) < n)) {
+            if ((substring t j (j + 3)) == "://") { scheme = true }
+        }
+        if (! scheme) {
+            if ((i + 4) > n) { return -1 }
+            if ((MdChar.lower((substring t i (i + 4)))) != "www.") { return -1 }
+        }
+        def k:int i
+        while (k < n) {
+            if (MdChar.isUnicodeWhitespace((charAt t k))) { return k }
+            k = (k + 1)
+        }
+        return n
+    }
+
+    sfn attrEnd:int (t:string i:int) {
+        if ((charAt t i) != 123) { return -1 }
+        def n:int (strlen t)
+        def k:int (i + 1)
+        while (k < n) {
+            def c:int (charAt t k)
+            if (c == 125) {
+                if (MdAttrs.isBlock((substring t i (k + 1)))) { return (k + 1) }
+                return -1
+            }
+            if (c == 123) { return -1 }
+            k = (k + 1)
+        }
+        return -1
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Emoji (markdown-it-emoji)
+    ; ----------------------------------------------------------------------
+    ;
+    ; `:name:` for any name in the table; an emoticon only where it is not
+    ; glued to a letter on either side — so `http://` keeps its `:/`.
+    sfn isZPCc:boolean (c:int) {
+        if (c < 32) { return true }
+        if (c == 127) { return true }
+        if (MdChar.isUnicodeWhitespace(c)) { return true }
+        ; Unicode's punctuation, not its symbols: `$+<=>^`|~` are symbols
+        if ((((c == 36) || (c == 43)) || ((c == 60) || (c == 61))) || (c == 62)) { return false }
+        if (((c == 94) || (c == 96)) || ((c == 124) || (c == 126))) { return false }
+        return (MdChar.isUnicodePunct(c))
+    }
+
+    ; The characters a shortcode or an emoticon can begin with.
+    sfn emojiStart:boolean (c:int) {
+        if (((c == 58) || (c == 59)) || ((c == 60) || (c == 62))) { return true }
+        if (((c == 93) || (c == 44)) || ((c == 56) || (c == 66))) { return true }
+        if (((c == 120) || (c == 88)) || ((c == 111) || (c == 79))) { return true }
+        return (c == 48)
+    }
+
+    sfn isNameChar:boolean (c:int) {
+        if (MdChar.isAlnum(c)) { return true }
+        if ((c == 95) || (c == 43)) { return true }
+        return (c == 45)
+    }
+
+    ; The text of cells [i, i+len) when they are all characters as typed,
+    ; else "".
+    fn plainText:string (g:MdTypoGroup i:int len:int) {
+        def n:int (g.cellCount())
+        if ((i + len) > n) { return "" }
+        def out:string ""
+        def k:int i
+        while (k < (i + len)) {
+            def c:MdTypoCell (g.cellAt(k))
+            if ((c.kind != 0) || (c.abbr >= 0)) { return "" }
+            out = (out + c.text)
+            k = (k + 1)
+        }
+        return out
+    }
+
+    fn charOf:int (g:MdTypoGroup i:int) {
+        if (i < 0) { return -1 }
+        if (i >= (g.cellCount())) { return -1 }
+        def c:MdTypoCell (g.cellAt(i))
+        return (c.first())
+    }
+
+    fn emojiPass:void (g:MdTypoGroup) {
+        def out:[MdTypoCell]
+        def n:int (g.cellCount())
+        def scCount:int ((opts.emoji()).shortcutCount())
+        def i:int 0
+        while (i < n) {
+            def cell:MdTypoCell (g.cellAt(i))
+            def took:int 0
+            if ((cell.kind == 0) && (MdTypography.emojiStart((cell.first())))) {
+                if (cell.text == ":") {
+                    def j:int (i + 1)
+                    while ((j < n) && (MdTypography.isNameChar((this.charOf(g j))))) {
+                        j = (j + 1)
+                    }
+                    if ((j > (i + 1)) && ((this.charOf(g j)) == 58)) {
+                        def name:string (this.plainText(g (i + 1) ((j - i) - 1)))
+                        def v:string ((opts.emoji()).lookup(name))
+                        if ((strlen v) > 0) {
+                            def last:MdTypoCell (g.cellAt(j))
+                            push out (MdTypoCell.make(v cell.a last.b 1 -1))
+                            took = ((j - i) + 1)
+                        }
+                    }
+                }
+                def k:int 0
+                while ((took == 0) && (k < scCount)) {
+                    def sc:string ((opts.emoji()).shortcutAt(k))
+                    def len:int (strlen sc)
+                    if ((this.plainText(g i len)) == sc) {
+                        ; A match glued to a letter is not an emoticon, and the
+                        ; scan goes on after it as markdown-it's does.
+                        def before:int (this.charOf(g (i - 1)))
+                        def after:int (this.charOf(g (i + len)))
+                        def okBefore:boolean ((i == 0) || (MdTypography.isZPCc(before)))
+                        def okAfter:boolean (((i + len) >= n) || (MdTypography.isZPCc(after)))
+                        if (okBefore && okAfter) {
+                            def v2:string ((opts.emoji()).lookup(((opts.emoji()).shortcutName(k))))
+                            def lastc:MdTypoCell (g.cellAt(((i + len) - 1)))
+                            push out (MdTypoCell.make(v2 cell.a lastc.b 1 -1))
+                        } {
+                            def q:int i
+                            while (q < (i + len)) {
+                                push out (g.cellAt(q))
+                                q = (q + 1)
+                            }
+                        }
+                        took = len
+                    }
+                    k = (k + 1)
+                }
+            }
+            if (took == 0) {
+                push out cell
+                i = (i + 1)
+            } {
+                i = (i + took)
+            }
+        }
+        if ((array_length out) != n) { g.changed = true }
+        g.cells = out
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Abbreviations (markdown-it-abbr)
+    ; ----------------------------------------------------------------------
+    ;
+    ; A label as a whole word: at the edge of the text or beside a space,
+    ; punctuation, or one of `$+<=>^`|~`. `xxxHTMLyyy` is not an HTML.
+    sfn isAbbrEdge:boolean (c:int) {
+        if (c < 0) { return true }
+        if (MdChar.isUnicodeWhitespace(c)) { return true }
+        return (MdChar.isUnicodePunct(c))
+    }
+
+    fn abbrPass:void (g:MdTypoGroup) {
+        if (! (opts.hasAbbreviations())) { return }
+        def n:int (g.cellCount())
+        def m:int (array_length opts.abbrLabels)
+        def i:int 0
+        while (i < n) {
+            def took:int 0
+            def prevOk:boolean true
+            if (i > 0) {
+                def pc:MdTypoCell (g.cellAt((i - 1)))
+                if (pc.kind == 0) {
+                    prevOk = (MdTypography.isAbbrEdge((pc.last())))
+                }
+            }
+            if prevOk {
+                def k:int 0
+                while ((took == 0) && (k < m)) {
+                    def label:string (itemAt opts.abbrLabels k)
+                    def len:int (strlen label)
+                    if ((this.plainText(g i len)) == label) {
+                        def nextOk:boolean true
+                        if ((i + len) < n) {
+                            def nc:MdTypoCell (g.cellAt((i + len)))
+                            if (nc.kind == 0) {
+                                nextOk = (MdTypography.isAbbrEdge((nc.first())))
+                            }
+                        }
+                        if nextOk {
+                            push g.titles (opts.abbrTitle(label))
+                            def id:int ((array_length g.titles) - 1)
+                            def q:int i
+                            while (q < (i + len)) {
+                                def cc:MdTypoCell (g.cellAt(q))
+                                cc.abbr = id
+                                q = (q + 1)
+                            }
+                            g.changed = true
+                            took = len
+                        }
+                    }
+                    k = (k + 1)
+                }
+            }
+            if (took == 0) {
+                i = (i + 1)
+            } {
+                i = (i + took)
+            }
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Replacements (markdown-it's `replacements` rule, in its order)
+    ; ----------------------------------------------------------------------
+    ;
+    ; Over each stretch of the group markdown-it would have as one token: the
+    ; cells between emoji, between the edges of an abbreviation, and outside
+    ; the fenced-off addresses.
+    fn replacePass:void (g:MdTypoGroup) {
+        def out:[MdTypoCell]
+        def seg:[MdTypoCell]
+        def segAbbr:int -2
+        def n:int (g.cellCount())
+        def i:int 0
+        while (i < n) {
+            def c:MdTypoCell (g.cellAt(i))
+            def inStretch:boolean ((c.kind == 0) || (c.kind == 2))
+            if (inStretch && ((c.abbr == segAbbr) || ((array_length seg) == 0))) {
+                segAbbr = c.abbr
+                push seg c
+            } {
+                out = (this.flushStretch(g out seg))
+                seg = (this.emptyCells())
+                segAbbr = -2
+                if inStretch {
+                    segAbbr = c.abbr
+                    push seg c
+                } {
+                    push out c
+                }
+            }
+            i = (i + 1)
+        }
+        out = (this.flushStretch(g out seg))
+        g.cells = out
+    }
+
+    fn emptyCells:[MdTypoCell] () {
+        def e:[MdTypoCell]
+        return e
+    }
+
+    fn flushStretch:[MdTypoCell] (g:MdTypoGroup out:[MdTypoCell] seg:[MdTypoCell]) {
+        def n0:int (array_length seg)
+        if (n0 == 0) { return out }
+        def s:[MdTypoCell] seg
+        def t:string (MdTypography.textOf(s))
+        if (MdTypography.contains(t "(")) {
+            s = (MdTypography.scoped(s))
+        }
+        if (MdTypography.contains(t "+-")) {
+            s = (MdTypography.pair(s "+" "-" (strfromcode 177)))
+        }
+        if (MdTypography.contains(t "..")) {
+            s = (MdTypography.dots(s))
+        }
+        if ((MdTypography.contains(t "..")) || (MdTypography.contains(t (strfromcode 8230)))) {
+            s = (MdTypography.dotsAfterMark(s))
+        }
+        if (MdTypography.marksIn(t)) {
+            s = (MdTypography.marks(s))
+        }
+        if (MdTypography.contains(t ",,")) {
+            s = (MdTypography.commas(s))
+        }
+        if (MdTypography.contains(t "--")) {
+            s = (MdTypography.emDash(s))
+            s = (MdTypography.enDashSpaced(s))
+            s = (MdTypography.enDashJoined(s))
+        }
+        def n1:int (array_length s)
+        def i:int 0
+        while (i < n1) {
+            def c:MdTypoCell (itemAt s i)
+            if (c.kind == 2) { g.changed = true }
+            push out c
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; `?` or `!` twice running: where a run of four could be
+    sfn marksIn:boolean (t:string) {
+        def n:int (strlen t)
+        def i:int 1
+        while (i < n) {
+            def a:int (charAt t (i - 1))
+            def b:int (charAt t i)
+            if (((a == 63) || (a == 33)) && ((b == 63) || (b == 33))) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn textOf:string (s:[MdTypoCell]) {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length s)
+        while (i < n) {
+            def c:MdTypoCell (itemAt s i)
+            out = (out + c.text)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn is:boolean (s:[MdTypoCell] i:int ch:string) {
+        if (i < 0) { return false }
+        if (i >= (array_length s)) { return false }
+        def c:MdTypoCell (itemAt s i)
+        if (c.kind != 0) { return false }
+        return (c.text == ch)
+    }
+
+    sfn isFold:boolean (s:[MdTypoCell] i:int lower:string) {
+        if (i < 0) { return false }
+        if (i >= (array_length s)) { return false }
+        def c:MdTypoCell (itemAt s i)
+        if (c.kind != 0) { return false }
+        return ((MdChar.lower(c.text)) == lower)
+    }
+
+    sfn merged:MdTypoCell (s:[MdTypoCell] i:int len:int text:string) {
+        def a:MdTypoCell (itemAt s i)
+        def z:MdTypoCell (itemAt s ((i + len) - 1))
+        return (MdTypoCell.make(text a.a z.b 2 a.abbr))
+    }
+
+    ; (c) (C) → ©, (r) → ®, (tm) → ™
+    sfn scoped:[MdTypoCell] (s:[MdTypoCell]) {
+        def out:[MdTypoCell]
+        def n:int (array_length s)
+        def i:int 0
+        while (i < n) {
+            def took:int 0
+            if (MdTypography.is(s i "(")) {
+                if ((MdTypography.isFold(s (i + 1) "c")) && (MdTypography.is(s (i + 2) ")"))) {
+                    push out (MdTypography.merged(s i 3 (strfromcode 169)))
+                    took = 3
+                }
+                if ((MdTypography.isFold(s (i + 1) "r")) && (MdTypography.is(s (i + 2) ")"))) {
+                    push out (MdTypography.merged(s i 3 (strfromcode 174)))
+                    took = 3
+                }
+                if ((MdTypography.isFold(s (i + 1) "t")) && (MdTypography.isFold(s (i + 2) "m"))) {
+                    if (MdTypography.is(s (i + 3) ")")) {
+                        push out (MdTypography.merged(s i 4 (strfromcode 8482)))
+                        took = 4
+                    }
+                }
+            }
+            if (took == 0) {
+                push out (itemAt s i)
+                i = (i + 1)
+            } {
+                i = (i + took)
+            }
+        }
+        return out
+    }
+
+    sfn pair:[MdTypoCell] (s:[MdTypoCell] x:string y:string to:string) {
+        def out:[MdTypoCell]
+        def n:int (array_length s)
+        def i:int 0
+        while (i < n) {
+            if ((MdTypography.is(s i x)) && (MdTypography.is(s (i + 1) y))) {
+                push out (MdTypography.merged(s i 2 to))
+                i = (i + 2)
+            } {
+                push out (itemAt s i)
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; How many cells from `i` on are `ch`, as typed.
+    sfn runOf:int (s:[MdTypoCell] i:int ch:string) {
+        def n:int (array_length s)
+        def j:int i
+        while ((j < n) && (MdTypography.is(s j ch))) {
+            j = (j + 1)
+        }
+        return (j - i)
+    }
+
+    ; `..` and longer → …
+    sfn dots:[MdTypoCell] (s:[MdTypoCell]) {
+        def out:[MdTypoCell]
+        def n:int (array_length s)
+        def i:int 0
+        while (i < n) {
+            def r:int (MdTypography.runOf(s i "."))
+            if (r >= 2) {
+                push out (MdTypography.merged(s i r (strfromcode 8230)))
+                i = (i + r)
+            } {
+                push out (itemAt s i)
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; …but `?…` and `!…` are `?..` and `!..`
+    sfn dotsAfterMark:[MdTypoCell] (s:[MdTypoCell]) {
+        def out:[MdTypoCell]
+        def n:int (array_length s)
+        def ell:string (strfromcode 8230)
+        def i:int 0
+        while (i < n) {
+            def c:MdTypoCell (itemAt s i)
+            def done:boolean false
+            if ((i > 0) && (c.text == ell)) {
+                if ((MdTypography.is(s (i - 1) "?")) || (MdTypography.is(s (i - 1) "!"))) {
+                    push out (MdTypoCell.make(".." c.a c.b 2 c.abbr))
+                    done = true
+                }
+            }
+            if (! done) { push out c }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; four or more of `?` and `!` → three of the last
+    sfn marks:[MdTypoCell] (s:[MdTypoCell]) {
+        def out:[MdTypoCell]
+        def n:int (array_length s)
+        def i:int 0
+        while (i < n) {
+            def j:int i
+            while ((j < n) && ((MdTypography.is(s j "?")) || (MdTypography.is(s j "!")))) {
+                j = (j + 1)
+            }
+            if ((j - i) >= 4) {
+                def lastc:MdTypoCell (itemAt s (j - 1))
+                def three:string ((lastc.text + lastc.text) + lastc.text)
+                push out (MdTypography.merged(s i (j - i) three))
+                i = j
+            } {
+                if (j == i) { j = (i + 1) }
+                while (i < j) {
+                    push out (itemAt s i)
+                    i = (i + 1)
+                }
+            }
+        }
+        return out
+    }
+
+    sfn commas:[MdTypoCell] (s:[MdTypoCell]) {
+        def out:[MdTypoCell]
+        def n:int (array_length s)
+        def i:int 0
+        while (i < n) {
+            def r:int (MdTypography.runOf(s i ","))
+            if (r >= 2) {
+                push out (MdTypography.merged(s i r ","))
+                i = (i + r)
+            } {
+                push out (itemAt s i)
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    sfn lastBefore:int (s:[MdTypoCell] i:int) {
+        if (i <= 0) { return -1 }
+        def c:MdTypoCell (itemAt s (i - 1))
+        return (c.last())
+    }
+
+    sfn firstAt:int (s:[MdTypoCell] i:int) {
+        if (i >= (array_length s)) { return -1 }
+        def c:MdTypoCell (itemAt s i)
+        return (c.first())
+    }
+
+    ; `---` with no dash either side → —
+    sfn emDash:[MdTypoCell] (s:[MdTypoCell]) {
+        def out:[MdTypoCell]
+        def n:int (array_length s)
+        def i:int 0
+        while (i < n) {
+            def ok:boolean false
+            if ((MdTypography.runOf(s i "-")) >= 3) {
+                def before:int (MdTypography.lastBefore(s i))
+                def after:int (MdTypography.firstAt(s (i + 3)))
+                ok = ((before != 45) && (after != 45))
+            }
+            if ok {
+                push out (MdTypography.merged(s i 3 (strfromcode 8212)))
+                i = (i + 3)
+            } {
+                push out (itemAt s i)
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    sfn spaceOrEdge:boolean (c:int) {
+        if (c < 0) { return true }
+        return (MdChar.isUnicodeWhitespace(c))
+    }
+
+    ; ` -- ` → ` – `
+    sfn enDashSpaced:[MdTypoCell] (s:[MdTypoCell]) {
+        def out:[MdTypoCell]
+        def n:int (array_length s)
+        def i:int 0
+        while (i < n) {
+            def ok:boolean false
+            if ((MdTypography.is(s i "-")) && (MdTypography.is(s (i + 1) "-"))) {
+                def before:int (MdTypography.lastBefore(s i))
+                def after:int (MdTypography.firstAt(s (i + 2)))
+                ok = ((MdTypography.spaceOrEdge(before)) && (MdTypography.spaceOrEdge(after)))
+            }
+            if ok {
+                push out (MdTypography.merged(s i 2 (strfromcode 8211)))
+                i = (i + 2)
+            } {
+                push out (itemAt s i)
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; `a--b` → `a–b`: neither side a dash or a space
+    sfn enDashJoined:[MdTypoCell] (s:[MdTypoCell]) {
+        def out:[MdTypoCell]
+        def n:int (array_length s)
+        def i:int 0
+        while (i < n) {
+            def ok:boolean false
+            if ((MdTypography.is(s i "-")) && (MdTypography.is(s (i + 1) "-"))) {
+                def before:int (MdTypography.lastBefore(s i))
+                def after:int (MdTypography.firstAt(s (i + 2)))
+                def okB:boolean ((before < 0) || ((before != 45) && (! (MdChar.isUnicodeWhitespace(before)))))
+                def okA:boolean ((after < 0) || ((after != 45) && (! (MdChar.isUnicodeWhitespace(after)))))
+                ok = (okB && okA)
+            }
+            if ok {
+                push out (MdTypography.merged(s i 2 (strfromcode 8211)))
+                i = (i + 2)
+            } {
+                push out (itemAt s i)
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Quotes (markdown-it's `smartquotes` rule)
+    ; ----------------------------------------------------------------------
+    ;
+    ; Over the whole block at once, because a pair of quotes may hold an
+    ; emphasis or a link: `"*a*"`. A quote pairs with one at the same depth.
+    ; Whether a quote opens or closes is decided by its neighbours — which
+    ; may be in the next node, across a tag, never across a line break.
+    fn quoteItems:[MdQuoteItem] () {
+        def items:[MdQuoteItem]
+        def n:int (array_length walkGroup)
+        def i:int 0
+        while (i < n) {
+            def gi:int (itemAt walkGroup i)
+            if (gi < 0) {
+                push items (itemAt walkItem i)
+            } {
+                def g:MdTypoGroup (itemAt groups gi)
+                if (! g.hasCells) {
+                    def di:MdQuoteItem (MdQuoteItem.make(0 g.level g.text))
+                    di.direct = true
+                    di.group = g
+                    push items di
+                } {
+                    this.expandGroup(g items)
+                }
+            }
+            i = (i + 1)
+        }
+        return items
+    }
+
+    ; A group's cells as markdown-it's tokens would be: text, an emoji, the
+    ; inside of an abbreviation one level down.
+    fn expandGroup:void (g:MdTypoGroup items:[MdQuoteItem]) {
+        def n:int (g.cellCount())
+        def cur:MdQuoteItem (MdQuoteItem.make(0 g.level ""))
+        def curAbbr:int -1
+        def open:boolean false
+        def i:int 0
+        while (i < n) {
+            def c:MdTypoCell (g.cellAt(i))
+            if (c.abbr != curAbbr) {
+                if open {
+                    push items cur
+                    open = false
+                }
+                if (curAbbr >= 0) {
+                    push items (MdQuoteItem.make(3 g.level ""))
+                }
+                if (c.abbr >= 0) {
+                    push items (MdQuoteItem.make(3 g.level ""))
+                }
+                curAbbr = c.abbr
+            }
+            def lv:int g.level
+            if (curAbbr >= 0) { lv = (g.level + 1) }
+            if (c.kind == 0) {
+                if (! open) {
+                    cur = (MdQuoteItem.make(0 lv ""))
+                    open = true
+                }
+                cur.text = (cur.text + c.text)
+                push cur.cells c
+            } {
+                if open {
+                    push items cur
+                    open = false
+                }
+                push items (MdQuoteItem.make(1 lv c.text))
+            }
+            i = (i + 1)
+        }
+        if open { push items cur }
+        if (curAbbr >= 0) {
+            push items (MdQuoteItem.make(3 g.level ""))
+        }
+    }
+
+    sfn isPunct:boolean (c:int) {
+        return (MdChar.isUnicodePunct(c))
+    }
+
+    sfn isSpace:boolean (c:int) {
+        return (MdChar.isUnicodeWhitespace(c))
+    }
+
+    fn quotePass:void () {
+        def items:[MdQuoteItem] (this.quoteItems())
+        def stack:[MdQuoteOpen]
+        def n:int (array_length items)
+        def i:int 0
+        while (i < n) {
+            def it:MdQuoteItem (itemAt items i)
+            def thisLevel:int it.level
+            ; the stack keeps only what is at this depth or shallower
+            def sn:int (array_length stack)
+            if (sn > 0) {
+                def top:MdQuoteOpen (itemAt stack (sn - 1))
+                if (top.level > thisLevel) {
+                    def keep:[MdQuoteOpen]
+                    def si:int 0
+                    def cut:boolean false
+                    while (si < sn) {
+                        def so:MdQuoteOpen (itemAt stack si)
+                        if (so.level > thisLevel) { cut = true }
+                        if (! cut) { push keep so }
+                        si = (si + 1)
+                    }
+                    stack = keep
+                }
+            }
+            if ((it.kind == 0) && (it.direct || ((array_length it.cells) > 0))) {
+                stack = (this.quotesIn(items i stack))
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn quotesIn:[MdQuoteOpen] (items:[MdQuoteItem] idx:int stackIn:[MdQuoteOpen]) {
+        def stack:[MdQuoteOpen] stackIn
+        def it:MdQuoteItem (itemAt items idx)
+        def text:string it.text
+        def max:int (strlen text)
+        def thisLevel:int it.level
+        def pos:int 0
+        while (pos < max) {
+            def q:int (charAt text pos)
+            if ((q == 34) || (q == 39)) {
+                def at:int pos
+                def isSingle:boolean (q == 39)
+                def lastChar:int 32
+                if (at > 0) {
+                    lastChar = (charAt text (at - 1))
+                } {
+                    lastChar = (this.neighbour(items idx -1))
+                }
+                def nextChar:int 32
+                if ((at + 1) < max) {
+                    nextChar = (charAt text (at + 1))
+                } {
+                    nextChar = (this.neighbour(items idx 1))
+                }
+                def lastPunct:boolean (MdTypography.isPunct(lastChar))
+                def nextPunct:boolean (MdTypography.isPunct(nextChar))
+                def lastWs:boolean (MdTypography.isSpace(lastChar))
+                def nextWs:boolean (MdTypography.isSpace(nextChar))
+                def canOpen:boolean true
+                def canClose:boolean true
+                if nextWs {
+                    canOpen = false
+                } {
+                    if nextPunct {
+                        if (! (lastWs || lastPunct)) { canOpen = false }
+                    }
+                }
+                if lastWs {
+                    canClose = false
+                } {
+                    if lastPunct {
+                        if (! (nextWs || nextPunct)) { canClose = false }
+                    }
+                }
+                if ((nextChar == 34) && (q == 34)) {
+                    ; `1""`: the first one is an inch
+                    if ((lastChar >= 48) && (lastChar <= 57)) {
+                        canClose = false
+                        canOpen = false
+                    }
+                }
+                if (canOpen && canClose) {
+                    ; in a run of punctuation it opens or closes; in the
+                    ; middle of words, neither
+                    canOpen = lastPunct
+                    canClose = nextPunct
+                }
+                def done:boolean false
+                if ((! canOpen) && (! canClose)) {
+                    if isSingle {
+                        this.setQuote(it at opts.sq2)
+                    }
+                    done = true
+                }
+                if ((! done) && canClose) {
+                    def j:int ((array_length stack) - 1)
+                    while ((j >= 0) && (! done)) {
+                        def so:MdQuoteOpen (itemAt stack j)
+                        if (so.level < thisLevel) {
+                            j = -1
+                        } {
+                            if ((so.single == isSingle) && (so.level == thisLevel)) {
+                                def opener:MdQuoteItem (itemAt items so.item)
+                                if isSingle {
+                                    this.setQuote(it at opts.sq2)
+                                    this.setQuote(opener so.pos opts.sq1)
+                                } {
+                                    this.setQuote(it at opts.dq2)
+                                    this.setQuote(opener so.pos opts.dq1)
+                                }
+                                def kept:[MdQuoteOpen]
+                                def k:int 0
+                                while (k < j) {
+                                    push kept (itemAt stack k)
+                                    k = (k + 1)
+                                }
+                                stack = kept
+                                done = true
+                            }
+                            j = (j - 1)
+                        }
+                    }
+                }
+                if (! done) {
+                    if canOpen {
+                        def o:MdQuoteOpen (new MdQuoteOpen())
+                        o.item = idx
+                        o.pos = at
+                        o.single = isSingle
+                        o.level = thisLevel
+                        push stack o
+                    } {
+                        if (canClose && isSingle) {
+                            this.setQuote(it at opts.sq2)
+                        }
+                    }
+                }
+            }
+            pos = (pos + 1)
+        }
+        return stack
+    }
+
+    ; The character beside item `idx` in direction `dir`: a space at a line
+    ; break or at the end, and tags have no characters.
+    fn neighbour:int (items:[MdQuoteItem] idx:int dir:int) {
+        def n:int (array_length items)
+        def j:int (idx + dir)
+        while ((j >= 0) && (j < n)) {
+            def it:MdQuoteItem (itemAt items j)
+            if (it.kind == 2) { return 32 }
+            def len:int (strlen it.text)
+            if (len > 0) {
+                if (dir < 0) { return (charAt it.text (len - 1)) }
+                return (charAt it.text 0)
+            }
+            j = (j + dir)
+        }
+        return 32
+    }
+
+    fn setQuote:void (it:MdQuoteItem at:int code:int) {
+        if it.direct {
+            this.setDirect(it.group at code)
+            return
+        }
+        def c:MdTypoCell (itemAt it.cells at)
+        c.text = (MdChar.fromCode(code))
+        ; the source is one character and so is this: the node it goes back
+        ; into still maps character for character
+        this.markChanged(c)
+    }
+
+    ; A quote into the node that holds offset `at` of the group's text, in
+    ; place: one character for one, so every span stays as it was. Not in a
+    ; bare address or an attribute block.
+    fn setDirect:void (g:MdTypoGroup at:int code:int) {
+        if (MdTypography.isFenced(g.text at)) { return }
+        def k:int g.first
+        def off:int 0
+        while (k < (g.first + g.count)) {
+            def nd:MdNode (g.parent.childAt(k))
+            def len:int (strlen nd.literal)
+            if ((at >= off) && (at < (off + len))) {
+                def p:int (at - off)
+                nd.literal = (((substring nd.literal 0 p) + (MdChar.fromCode(code))) + (substring nd.literal (p + 1) len))
+                return
+            }
+            off = (off + len)
+            k = (k + 1)
+        }
+    }
+
+    ; Is offset `at` inside a bare address or an attribute block?
+    sfn isFenced:boolean (t:string at:int) {
+        if (! (MdTypography.mayFence(t))) { return false }
+        def i:int 0
+        while (i <= at) {
+            def stop:int (MdTypography.addressEnd(t i))
+            if (stop < 0) {
+                stop = (MdTypography.attrEnd(t i))
+            }
+            if (stop > i) {
+                if (at < stop) { return true }
+                i = stop
+            } {
+                i = (i + 1)
+            }
+        }
+        return false
+    }
+
+    fn markChanged:void (c:MdTypoCell) {
+        def n:int (array_length groups)
+        def i:int 0
+        while (i < n) {
+            def g:MdTypoGroup (itemAt groups i)
+            if (g.hasCells && ((c.a >= g.base) && (c.a < (g.base + (strlen g.text))))) {
+                g.changed = true
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Back into nodes
+    ; ----------------------------------------------------------------------
+    fn rebuild:void (g:MdTypoGroup) {
+        def made:[MdNode]
+        def n:int (g.cellCount())
+        def i:int 0
+        while (i < n) {
+            def c:MdTypoCell (g.cellAt(i))
+            if (c.abbr >= 0) {
+                def j:int i
+                while ((j < n) && ((MdTypography.abbrOf(g j)) == c.abbr)) {
+                    j = (j + 1)
+                }
+                def ab:MdNode (MdNode.create("abbr"))
+                ab.title = (itemAt g.titles c.abbr)
+                def endCell:MdTypoCell (g.cellAt((j - 1)))
+                ab.srcStart = c.a
+                ab.srcEnd = endCell.b
+                ab.srcKnown = true
+                def inner:[MdNode] (this.nodesOf(g i j))
+                def k:int 0
+                while (k < (array_length inner)) {
+                    ab.add((itemAt inner k))
+                    k = (k + 1)
+                }
+                push made ab
+                i = j
+            } {
+                def j2:int i
+                while ((j2 < n) && ((MdTypography.abbrOf(g j2)) < 0)) {
+                    j2 = (j2 + 1)
+                }
+                def plain:[MdNode] (this.nodesOf(g i j2))
+                def k2:int 0
+                while (k2 < (array_length plain)) {
+                    push made (itemAt plain k2)
+                    k2 = (k2 + 1)
+                }
+                i = j2
+            }
+        }
+        ; the group's nodes out, these in
+        def parent:MdNode g.parent
+        def kids:[MdNode]
+        def total:int (parent.childCount())
+        def p:int 0
+        while (p < total) {
+            if (p == g.first) {
+                def m:int 0
+                while (m < (array_length made)) {
+                    push kids (itemAt made m)
+                    m = (m + 1)
+                }
+            }
+            if ((p < g.first) || (p >= (g.first + g.count))) {
+                push kids (parent.childAt(p))
+            }
+            p = (p + 1)
+        }
+        parent.children = kids
+    }
+
+    sfn abbrOf:int (g:MdTypoGroup i:int) {
+        def c:MdTypoCell (g.cellAt(i))
+        return c.abbr
+    }
+
+    ; Cells [from, to) as text nodes: characters as typed run together, each
+    ; replacement on its own.
+    fn nodesOf:[MdNode] (g:MdTypoGroup from:int to:int) {
+        def out:[MdNode]
+        def i:int from
+        while (i < to) {
+            def c:MdTypoCell (g.cellAt(i))
+            if ((c.kind == 1) || (c.kind == 2)) {
+                def t:MdNode (MdNode.text(c.text))
+                t.srcStart = c.a
+                t.srcEnd = c.b
+                t.srcKnown = true
+                t.subst = true
+                push out t
+                i = (i + 1)
+            } {
+                def j:int i
+                def lit:string ""
+                def going:boolean true
+                while (going && (j < to)) {
+                    def d:MdTypoCell (g.cellAt(j))
+                    if ((d.kind == 0) || (d.kind == 3)) {
+                        lit = (lit + d.text)
+                        j = (j + 1)
+                    } {
+                        going = false
+                    }
+                }
+                def last:MdTypoCell (g.cellAt((j - 1)))
+                def t2:MdNode (MdNode.text(lit))
+                t2.srcStart = c.a
+                t2.srcEnd = last.b
+                t2.srcKnown = true
+                push out t2
+                i = j
+            }
+        }
+        return out
+    }
+}

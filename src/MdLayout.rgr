@@ -79,6 +79,10 @@ class MdRun {
     ; running off the end of the node it belongs to.
     def srcStart:int -1
     def srcEnd:int -1
+    ; The run stands for its whole span rather than spelling it — `©` for
+    ; `(c)`, 😉 for `:wink:` (`MdNode.subst`). Its offsets are the two ends
+    ; of the span and nothing between. Not a style, so not copied.
+    def atom:boolean false
     ; TeX math (`$…$`): the run is one unbreakable formula, its text a
     ; placeholder character, and `math` the source it is set from.
     def math:string ""
@@ -142,6 +146,8 @@ class MdSeg {
     ; it is what a click turns into a caret.
     def srcStart:int -1
     def srcLen:int 0
+    ; from an atom run: the text covers srcLen characters as one
+    def atom:boolean false
     def math:string ""
     def mathDisplay:boolean false
     def underline:boolean false
@@ -228,6 +234,10 @@ class MdBox {
     ; into an offset by measuring across it.
     def segSrc:int -1
     def segLen:int 0
+    ; The box's text stands for all of segSrc..segSrc+segLen at once (a
+    ; typographic replacement, an emoji): a caret is at one end of it or the
+    ; other, never at a character inside.
+    def segAtom:boolean false
     ; 1 a header's, 2 a footer's: page furniture, not the document's text;
     ; 3 the footnotes at the foot of a page, which ARE the document's text
     ; but are placed by the page rather than where they were written
@@ -298,6 +308,7 @@ class MdBox {
         b.srcStart = srcStart
         b.segSrc = segSrc
         b.segLen = segLen
+        b.segAtom = segAtom
         b.furniture = furniture
         b.strike = strike
         b.quiet = quiet
@@ -421,6 +432,12 @@ class MdLayout {
     ; in the key — so switching the company template replayed boxes measured
     ; at the previous font size and drew the new one on top of them.
     def cacheStyleKey:string ""
+    ; …and how the document was READ: the typographer, the quotes its
+    ; language takes, the abbreviations it defines. Those are document-wide —
+    ; `*[HTML]: …` at the end turns every earlier "HTML" into an abbr, and
+    ; `lang: fi` changes every quote — so a block's source alone does not
+    ; say what its inlines are (`MdNode.readingSig`).
+    def cacheReading:string ""
 
     ; ----------------------------------------------------------------------
     ; The company template
@@ -1441,6 +1458,10 @@ class MdLayout {
         if paginate { return false }
         if style.wantToc { return false }
         if ((strlen docSource) == 0) { return false }
+        if (doc.readingSig != cacheReading) {
+            this.dropCache()
+            cacheReading = doc.readingSig
+        }
         cacheOn = true
         return true
     }
@@ -4572,7 +4593,24 @@ class MdLayout {
                 r.text = c.literal
                 r.srcStart = c.srcStart
                 r.srcEnd = c.srcEnd
+                r.atom = c.subst
                 push out r
+            }
+            ; markdown-it's spans: drawn as their HTML tags are
+            if ((((kind == "sub") || (kind == "sup")) || (kind == "ins")) || ((kind == "mark") || (kind == "abbr"))) {
+                ; An abbreviation has nowhere to show its title on a slide, so
+                ; it is its text; the title goes to HTML as <abbr title>.
+                def xr:MdRun (cur.copyStyle())
+                if (kind != "abbr") {
+                    xr = (this.tagStyle(cur kind))
+                }
+                def nested:[MdRun] (this.collectRuns(c xr))
+                def ni:int 0
+                def nn:int (array_length nested)
+                while (ni < nn) {
+                    push out (itemAt nested ni)
+                    ni = (ni + 1)
+                }
             }
             if (kind == "softbreak") {
                 def sb:MdRun (cur.copyStyle())
@@ -5352,8 +5390,36 @@ class MdLayout {
     ; What an inline HTML tag makes of the style around it. Tags nobody draws
     ; (span, abbr's title, a link's target) leave the style as it was.
     fn htmlStyle:MdRun (cur:MdRun tg:MdHtmlTag) {
-        def r:MdRun (cur.copyStyle())
         def nm:string tg.name
+        def r:MdRun (this.tagStyle(cur nm))
+        if ((nm == "abbr") || (nm == "acronym")) {
+            if (tg.has("title")) {
+                r.underline = true
+            }
+        }
+        if (nm == "a") {
+            def href:string (tg.attr("href"))
+            if ((strlen href) > 0) {
+                r.link = href
+                r.color = style.linkColor
+            }
+        }
+        def col:string (MdHtml.styleProp((tg.attr("style")) "color"))
+        if ((strlen col) == 0) {
+            if (nm == "font") {
+                col = (tg.attr("color"))
+            }
+        }
+        if ((strlen col) > 0) {
+            r.color = col
+        }
+        return r
+    }
+
+    ; What an element of this name does to the style around it, whether it
+    ; came as HTML (`<sup>`) or as markdown (`^…^`, which is the same `sup`).
+    fn tagStyle:MdRun (cur:MdRun nm:string) {
+        def r:MdRun (cur.copyStyle())
         if ((nm == "b") || (nm == "strong")) { r.bold = true }
         if ((((nm == "i") || (nm == "em")) || ((nm == "cite") || (nm == "var"))) || (nm == "dfn")) { r.italic = true }
         if ((nm == "u") || (nm == "ins")) { r.underline = true }
@@ -5388,27 +5454,6 @@ class MdLayout {
         }
         if (nm == "small") { r.size = (cur.size * 0.85) }
         if (nm == "big") { r.size = (cur.size * 1.15) }
-        if ((nm == "abbr") || (nm == "acronym")) {
-            if (tg.has("title")) {
-                r.underline = true
-            }
-        }
-        if (nm == "a") {
-            def href:string (tg.attr("href"))
-            if ((strlen href) > 0) {
-                r.link = href
-                r.color = style.linkColor
-            }
-        }
-        def col:string (MdHtml.styleProp((tg.attr("style")) "color"))
-        if ((strlen col) == 0) {
-            if (nm == "font") {
-                col = (tg.attr("color"))
-            }
-        }
-        if ((strlen col) > 0) {
-            r.color = col
-        }
         return r
     }
 
@@ -5490,6 +5535,7 @@ class MdLayout {
             def b:MdBox (MdBox.text(seg.text sx ty seg.w lh))
             b.segSrc = seg.srcStart
             b.segLen = seg.srcLen
+            b.segAtom = seg.atom
             b.family = seg.family
             b.size = seg.size
             b.bold = seg.bold
@@ -5718,6 +5764,14 @@ class MdLayout {
             } {
                 k = (k + 1)
             }
+        }
+        if b.segAtom {
+            ; the nearer END of what the glyph stands for
+            if ((hit * 2) < len) { return b.segSrc }
+            if ((hit * 2) == len) {
+                if ((want * 2.0) < b.w) { return b.segSrc }
+            }
+            return (b.segSrc + b.segLen)
         }
         def at:int (b.segSrc + hit)
         def stop:int (b.segSrc + b.segLen)
@@ -6017,6 +6071,12 @@ class MdLayout {
             }
             seg.srcLen = (upto - at)
             if (seg.srcLen < 0) { seg.srcLen = 0 }
+            if run.atom {
+                ; all of it or none of it: the run's text is not its source
+                seg.atom = true
+                seg.srcStart = run.srcStart
+                seg.srcLen = (run.srcEnd - run.srcStart)
+            }
         }
         seg.family = run.family
         seg.size = run.size
