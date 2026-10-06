@@ -49,7 +49,10 @@ class MdSrcMapProbe {
             def name:string (MdSrcMapProbe.pad4(i))
             def inPath:string ((casesDir + "/") + (name + ".md"))
             def text:string (?? (read_file "." inPath) "")
-            def doc:MdNode (MdBlock.parseText(text))
+            ; The specification's corpus, read as the specification reads it;
+            ; the floor was set against that. A deck's own reading (the
+            ; typographer, emoji, `^sup^`…) is swept in MdSrcMapTest.
+            def doc:MdNode (MdBlock.parseCommonMark(text))
             ; A BLOCK whose span is empty is a block nothing downstream can
             ; tell from another one — the layout cache keyed on it and two
             ; HTML comments in one document drew each other's boxes. The

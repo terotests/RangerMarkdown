@@ -89,6 +89,7 @@ class MdDocxTest {
         print "== MdDocxTest =="
         this.shape(c)
         this.formatting(c)
+        this.markdownIt(c)
         this.lists(c)
         this.costs(c)
         this.tables(c)
@@ -186,6 +187,28 @@ class MdDocxTest {
         def b:TextSpan (MdDocxTest.spanOf(p "bold"))
         def word:string (substring (p.plainText()) b.start b.end)
         c.eqStr("…and the bold span covers the word that was bold" word "lihava")
+    }
+
+    ; markdown-it's spans and the typographer, in Word: `++ins++` is
+    ; underlined; sup, sub and mark have no TextSpan property to go to, so
+    ; their text stays, in the style around it — never lost.
+    fn markdownIt:void (c:DocCheck) {
+        print "-- markdown-it's spans and replacements --"
+        def src:string "19^th^ H~2~O ++new++ ==hot== (c) HTML\n\n*[HTML]: Hyper Text\n"
+        def d:RichDocument (this.make(src))
+        c.eqInt("one paragraph: the abbreviation's definition is not one" (array_length d.paragraphs) 1)
+        def p:Paragraph (itemAt d.paragraphs 0)
+        c.eqStr("every span's text is there, replaced where it should be"
+            (p.plainText()) ("19th H2O new hot " + ((strfromcode 169) + " HTML")))
+        c.ok("++new++ is underlined" (MdDocxTest.anySpan(p "underline")))
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            def sp:TextSpan (itemAt p.spans i)
+            if sp.underline {
+                c.eqStr("…and only it" (substring (p.plainText()) sp.start sp.end) "new")
+            }
+            i = (i + 1)
+        }
     }
 
     ; ----------------------------------------------------------------------

@@ -333,6 +333,11 @@ class MdEditController {
                                 def tl:int (strlen b.text)
                                 def take:int within
                                 if (take > tl) { take = tl }
+                                ; `©` for `(c)`: before the glyph until the
+                                ; caret has passed all of what it stands for
+                                if b.segAtom {
+                                    take = (? (within >= b.segLen) tl 0)
+                                }
                                 lead = (substring b.text 0 take)
                             }
                             bestX = (b.x + (layout.measureStyled(lead b.family b.size b.bold b.italic)))

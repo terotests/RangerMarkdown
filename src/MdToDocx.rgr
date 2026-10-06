@@ -435,6 +435,19 @@ class MdToDocx {
                 ss.colorHex = "57606A"
                 this.inline(c p ss)
             }
+            ; markdown-it's spans. `++ins++` is underlined, as Word's own
+            ; inserted text is; a TextSpan has no baseline shift and no
+            ; highlight, so `^sup^`, `~sub~` and `==mark==` keep their text in
+            ; the style around them — never dropped — and an abbreviation is
+            ; its text.
+            if (kind == "ins") {
+                def us:TextSpan (base.copy())
+                us.underline = true
+                this.inline(c p us)
+            }
+            if ((((kind == "sub") || (kind == "sup")) || (kind == "mark")) || (kind == "abbr")) {
+                this.inline(c p base)
+            }
             if (kind == "link") {
                 def ls:TextSpan (base.copy())
                 ls.hyperlink = c.destination

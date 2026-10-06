@@ -37,7 +37,9 @@ class MdSpecDump {
             def inPath:string ((casesDir + "/") + (name + ".md"))
             def text:string (?? (read_file "." inPath) "")
             def html:string ""
-            def doc:MdNode (MdBlock.parseText(text))
+            ; CommonMark only: the typographer and markdown-it's plugins a
+            ; deck reads (`MdBlock.parseText`) are not the specification's.
+            def doc:MdNode (MdBlock.parseCommonMark(text))
             html = (MdToHtml.render(doc))
             def outPath:string ((outDir + "/") + (name + ".html"))
             write_file "." outPath html

@@ -97,6 +97,28 @@ class MdSrcMapScan {
         return true
     }
 
+    ; The text a run shows against the text its span names. The same string,
+    ; except that the typographer turns a straight quote into a curly one in
+    ; place — one character for one, so the map stays exact and only the
+    ; character differs: ‘ ’ for `'`, “ ” for `"`.
+    sfn sameText:boolean (got:string lit:string) {
+        if (got == lit) { return true }
+        def n:int (strlen got)
+        if (n != (strlen lit)) { return false }
+        def i:int 0
+        while (i < n) {
+            def g:int (charAt got i)
+            def l:int (charAt lit i)
+            if (g != l) {
+                def single:boolean ((g == 39) && ((l == 8216) || (l == 8217)))
+                def double:boolean ((g == 34) && ((l == 8220) || (l == 8221)))
+                if ((! single) && (! double)) { return false }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
     ; The kinds that carry a span worth checking. A block's span was never in
     ; doubt; these are the ones the inline pass decided.
     sfn isSpanned:boolean (kind:string) {
@@ -105,6 +127,11 @@ class MdSrcMapScan {
         if (kind == "emph") { return true }
         if (kind == "strong") { return true }
         if (kind == "strike") { return true }
+        if (kind == "sub") { return true }
+        if (kind == "sup") { return true }
+        if (kind == "ins") { return true }
+        if (kind == "mark") { return true }
+        if (kind == "abbr") { return true }
         if (kind == "link") { return true }
         if (kind == "image") { return true }
         return false
@@ -135,12 +162,15 @@ class MdSrcMapScan {
                     this.note(((((n.kind + " went backwards: ") + (to_string a)) + " after ")
                         + (to_string lastStart)))
                 }
-                if (n.kind == "text") {
+                ; A replacement (`©` for `(c)`) stands for its source and does
+                ; not spell it, so there is nothing to read back — the same
+                ; skip an entity gets.
+                if ((n.kind == "text") && (! n.subst)) {
                     if (MdSrcMapScan.isVerbatim(n.literal)) {
                         def got:string (MdSrcMapScan.spanOf(src n))
                         if (MdSrcMapScan.isVerbatim(got)) {
                             exactChecked = (exactChecked + 1)
-                            if (got == n.literal) {
+                            if (MdSrcMapScan.sameText(got n.literal)) {
                                 exactOk = (exactOk + 1)
                             } {
                                 this.note(((("text [" + got) + "] wanted [") + (n.literal + "]")))
