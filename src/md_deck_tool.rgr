@@ -190,6 +190,9 @@ class MdDeckTool {
         MdDiagram.prepare(doc deck.embeds cw styleName)
         deck.applySlideMeta(doc)
         deck.layoutSlides(doc)
+        if (MdDiagram.refit(doc deck.embeds cw styleName)) {
+            deck.layoutSlides(doc)
+        }
 
         def x (new MdToPptx())
         def d:PptxDeck (x.deck(doc deck))

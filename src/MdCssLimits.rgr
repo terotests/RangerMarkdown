@@ -180,6 +180,7 @@ class MdCssLimits {
         s.furnitureSize = (MdCssLimits.clampKind("font" s.furnitureSize w h))
         s.headerSize = (MdCssLimits.optional("font" s.headerSize w h))
         s.footerSize = (MdCssLimits.optional("font" s.footerSize w h))
+        s.tableSize = (MdCssLimits.optional("font" s.tableSize w h))
 
         s.lineHeight = (MdCssLimits.clampKind("ratio" s.lineHeight w h))
         s.codeLineHeight = (MdCssLimits.clampKind("ratio" s.codeLineHeight w h))

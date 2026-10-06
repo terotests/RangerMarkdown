@@ -328,6 +328,9 @@ class MdSlidesTest {
         def cw:double (l.style.pageWidth - (l.style.margin * 2.0))
         MdDiagram.prepare(doc l.embeds cw "default")
         l.layoutSlides(doc)
+        if (MdDiagram.refit(doc l.embeds cw "default")) {
+            l.layoutSlides(doc)
+        }
         return l
     }
 
@@ -816,7 +819,22 @@ class MdSlidesTest {
         def cw:double (l.style.pageWidth - (l.style.margin * 2.0))
         MdDiagram.prepare(doc l.embeds cw "default")
         l.layoutSlides(doc)
+        if (MdDiagram.refit(doc l.embeds cw "default")) {
+            l.layoutSlides(doc)
+        }
         return l
+    }
+
+    ; the text of the first fence in `src`, as the cache keys it
+    sfn fenceOf:string (src:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def i:int 0
+        while (i < (doc.childCount())) {
+            def c:MdNode (doc.childAt(i))
+            if (c.kind == "embed") { return c.literal }
+            i = (i + 1)
+        }
+        return ""
     }
 
     sfn boxOfKind@(optional):MdBox (l:MdLayout kind:int) {
@@ -914,6 +932,19 @@ class MdSlidesTest {
         def ctx:MdBox (unwrap (MdSlidesTest.textBox(cl "Kärki")))
         c.ok(("a centred chart at 60%: the box beside it: " + (to_string ctx.x)) ((ctx.x >= (ce.x + ce.w)) && (ctx.y < (ce.y + ce.h))))
         c.eqInt("a centred chart at 60%: one slide" cl.pageCount 1)
+        ; a chart taller than its room keeps the line written under it on
+        ; its slide (Tero's cloud run 2026-10-06: a source line went to a
+        ; slide of its own)
+        def tall:string "## Korkea\n\nJohdanto.\n\n```vega-lite\n{\"height\": 420, \"data\": {\"values\": [{\"m\": \"a\", \"n\": 3}, {\"m\": \"b\", \"n\": 5}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"m\", \"type\": \"nominal\"}, \"y\": {\"field\": \"n\", \"type\": \"quantitative\"}}}\n```\n\nLähde: testi.\n"
+        def tl:MdLayout (MdSlidesTest.withPictures(tall css))
+        def te:MdBox (unwrap (MdSlidesTest.boxOfKind(tl 3)))
+        def ts:MdBox (unwrap (MdSlidesTest.textBox(tl "Lähde")))
+        c.eqInt("a tall chart and the line under it: one slide" tl.pageCount 1)
+        c.ok("the line is under the chart" (ts.y >= (te.y + te.h)))
+        c.ok("…inside the slide" ((ts.y + ts.h) <= (540.0 - 54.0 + 0.5)))
+        ; …and the chart is DRAWN in its box, not only laid out in it
+        def drawnH:double (tl.embeds.heightFor("vega-lite" (MdSlidesTest.fenceOf(tall)) te.w))
+        c.ok(("the chart is drawn for its box: " + (to_string drawnH) + " in " + (to_string te.h)) (drawnH <= (te.h + 0.5)))
         def wide:MdLayout (MdSlidesTest.withPictures((pr.replace("{width=60%}\n" "")) css))
         def wt:MdBox (unwrap (MdSlidesTest.textBox(wide "Kapea pohja")))
         def we:MdBox (unwrap (MdSlidesTest.boxOfKind(wide 3)))
@@ -1055,6 +1086,73 @@ class MdSlidesTest {
     ; Text and a table that run over by the last row and the sentence after
     ; it: the slide is set a little smaller rather than given a continuation
     ; for those two.
+    ; A table on a slide spans its column, or the `width` it was given with
+    ; the text after it beside it; `table { font-size }` sets its text
+    ; (Tero's cloud run 2026-10-06: a top-10 table filled half the slide).
+    fn tableWidth:void (c:SlideCheck) {
+        print "-- a table's width --"
+        def css:string "deck { split-level: 2 } page { width: 960pt; height: 540pt; padding: 54pt } document { font-size: 20pt } h2 { font-size: 36pt }"
+        def md:string "## Taulukko\n\n| # | Nimi |\n|---|---|\n| 1 | Lyhyt |\n| 2 | Toinen |\n"
+        def l:MdLayout (MdSlidesTest.withPictures(md css))
+        def right:double 0.0
+        def k:int 0
+        while (k < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes k)
+            if ((b.y > 120.0) && ((b.x + b.w) > right)) { right = (b.x + b.w) }
+            k = (k + 1)
+        }
+        c.ok(("a short table spans the slide's column: " + (to_string right)) (right >= (960.0 - 54.0 - 1.0)))
+        def side:string (md + "{width=60%}\n\n- Huomio yksi\n- Huomio kaksi\n{container=box}\n")
+        def sl:MdLayout (MdSlidesTest.withPictures(side css))
+        def cell:MdBox (unwrap (MdSlidesTest.textBox(sl "Lyhyt")))
+        def note:MdBox (unwrap (MdSlidesTest.textBox(sl "Huomio yksi")))
+        c.ok(("a table at 60%: the list beside it: " + (to_string note.x)) ((note.x > (54.0 + ((960.0 - 108.0) * 0.6))) && (note.y < (cell.y + cell.h))))
+        c.eqInt("a table at 60% and its list: one slide" sl.pageCount 1)
+        ; a table at 60% too long for one slide: the list goes beside its
+        ; last part, not on a slide of its own under the title in its plate
+        def rows:string ""
+        def r:int 0
+        while (r < 16) {
+            rows = (rows + "| " + (to_string r) + " | Rivi " + (to_string r) + " |\n")
+            r = (r + 1)
+        }
+        def long:string ("## Taulukko\n\n| # | Nimi |\n|---|---|\n" + rows + "{width=60%}\n\n- Huomio yksi\n- Huomio kaksi\n{container=box}\n")
+        def ll:MdLayout (MdSlidesTest.withPictures(long css))
+        def lastRow:MdBox (unwrap (MdSlidesTest.textBox(ll "Rivi 15")))
+        def lnote:MdBox (unwrap (MdSlidesTest.textBox(ll "Huomio yksi")))
+        c.ok(("the long table goes on: " + (to_string lastRow.page)) (lastRow.page > 0))
+        c.eqInt("its list is on the table's last slide" lnote.page lastRow.page)
+        c.ok(("…beside it: " + (to_string lnote.x)) (lnote.x > (54.0 + ((960.0 - 108.0) * 0.6))))
+        ; a boxed list that goes on to a second slide: its plate there
+        ; starts under the title said again, not around it
+        def items:string ""
+        def r3:int 0
+        while (r3 < 24) {
+            items = (items + "- Kohta " + (to_string r3) + "\n")
+            r3 = (r3 + 1)
+        }
+        def bl:MdLayout (MdSlidesTest.withPictures(("## Lista\n\n" + items + "{container=box}\n") css))
+        def tail:MdBox (unwrap (MdSlidesTest.textBox(bl "Kohta 23")))
+        c.ok(("the boxed list goes on: " + (to_string tail.page)) (tail.page > 0))
+        def titleY:double 1000.0
+        def plateY:double 1000.0
+        def q:int 0
+        while (q < (array_length bl.boxes)) {
+            def pb:MdBox (itemAt bl.boxes q)
+            if (pb.page == tail.page) {
+                if (pb.retold && (pb.y < titleY)) { titleY = pb.y }
+                if ((pb.kind == 1) && (pb.y < plateY)) { plateY = pb.y }
+            }
+            q = (q + 1)
+        }
+        c.ok(("…its plate there starts under the title said again: " + (to_string plateY)) ((titleY < 1000.0) && (plateY > titleY)))
+        def fl:MdLayout (MdSlidesTest.withPictures(md (css + " table { font-size: 12pt }")))
+        def small:MdBox (unwrap (MdSlidesTest.textBox(fl "Lyhyt")))
+        c.ok(("table { font-size: 12pt } sets its text: " + (to_string small.size)) ((fabs (small.size - 12.0)) < 0.01))
+        def body:MdBox (unwrap (MdSlidesTest.textBox(l "Lyhyt")))
+        c.ok("…and without it the body's size" (body.size >= 20.0))
+    }
+
     fn tableSpill:void (c:SlideCheck) {
         print "-- a table that spills a row --"
         def css:string "deck { split-level: 2 } page { width: 720pt; height: 260pt; padding: 20pt } document { font-size: 14pt }"
@@ -1091,6 +1189,33 @@ class MdSlidesTest {
         }
         def far:MdLayout (MdSlidesTest.slidesWith((head + big) css 0.8))
         c.ok("a long table is still split" (far.pageCount > 1))
+        ; a table at 60% with a card beside it, one row over: the slide set
+        ; smaller keeps the card beside the table (laid out again, the card
+        ; went under it, and the slide never fitted)
+        def card:string "{width=60%}\n\n- A note\n- Another note\n{container=box}\n"
+        def m:int 1
+        def rowsW:string ""
+        def over:boolean false
+        while ((m < 30) && (over == false)) {
+            rowsW = ""
+            def r3:int 0
+            while (r3 < m) {
+                rowsW = (rowsW + "| r" + (to_string r3) + " | " + (to_string r3) + " |\n")
+                r3 = (r3 + 1)
+            }
+            def off2:MdLayout (MdSlidesTest.slidesWith((head + rowsW + card) css 1.0))
+            if ((MdSlidesTest.slideOf(off2 ("r" + (to_string (m - 1))))) == 1) {
+                over = true
+            }
+            m = (m + 1)
+        }
+        c.ok("some row count spills a 60% table" over)
+        def on2:MdLayout (MdSlidesTest.slidesWith((head + rowsW + card) css 0.8))
+        c.eqInt("set smaller, the 60% table stays on one slide" (MdSlidesTest.slideOf(on2 ("r" + (to_string (m - 2))))) 0)
+        c.eqInt("…its card too" (MdSlidesTest.slideOf(on2 "A note")) 0)
+        def r0:MdBox (unwrap (MdSlidesTest.textBox(on2 "r0")))
+        def note2:MdBox (unwrap (MdSlidesTest.textBox(on2 "A note")))
+        c.ok(("…beside the table: " + (to_string note2.y)) (note2.y < (r0.y + 40.0)))
     }
 
     ; ----------------------------------------------------------------------
@@ -1223,6 +1348,7 @@ class MdSlidesTest {
         this.overlays(c)
         this.longTable(c)
         this.tableSpill(c)
+        this.tableWidth(c)
         this.sections(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
