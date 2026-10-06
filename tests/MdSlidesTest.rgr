@@ -906,6 +906,14 @@ class MdSlidesTest {
         def pt:MdBox (unwrap (MdSlidesTest.textBox(pl "Kapea pohja")))
         c.ok(("a figure at 60%: the text beside it: " + (to_string pt.x)) ((pt.x >= (pe.x + pe.w)) && (pt.y < (pe.y + pe.h))))
         c.eqInt("on the same slide" pt.page pe.page)
+        ; a chart centred (a host's default) and given a width: its box
+        ; starts the column, so its takeaway goes beside it, on its slide
+        def ch:string "## Kaavio\n\n```vega-lite\n{\"usermeta\": {\"presAlign\": \"center\"}, \"data\": {\"values\": [{\"m\": \"a\", \"n\": 3}, {\"m\": \"b\", \"n\": 5}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"m\", \"type\": \"nominal\"}, \"y\": {\"field\": \"n\", \"type\": \"quantitative\"}}}\n```\n{width=60%}\n\n- Kärki: b\n- Pienin: a\n{container=box}\n"
+        def cl:MdLayout (MdSlidesTest.withPictures(ch css))
+        def ce:MdBox (unwrap (MdSlidesTest.boxOfKind(cl 3)))
+        def ctx:MdBox (unwrap (MdSlidesTest.textBox(cl "Kärki")))
+        c.ok(("a centred chart at 60%: the box beside it: " + (to_string ctx.x)) ((ctx.x >= (ce.x + ce.w)) && (ctx.y < (ce.y + ce.h))))
+        c.eqInt("a centred chart at 60%: one slide" cl.pageCount 1)
         def wide:MdLayout (MdSlidesTest.withPictures((pr.replace("{width=60%}\n" "")) css))
         def wt:MdBox (unwrap (MdSlidesTest.textBox(wide "Kapea pohja")))
         def we:MdBox (unwrap (MdSlidesTest.boxOfKind(wide 3)))

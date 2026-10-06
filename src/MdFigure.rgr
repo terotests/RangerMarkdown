@@ -953,7 +953,6 @@ class MdFigure {
         }
         def cw:double ((W - ((to_double (cols - 1)) * gap)) / (to_double cols))
         def size:double st.size
-        def small:double (st.size * 0.82)
         def inPad:double (size * 0.9)
         def textW:double (cw - (inPad * 2.0))
         if (textW < 20.0) {
@@ -963,7 +962,7 @@ class MdFigure {
         def fill:string (MdFigure.mix(color st.paper 0.88))
         def ink:string (MdFigure.readableOn(color fill st.ink 4.5))
         def valueLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.titlesOf(its)) (size * 2.4) textW true 0.0 2))
-        def labelLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.textsOf(its)) small textW false 0.0 99))
+        def labelLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.textsOf(its)) size textW false 0.0 99))
         MdFigure.markCramped(st valueLays textW labelLays textW)
         def rows:int (idiv ((n + cols) - 1) cols)
         def y:double (pad + st.shiftY)
