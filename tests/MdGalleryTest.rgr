@@ -486,6 +486,12 @@ class MdGalleryTest {
         }
         t.ok("an overlay caption has a band" ((strlen band) > 0))
         t.ok("…and reads on it over black and white" ((MdContainer.worstContrast(cap.color band)) >= 4.5))
+        t.eqStr("white text…" cap.color "#FFFFFF")
+        t.ok("…on a dark band, over light and dark photos alike" ((MdContainer.luminance(band)) < 0.05))
+        def darkInk:string "page { width: 960pt; height: 540pt; padding: 40pt; }\ncaption { color: #222222; }\n"
+        def dk:MdLayout (MdGalleryTest.slides(src darkInk "screen"))
+        def dcap:MdBox (MdGalleryTest.textOn(dk "Ranta heinäkuussa"))
+        t.eqStr("a caption the sheet coloured keeps its colour" dcap.color "#222222")
         def light:string "page { width: 960pt; height: 540pt; padding: 40pt; background-color: #ffffff; }\ndocument { color: #22252a; }\n"
         def grid:string "## Ranta\n\n```gallery\n- media/wide.jpg: Ranta\n- media/tall.jpg: Torni\n```\n"
         def gl:MdLayout (MdGalleryTest.slides(grid light "screen"))
