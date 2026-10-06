@@ -34,6 +34,7 @@
     "markdown:tablesplit:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdTableSplitTest.rgr ./gallery/markdown/bin MdTableSplitTest.js",
     "markdown:align:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdAlignTest.rgr ./gallery/markdown/bin MdAlignTest.js",
     "markdown:codelines:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdCodeLinesTest.rgr ./gallery/markdown/bin MdCodeLinesTest.js",
-    "markdown:container:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdContainerTest.rgr ./gallery/markdown/bin MdContainerTest.js"
+    "markdown:container:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdContainerTest.rgr ./gallery/markdown/bin MdContainerTest.js",
+    "markdown:plugins:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdPluginsTest.rgr ./gallery/markdown/bin MdPluginsTest.js"
   }
 }

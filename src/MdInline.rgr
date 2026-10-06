@@ -89,6 +89,9 @@ class MdInline {
     def owner:MdNode (new MdNode())
     def subjBase:int 0
     def refs:[string:MdLinkRef]
+    ; the document's footnotes: which labels are defined, and the numbers
+    ; handed out as references are met (see `MdNotes`)
+    def notes:MdNotes (new MdNotes())
     def entities:MdEntities (new MdEntities())
 
     ; the inline node list: nodes, and the links between them
@@ -296,6 +299,7 @@ class MdInline {
         if (c == 95) { handled = (this.handleDelim(c)) }
         if (c == 126) { handled = (this.handleDelim(c)) }
         if (c == 91) { handled = (this.parseOpenBracket()) }
+        if ((c == 94) && ((this.peekAt((pos + 1))) == 91)) { handled = (this.parseInlineNote()) }
         if (c == 33) { handled = (this.parseBang()) }
         if (c == 93) { handled = (this.parseCloseBracket()) }
         if (c == 60) {
@@ -305,7 +309,7 @@ class MdInline {
             }
         }
         if (c == 38) { handled = (this.parseEntity()) }
-        if (MdInline.isOrdinary(c)) { handled = (this.parseString()) }
+        if ((! handled) && (MdInline.isOrdinary(c))) { handled = (this.parseString()) }
         if (! handled) {
             pos = (pos + 1)
             def one:string (MdChar.fromCode(c))
@@ -343,6 +347,12 @@ class MdInline {
             if going {
                 def c:int (charAt subject pos)
                 def ordinary:boolean (MdInline.isOrdinary(c))
+                ; `^` is ordinary text unless it opens an inline footnote,
+                ; `^[…]` — kept in the run otherwise, so a caret in prose is
+                ; one text node as it always was
+                if ((c == 94) && ((this.peekAt((pos + 1))) == 91)) {
+                    ordinary = false
+                }
                 if ordinary {
                     pos = (pos + 1)
                 } {
@@ -869,6 +879,11 @@ class MdInline {
     ; Links and images
     ; ----------------------------------------------------------------------
     fn parseOpenBracket:boolean () {
+        if ((this.peekAt((pos + 1))) == 94) {
+            if (this.parseNoteRef()) {
+                return true
+            }
+        }
         def startPos:int pos
         pos = (pos + 1)
         def idx:int (this.addText("["))
@@ -877,6 +892,139 @@ class MdInline {
         ; which is what `normalizeReference` then strips.
         this.pushBracket(idx startPos false)
         return true
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Footnotes (markdown-it-footnote)
+    ; ----------------------------------------------------------------------
+
+    ; `[^label]`, when a definition of `label` exists: the label runs to the
+    ; first `]` and may hold no space and no line break. Tried before a link,
+    ; as the plugin's rule is, so `[^1]` is never a shortcut reference. A
+    ; label nobody defined is left to the link rules — text, usually.
+    fn parseNoteRef:boolean () {
+        def n:int (strlen subject)
+        def i:int (pos + 2)
+        while (i < n) {
+            def c:int (charAt subject i)
+            if ((c == 32) || (c == 10)) { return false }
+            if (c == 93) { break }
+            i = (i + 1)
+        }
+        if (i >= n) { return false }
+        if (i == (pos + 2)) { return false }
+        def label:string (substring subject (pos + 2) i)
+        if (! (notes.hasLabel(label))) { return false }
+        def ref:MdNode (MdNode.create("footnote_ref"))
+        ref.info = label
+        notes.refer(ref (notes.defOf(label)))
+        this.appendNode(ref)
+        pos = (i + 1)
+        return true
+    }
+
+    ; `^[text of the note]`: a footnote written where it is referenced. Its
+    ; text runs to the matching `]` — brackets nest, and a backslash escape
+    ; or a code span does not count — and is parsed as inline markdown of its
+    ; own. Its body is a `footnote_def` with no label, holding one paragraph,
+    ; and it is numbered with the others, in the order they are met.
+    fn parseInlineNote:boolean () {
+        def start:int pos
+        def labelStart:int (pos + 2)
+        def labelEnd:int (this.matchingBracket((pos + 1)))
+        if (labelEnd < 0) { return false }
+        def fd:MdNode (MdNode.create("footnote_def"))
+        fd.srcStart = (this.srcAt(start))
+        fd.srcEnd = (this.srcAt((labelEnd + 1)))
+        fd.srcKnown = true
+        def ref:MdNode (MdNode.create("footnote_ref"))
+        ; numbered before its own text is read, so a note inside it comes after
+        notes.refer(ref fd)
+        def para:MdNode (MdNode.create("paragraph"))
+        para.open = false
+        ; the paragraph's map is the slice of this block's map its text is
+        ; in, so every node in it says where it was typed
+        def from:int (subjBase + labelStart)
+        def len:int (labelEnd - labelStart)
+        def k:int 0
+        while (k < (array_length owner.mapLit)) {
+            para.addMapPiece((itemAt owner.mapLit k) (itemAt owner.mapSrc k) (itemAt owner.mapLen k))
+            k = (k + 1)
+        }
+        para.shiftMap(from len)
+        para.srcStart = (this.srcAt(labelStart))
+        para.srcEnd = (this.srcAt(labelEnd))
+        def body:string (substring subject labelStart labelEnd)
+        def inner:MdInline (new MdInline())
+        inner.entities = entities
+        inner.notes = notes
+        inner.parseFrom(para body refs 0)
+        fd.add(para)
+        this.appendNode(ref)
+        pos = (labelEnd + 1)
+        return true
+    }
+
+    ; Where the `]` that closes the `[` at `open` is, or -1.
+    fn matchingBracket:int (open:int) {
+        def n:int (strlen subject)
+        def level:int 1
+        def i:int (open + 1)
+        while (i < n) {
+            def c:int (charAt subject i)
+            if (c == 92) {
+                i = (i + 2)
+                continue
+            }
+            if (c == 96) {
+                ; a code span is one token: its brackets are not brackets
+                def run:int 0
+                def j:int i
+                while ((j < n) && ((charAt subject j) == 96)) {
+                    j = (j + 1)
+                    run = (run + 1)
+                }
+                def close:int (MdInline.closingTicks(subject j run))
+                if (close >= 0) {
+                    i = (close + run)
+                } {
+                    i = j
+                }
+                continue
+            }
+            if (c == 91) {
+                level = (level + 1)
+            }
+            if (c == 93) {
+                level = (level - 1)
+                if (level == 0) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Where a run of exactly `run` backticks starts at or after `from`, or -1.
+    sfn closingTicks:int (v:string from:int run:int) {
+        def n:int (strlen v)
+        def i:int from
+        while (i < n) {
+            if ((charAt v i) == 96) {
+                def j:int i
+                while ((j < n) && ((charAt v j) == 96)) {
+                    j = (j + 1)
+                }
+                if ((j - i) == run) {
+                    return i
+                }
+                i = j
+            } {
+                i = (i + 1)
+            }
+        }
+        return -1
     }
 
     fn parseBang:boolean () {

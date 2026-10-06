@@ -18,6 +18,14 @@
 ;   inlines  text softbreak linebreak code html_inline emph strong strike
 ;            link image
 ;
+; …and the blocks of markdown-it's standard plugins, under their names:
+;
+;   footnote_def   `[^label]: text`, a container (markdown-it-footnote)
+;   footnote_ref   `[^label]` / `^[inline text]`, an inline (same)
+;   dl dt dd       a definition list, its term and its definitions
+;                  (markdown-it-deflist)
+;   container      `::: warning` … `:::` (markdown-it-container)
+;
 ; Every node carries `srcStart` / `srcEnd`: byte offsets into the text it was
 ; parsed from. The viewer needs them to put a caret where a reader clicked,
 ; and the incremental reparse needs them to know what to throw away.
@@ -47,6 +55,29 @@ class MdNode {
     ; link / image
     def destination:string ""
     def title:string ""
+
+    ; ------------------------------------------------------------------
+    ; Footnotes (markdown-it-footnote)
+    ; ------------------------------------------------------------------
+    ;
+    ; A `footnote_ref` carries the number its footnote was given — in the
+    ; order footnotes are first REFERENCED, not defined, as markdown-it
+    ; numbers them — and which reference to it this is (0 for the first),
+    ; which is what an HTML back-link is named by. Its label is `info`.
+    ;
+    ; A `footnote_def` carries the same number (0: never referenced, so it is
+    ; drawn nowhere) and how many references it has. One with no label is an
+    ; inline footnote's body (`^[…]`): it is not in the tree where it was
+    ; written, only in the document's `notes`.
+    ;
+    ; `notes`, on the document only: every referenced footnote in number
+    ; order, so `notes[n - 1]` is footnote n. A defined footnote is ALSO in
+    ; the tree where its definition stands; a reader that walks the tree
+    ; draws nothing there, and one that wants the footnotes asks this.
+    def noteNumber:int 0
+    def noteSub:int 0
+    def noteRefs:int 0
+    def notes:[MdNode]
 
     ; table: the column alignment, "" | "left" | "center" | "right"
     def align:string ""
@@ -130,6 +161,12 @@ class MdNode {
     def rawLen:int 0
     def lastLineBlank:boolean false
     def lastLineChecked:boolean false
+    ; The lines (1-based) a block began and last took a line on. A definition
+    ; list's term is a paragraph of ONE line directly above its first
+    ; definition, or one blank line above it, and these are how the parser
+    ; can still tell once the paragraph has been closed.
+    def firstLineNo:int 0
+    def lastLineNo:int 0
     ; fenced code
     def fenceChar:int 0
     def fenceLength:int 0
@@ -268,7 +305,21 @@ class MdNode {
         if (kind == "paragraph") { return true }
         if (kind == "heading") { return true }
         if (kind == "table_cell") { return true }
+        ; a definition list's term is one line of inline text
+        if (kind == "dt") { return true }
         return false
+    }
+
+    ; The footnote numbered `n`, or a node of kind "none" when there is none.
+    fn noteAt:MdNode (n:int) {
+        if ((n < 1) || (n > (array_length notes))) {
+            return (MdNode.create("none"))
+        }
+        return (itemAt notes (n - 1))
+    }
+
+    fn noteCount:int () {
+        return (array_length notes)
     }
 
     ; ------------------------------------------------------------------
@@ -457,6 +508,18 @@ class MdNode {
             attrs = (attrs + " destination=\"" + (MdNode.xmlEscape(destination)) + "\"")
             attrs = (attrs + " title=\"" + (MdNode.xmlEscape(title)) + "\"")
         }
+        if ((kind == "footnote_ref") || (kind == "footnote_def")) {
+            attrs = (attrs + " label=\"" + (MdNode.xmlEscape(info)) + "\" number=\"" + (to_string noteNumber) + "\"")
+        }
+        if (kind == "container") {
+            attrs = (attrs + " name=\"" + (MdNode.xmlEscape(info)) + "\"")
+            if ((strlen title) > 0) {
+                attrs = (attrs + " title=\"" + (MdNode.xmlEscape(title)) + "\"")
+            }
+        }
+        if (kind == "dl") {
+            attrs = (attrs + " tight=\"" + (? listTight "true" "false") + "\"")
+        }
         def hasLit:boolean false
         if (kind == "text") { hasLit = true }
         if (kind == "code") { hasLit = true }
@@ -508,6 +571,59 @@ class MdNode {
             i = (i + 1)
         }
         return out
+    }
+}
+
+; The footnotes of one document, while it is being parsed.
+;
+; The definitions are collected by the block parser (a reference on line 3
+; may name a definition on line 900, exactly as a link may), and the numbers
+; are handed out by the inline parser as it meets the references, in document
+; order — the order markdown-it numbers them in, so `[^second]` used before
+; `[^first]` is footnote 1. A label is matched as written: markdown-it does
+; not case-fold footnote labels the way CommonMark folds link labels.
+class MdNotes {
+    def labelAt:[string:int]
+    def defs:[MdNode]
+    ; the numbered ones, footnote n at n - 1
+    def list:[MdNode]
+
+    Constructor () {
+    }
+
+    ; The first definition of a label is the one that counts, as with links.
+    fn define:void (label:string node:MdNode) {
+        if (has labelAt label) { return }
+        set labelAt label (array_length defs)
+        push defs node
+    }
+
+    fn hasLabel:boolean (label:string) {
+        return (has labelAt label)
+    }
+
+    fn defOf:MdNode (label:string) {
+        if (! (has labelAt label)) {
+            return (MdNode.create("none"))
+        }
+        def i:int (unwrap (get labelAt label))
+        return (itemAt defs i)
+    }
+
+    ; A footnote gets its number when it is first referenced.
+    fn number:int (fd:MdNode) {
+        if (fd.noteNumber == 0) {
+            push list fd
+            fd.noteNumber = (array_length list)
+        }
+        return fd.noteNumber
+    }
+
+    ; `ref` refers to `fd`: its number, and which reference it is.
+    fn refer:void (ref:MdNode fd:MdNode) {
+        ref.noteNumber = (this.number(fd))
+        ref.noteSub = fd.noteRefs
+        fd.noteRefs = (fd.noteRefs + 1)
     }
 }
 
