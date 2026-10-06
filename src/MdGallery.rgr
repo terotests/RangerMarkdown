@@ -92,6 +92,8 @@ class MdCellLook {
     def fontSize:double 11.0
     def family:string ""
     def color:string ""
+    ; the colour came from the stylesheet: it is the author's, kept as is
+    def colorSet:boolean false
     ; "start" | "center" | "end"
     def align:string "start"
     def bold:boolean false
@@ -568,6 +570,9 @@ class MdGallery {
         out.background = (MdGallery.colorOf(got "background-color" out.background))
         out.fontSize = (MdGallery.lenOf(got "font-size" out.fontSize))
         out.color = (MdGallery.colorOf(got "color" out.color))
+        if got.has("color") {
+            out.colorSet = true
+        }
         if (got.has("font-family")) {
             def f:string (CssValue.firstFamily((got.get("font-family"))))
             if ((strlen f) > 0) {

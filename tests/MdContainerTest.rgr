@@ -53,6 +53,7 @@ class MdContainerTest {
         MdContainerTest.layout(c)
         MdContainerTest.sheet(c)
         MdContainerTest.painting(c)
+        MdContainerTest.headings(c)
         print ""
         print ((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed))
         if (c.failed == 0) {
@@ -124,6 +125,25 @@ class MdContainerTest {
         l.setDocSource(src)
         l.layoutContinuous(doc 600.0)
         return l
+    }
+
+    ; a slide's title on a plate, over its background picture
+    sfn headings:void (c:ContainerCheck) {
+        def src:string "## Ranta {bg=media/k1.jpg container=box}\n\nKesä.\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        l.setDocSource(src)
+        l.layoutSlides(doc)
+        def pi:int (MdContainerTest.plateIndex(l))
+        def ti:int (MdContainerTest.indexOfText(l "Ranta"))
+        c.ok("a title can sit on a plate" ((pi >= 0) && (pi < ti)))
+        if ((pi >= 0) && (ti >= 0)) {
+            def plate:MdBox (itemAt l.boxes pi)
+            def t:MdBox (itemAt l.boxes ti)
+            c.ok("…round the title" ((t.y > plate.y) && ((t.y + t.h) < (plate.y + plate.h))))
+            c.ok("…not round the text under it" ((MdContainerTest.textBox(l "Kesä.")).y >= (plate.y + plate.h)))
+        }
     }
 
     sfn textBox:MdBox (l:MdLayout t:string) {
