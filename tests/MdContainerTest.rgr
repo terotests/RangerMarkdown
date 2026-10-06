@@ -1,0 +1,217 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdContainerTest.rgr — `{container=box}` / `{container=bubble}` plates.
+; ============================================================================
+;
+;   npm run markdown:container:test
+;
+; The plan (colour, ink, radius) without a layout, then the plate a layout
+; puts under the block: before its text, around it, and the room it takes.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdLayout.rgr"
+Import "../src/MdCss.rgr"
+Import "../src/MdContainer.rgr"
+Import "../src/MdToEvg.rgr"
+
+class ContainerCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+}
+
+class MdContainerTest {
+    sfn main:void () {
+        def c:ContainerCheck (new ContainerCheck())
+        print "== MdContainerTest =="
+        MdContainerTest.reading(c)
+        MdContainerTest.planning(c)
+        MdContainerTest.layout(c)
+        MdContainerTest.sheet(c)
+        MdContainerTest.painting(c)
+        print ""
+        print ((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    sfn firstBlock:MdNode (src:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        return (doc.childAt(0))
+    }
+
+    sfn reading:void (c:ContainerCheck) {
+        def p:MdNode (MdContainerTest.firstBlock("Some words here\n{container=bubble}\n"))
+        c.eqStr("the attribute line under a paragraph" (MdContainer.kindOf(p)) "bubble")
+        c.eqStr("…and the paragraph keeps only its words" p.kind "paragraph")
+        c.ok("…and its source runs to the end of the attribute line, so a cached layout sees a change" (p.srcEnd >= 33))
+        c.eqStr("box" (MdContainer.kindOf((MdContainerTest.firstBlock("A\n{container=box}\n")))) "box")
+        c.eqStr("another word is a box" (MdContainer.kindOf((MdContainerTest.firstBlock("A\n{container=card}\n")))) "box")
+        c.eqStr("none is none" (MdContainer.kindOf((MdContainerTest.firstBlock("A\n{container=none}\n")))) "")
+        c.eqStr("no attribute, no plate" (MdContainer.kindOf((MdContainerTest.firstBlock("A\n")))) "")
+        def f:MdNode (MdContainerTest.firstBlock("A\n{container=box background=#fff8}\n"))
+        c.eqStr("a #rgba colour is an attribute value" (MdContainer.kindOf(f)) "box")
+        c.eqStr("background= is the plate's colour" (MdContainer.fillOf(f)) "#FFFFFF88")
+        c.eqStr("bg= a colour too" (MdContainer.fillOf((MdContainerTest.firstBlock("A\n{container=box bg=#204060}\n")))) "#204060")
+        c.eqStr("bg= a picture is not a colour" (MdContainer.fillOf((MdContainerTest.firstBlock("A\n{container=box bg=media/a.jpg}\n")))) "")
+    }
+
+    sfn planning:void (c:ContainerCheck) {
+        def light:MdContainer (MdContainer.plan("box" "" "" -1.0 "#ffffff" "#1f2328" 20.0))
+        c.eqStr("default: the page's colour, see-through" light.fill "#FFFFFFD9")
+        c.eqStr("dark text reads on it" light.ink "")
+        c.ok("a box is a little rounded" ((light.radius > 5.0) && (light.radius < 12.0)))
+        c.ok("a box fills the column" (! light.hug))
+        def dark:MdContainer (MdContainer.plan("box" "" "" -1.0 "#101820" "#f0f0f0" 20.0))
+        c.eqStr("a dark page gives a dark plate" dark.fill "#101820D9")
+        c.eqStr("…and its light text stays" dark.ink "")
+        def pic:MdContainer (MdContainer.plan("bubble" "" "" -1.0 "" "#1f2328" 20.0))
+        c.eqStr("a page with only a picture: white under dark text" pic.fill "#FFFFFFD9")
+        c.ok("a bubble hugs its text and has a tail" (pic.hug && (pic.tail > 0.0)))
+        c.ok("a bubble is rounder than a box" (pic.radius > light.radius))
+        def picLight:MdContainer (MdContainer.plan("box" "" "" -1.0 "" "#ffffff" 20.0))
+        c.eqStr("…black under light text" picLight.fill "#000000B3")
+        def own:MdContainer (MdContainer.plan("box" "#203040" "" -1.0 "#ffffff" "#1f2328" 20.0))
+        c.eqStr("the block's own colour wins" own.fill "#203040")
+        c.eqStr("dark text on a dark plate turns white" own.ink "#FFFFFF")
+        def thin:MdContainer (MdContainer.plan("box" "#FFFFFF33" "" -1.0 "#ffffff" "#1f2328" 20.0))
+        c.ok("a nearly clear plate cannot promise dark text on black" ((MdContainer.worstContrast("#1f2328" "#FFFFFF33")) < 4.5))
+        c.ok("…so the ink is whichever reads better" ((strlen thin.ink) > 0))
+        def themed:MdContainer (MdContainer.plan("box" "" "#ffeecc" 4.0 "#ffffff" "#1f2328" 20.0))
+        c.eqStr("the theme's colour" themed.fill "#ffeecc")
+        c.ok("the theme's radius" (themed.radius == 4.0))
+        def none:MdContainer (MdContainer.plan("" "" "" -1.0 "#ffffff" "#1f2328" 20.0))
+        c.eqStr("no kind, no fill" none.fill "")
+    }
+
+    sfn laid:MdLayout (src:string css:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        if ((strlen css) > 0) {
+            def mc:MdCss (new MdCss())
+            mc.addStyleSheet(css)
+            mc.applyTo(l.style)
+            l.setStyleSheet(css)
+        }
+        l.setDocSource(src)
+        l.layoutContinuous(doc 600.0)
+        return l
+    }
+
+    sfn textBox:MdBox (l:MdLayout t:string) {
+        for l.boxes b:MdBox i {
+            if ((b.kind == 0) && (b.text == t)) {
+                return b
+            }
+        }
+        return (new MdBox())
+    }
+
+    sfn plateIndex:int (l:MdLayout) {
+        for l.boxes b:MdBox i {
+            if ((b.kind == 1) && (b.radius > 0.0)) {
+                return i
+            }
+        }
+        return -1
+    }
+
+    sfn indexOfText:int (l:MdLayout t:string) {
+        for l.boxes b:MdBox i {
+            if ((b.kind == 0) && (b.text == t)) {
+                return i
+            }
+        }
+        return -1
+    }
+
+    sfn layout:void (c:ContainerCheck) {
+        def plain:MdLayout (MdContainerTest.laid("Before\n\nInside\n\nAfter\n" ""))
+        def boxed:MdLayout (MdContainerTest.laid("Before\n\nInside\n{container=box}\n\nAfter\n" ""))
+        def pi:int (MdContainerTest.plateIndex(boxed))
+        c.ok("a plate is laid" (pi >= 0))
+        c.ok("…before the text, so it is painted under it" (pi < (MdContainerTest.indexOfText(boxed "Inside"))))
+        c.ok("…after the block above" (pi > (MdContainerTest.indexOfText(boxed "Before"))))
+        def plate:MdBox (itemAt boxed.boxes pi)
+        def t:MdBox (MdContainerTest.textBox(boxed "Inside"))
+        c.ok("the text is inside the plate, with room round it" ((((t.x > plate.x) && (t.y > plate.y)) && ((t.x + t.w) < (plate.x + plate.w))) && ((t.y + t.h) < (plate.y + plate.h))))
+        c.ok("a box spans the column" ((fabs (plate.w - boxed.contentW)) < 0.5))
+        def tp:MdBox (MdContainerTest.textBox(plain "Inside"))
+        c.ok("the text moved in by the padding" (t.x > tp.x))
+        def after0:MdBox (MdContainerTest.textBox(plain "After"))
+        def after1:MdBox (MdContainerTest.textBox(boxed "After"))
+        c.ok("the next block moves down for the plate" (after1.y > after0.y))
+        c.ok("…and does not sit on it" (after1.y >= (plate.y + plate.h)))
+        c.eqStr("the plate belongs to its block" (to_string plate.srcStart) (to_string t.srcStart))
+
+        def bub:MdLayout (MdContainerTest.laid("Hi\n{container=bubble}\n\nAfter\n" ""))
+        def bp:MdBox (itemAt bub.boxes (MdContainerTest.plateIndex(bub)))
+        c.ok("a bubble hugs a short line" (bp.w < (bub.contentW * 0.5)))
+        c.ok("…and has a tail" (bp.tail > 0.0))
+        def ba:MdBox (MdContainerTest.textBox(bub "After"))
+        c.ok("…which the next block clears" (ba.y >= ((bp.y + bp.h) + bp.tail)))
+
+        def dark:MdLayout (MdContainerTest.laid("Inside\n{container=box background=#102030}\n" ""))
+        def darkText:MdBox (MdContainerTest.textBox(dark "Inside"))
+        c.eqStr("dark plate, white text" darkText.color "#FFFFFF")
+        def again:MdLayout (MdContainerTest.laid("Inside\n{container=box background=#102030}\n\nOutside\n" ""))
+        def outside:MdBox (MdContainerTest.textBox(again "Outside"))
+        c.ok("the text after it keeps its own colour" (outside.color != "#FFFFFF"))
+
+        def list:MdLayout (MdContainerTest.laid("- One\n- Two\n{container=box}\n" ""))
+        def lp:int (MdContainerTest.plateIndex(list))
+        c.ok("a list can sit on a plate too" ((lp >= 0) && (lp < (MdContainerTest.indexOfText(list "One")))))
+    }
+
+    sfn sheet:void (c:ContainerCheck) {
+        def l:MdLayout (MdContainerTest.laid("Inside\n{container=box}\n" "container { background-color: #ffeecc; border-radius: 3pt }"))
+        def plate:MdBox (itemAt l.boxes (MdContainerTest.plateIndex(l)))
+        c.eqStr("the theme's container colour" plate.fill "#FFEECC")
+        c.ok("the theme's radius" ((fabs (plate.radius - 3.0)) < 0.01))
+        def own:MdLayout (MdContainerTest.laid("Inside\n{container=box background=#ffffff}\n" "container { background-color: #ffeecc }"))
+        def ownPlate:MdBox (itemAt own.boxes (MdContainerTest.plateIndex(own)))
+        c.eqStr("the block's own colour over the theme's" ownPlate.fill "#FFFFFF")
+    }
+
+    sfn painting:void (c:ContainerCheck) {
+        def l:MdLayout (MdContainerTest.laid("Hi\n{container=bubble}\n" ""))
+        def painter:MdToEvg (new MdToEvg())
+        def dl:EVGDisplayList (new EVGDisplayList())
+        def plate:MdBox (itemAt l.boxes (MdContainerTest.plateIndex(l)))
+        painter.paintBox(dl l plate 0.0)
+        c.ok("a rounded rectangle and its tail" ((array_length dl.cmds) == 2))
+        def r:EVGDrawCmd (itemAt dl.cmds 0)
+        c.ok("the rectangle is rounded" ((r.kind == 0) && (r.radius > 0.0)))
+        def tl:EVGDrawCmd (itemAt dl.cmds 1)
+        c.ok("the tail is a filled path below it" ((tl.kind == 6) && ((array_length tl.pts) == 6)))
+        c.ok("…in the plate's colour" ((tl.r == r.r) && (tl.a == r.a)))
+    }
+}

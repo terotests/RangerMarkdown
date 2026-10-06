@@ -148,6 +148,9 @@ class MdToEvg {
                 def last:EVGDrawCmd (itemAt out.cmds ((array_length out.cmds) - 1))
                 last.radius = box.radius
             }
+            if (box.tail > 0.0) {
+                this.tail(out box y)
+            }
             return
         }
         if (box.kind == 2) {
@@ -246,6 +249,31 @@ class MdToEvg {
         c.w = w
         c.h = h
         this.tint(c fill)
+        push out.cmds c
+    }
+
+    ; A `{container=bubble}` plate's tail: a triangle hanging from the bottom
+    ; edge near the left, in the plate's colour. It meets the edge exactly:
+    ; an overlap would show twice as dark on a see-through plate.
+    fn tail:void (out:EVGDisplayList box:MdBox y:double) {
+        def t:double box.tail
+        def bottom:double (y + box.h)
+        def x0:double (box.x + (box.radius * 0.9))
+        if (x0 > (box.x + (box.w * 0.3))) { x0 = (box.x + (box.w * 0.3)) }
+        def c:EVGDrawCmd (new EVGDrawCmd())
+        c.kind = 6
+        c.x = (x0 - (t * 0.3))
+        c.y = bottom
+        c.w = (t * 1.6)
+        c.h = (t + 1.0)
+        push c.pts (x0 + (t * 0.3))
+        push c.pts bottom
+        push c.pts (x0 + (t * 1.3))
+        push c.pts bottom
+        push c.pts (x0 - (t * 0.3))
+        push c.pts ((bottom + t) + 1.0)
+        push c.ringEnds 6
+        this.tint(c box.fill)
         push out.cmds c
     }
 
@@ -402,6 +430,9 @@ class MdToEvg {
                 } {
                     def el:EVGElement (MdToEvg.element(b yOffset))
                     parent.addChild(el)
+                    if ((b.kind == 1) && (b.tail > 0.0)) {
+                        parent.addChild((MdToEvg.tailElement(b yOffset)))
+                    }
                 }
             }
             i = (i + 1)
@@ -449,6 +480,9 @@ class MdToEvg {
             def r:EVGElement (EVGElement.createDiv())
             MdToEvg.place(r b yOffset)
             r.backgroundColor = (EVGColor.parse(b.fill))
+            if (b.radius > 0.0) {
+                r.setAttribute("border-radius" ((to_string b.radius) + "px"))
+            }
             return r
         }
         if (b.kind == 2) {
@@ -495,6 +529,22 @@ class MdToEvg {
     sfn mathElement:EVGElement (b:MdBox) {
         def mb:MathBox (MathLayout.layout(b.embedSource (b.embedKind == "math-display")))
         return (MathRender.boxElement(mb b.size b.color))
+    }
+
+    ; the same tail as `tail` draws, as a path element of its own
+    sfn tailElement:EVGElement (b:MdBox yOffset:double) {
+        def t:double b.tail
+        def x0:double (b.x + (b.radius * 0.9))
+        if (x0 > (b.x + (b.w * 0.3))) { x0 = (b.x + (b.w * 0.3)) }
+        def left:double (x0 - (t * 0.3))
+        def p:EVGElement (EVGElement.createPath())
+        MdToEvg.put(p left ((b.y + b.h) + yOffset) (t * 1.6) t)
+        def w:string (to_string (t * 1.6))
+        def h:string (to_string t)
+        p.svgPath = (((((("M " + (to_string (t * 0.6))) + " 0 L ") + w) + " 0 L 0 ") + h) + " Z")
+        p.viewBox = (((("0 0 " + w) + " ") + h))
+        p.fillColor = (EVGColor.parse(b.fill))
+        return p
     }
 
     sfn place:void (el:EVGElement b:MdBox yOffset:double) {
