@@ -1,0 +1,665 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdPluginsTest.rgr — what markdown-it's demo document uses beyond CommonMark.
+; ============================================================================
+;
+;   npm run markdown:plugins:test
+;
+; Reference-style images, and the three standard plugins the demo is written
+; with: footnotes (markdown-it-footnote), definition lists
+; (markdown-it-deflist) and custom containers (markdown-it-container). Each is
+; checked twice: the tree the parser builds, and what the layout draws from
+; it — then what the HTML, PowerPoint and Word writers make of it.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdToHtml.rgr"
+Import "../src/MdLayout.rgr"
+Import "../src/MdCss.rgr"
+Import "../src/MdToPptx.rgr"
+Import "../src/MdToDocx.rgr"
+Import "../../vfs/src/Vfs.rgr"
+
+class PluginCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print (("  FAIL " + name) + ("  got " + (to_string got)) + ("  want " + (to_string want)))
+        }
+    }
+
+    fn has:void (name:string hay:string needle:string) {
+        if ((indexOf hay needle) >= 0) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    missing [" + (needle + "]"))
+            print ("    in      [" + (hay + "]"))
+        }
+    }
+}
+
+class MdPluginsTest {
+    sfn main:void () {
+        def c:PluginCheck (new PluginCheck())
+        print "== MdPluginsTest =="
+        MdPluginsTest.imagesParsed(c)
+        MdPluginsTest.imagesDrawn(c)
+        MdPluginsTest.footnotesParsed(c)
+        MdPluginsTest.footnotesDrawn(c)
+        MdPluginsTest.footnotesReserved(c)
+        MdPluginsTest.defListsParsed(c)
+        MdPluginsTest.defListsDrawn(c)
+        MdPluginsTest.containersParsed(c)
+        MdPluginsTest.containersDrawn(c)
+        MdPluginsTest.html(c)
+        MdPluginsTest.pptx(c)
+        MdPluginsTest.docx(c)
+        print ""
+        print ((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    ; markdown-it's demo, the part this suite is about
+    sfn demo:string () {
+        def s:string "Like links, Images also have a footnote style syntax\n\n![Alt text][id]\n\nWith a reference later in the document defining the URL location:\n\n[id]: https://octodex.github.com/images/dojocat.jpg  \"The Dojocat\"\n\n"
+        s = (s + "### [Footnotes](https://github.com/markdown-it/markdown-it-footnote)\n\nFootnote 1 link[^first].\n\nFootnote 2 link[^second].\n\nInline footnote^[Text of inline footnote] definition.\n\nDuplicated footnote reference[^second].\n\n[^first]: Footnote **can have markup**\n\n    and multiple paragraphs.\n\n[^second]: Footnote text.\n\n")
+        s = (s + "### [Definition lists](https://github.com/markdown-it/markdown-it-deflist)\n\nTerm 1\n\n:   Definition 1\nwith lazy continuation.\n\nTerm 2 with *inline markup*\n\n:   Definition 2\n\n        { some code, part of Definition 2 }\n\n    Third paragraph of definition 2.\n\n_Compact style:_\n\nTerm 1\n  ~ Definition 1\n\nTerm 2\n  ~ Definition 2a\n  ~ Definition 2b\n\n")
+        s = (s + "### [Custom containers](https://github.com/markdown-it/markdown-it-container)\n\n::: warning\n*here be dragons*\n:::\n")
+        return s
+    }
+
+    ; the first node of `kind` in the tree, depth first; kind "none" if none
+    sfn find:MdNode (n:MdNode kind:string) {
+        if (n.kind == kind) {
+            return n
+        }
+        def i:int 0
+        while (i < (n.childCount())) {
+            def got:MdNode (MdPluginsTest.find((n.childAt(i)) kind))
+            if (got.kind == kind) {
+                return got
+            }
+            i = (i + 1)
+        }
+        return (MdNode.create("none"))
+    }
+
+    sfn count:int (n:MdNode kind:string) {
+        def c:int 0
+        if (n.kind == kind) {
+            c = 1
+        }
+        def i:int 0
+        while (i < (n.childCount())) {
+            c = (c + (MdPluginsTest.count((n.childAt(i)) kind)))
+            i = (i + 1)
+        }
+        return c
+    }
+
+    sfn kids:string (n:MdNode) {
+        def out:string ""
+        def i:int 0
+        while (i < (n.childCount())) {
+            if (i > 0) {
+                out = (out + " ")
+            }
+            def k:MdNode (n.childAt(i))
+            out = (out + k.kind)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn slides:MdLayout (src:string css:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        return (MdPluginsTest.slidesOf(doc src css))
+    }
+
+    sfn slidesOf:MdLayout (doc:MdNode src:string css:string) {
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        if ((strlen css) > 0) {
+            def mc:MdCss (new MdCss())
+            mc.addStyleSheet(css)
+            mc.applyTo(l.style)
+            l.setStyleSheet(css)
+        }
+        l.setDocSource(src)
+        l.layoutSlides(doc)
+        return l
+    }
+
+    sfn column:MdLayout (src:string css:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        if ((strlen css) > 0) {
+            def mc:MdCss (new MdCss())
+            mc.addStyleSheet(css)
+            mc.applyTo(l.style)
+            l.setStyleSheet(css)
+        }
+        l.setDocSource(src)
+        l.layoutContinuous(doc 600.0)
+        return l
+    }
+
+    sfn textBox:MdBox (l:MdLayout t:string) {
+        for l.boxes b:MdBox i {
+            if ((b.kind == 0) && (b.text == t)) {
+                return b
+            }
+        }
+        def none:MdBox (new MdBox())
+        none.kind = -1
+        return none
+    }
+
+    sfn textIndex:int (l:MdLayout t:string) {
+        for l.boxes b:MdBox i {
+            if ((b.kind == 0) && (b.text == t)) {
+                return i
+            }
+        }
+        return -1
+    }
+
+    sfn plates:int (l:MdLayout) {
+        def n:int 0
+        for l.boxes b:MdBox i {
+            if ((b.kind == 1) && (b.radius > 0.0)) {
+                n = (n + 1)
+            }
+        }
+        return n
+    }
+
+    sfn firstPlate:MdBox (l:MdLayout) {
+        for l.boxes b:MdBox i {
+            if ((b.kind == 1) && (b.radius > 0.0)) {
+                return b
+            }
+        }
+        def none:MdBox (new MdBox())
+        none.kind = -1
+        return none
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Reference-style images
+    ; ----------------------------------------------------------------------
+    sfn imagesParsed:void (c:PluginCheck) {
+        print "-- images through reference definitions --"
+        def doc:MdNode (MdBlock.parseText((MdPluginsTest.demo())))
+        def img:MdNode (MdPluginsTest.find(doc "image"))
+        c.eqStr("![Alt text][id] is an image" img.kind "image")
+        c.eqStr("…at the URL a definition further down gives" img.destination "https://octodex.github.com/images/dojocat.jpg")
+        c.eqStr("…with its title" img.title "The Dojocat")
+        c.eqStr("…and its alt text, not the brackets" (img.plainText()) "Alt text")
+
+        def col:MdNode (MdPluginsTest.find((MdBlock.parseText("![cat][]\n\n[cat]: cat.png 'A cat'\n")) "image"))
+        c.eqStr("collapsed ![cat][]" col.destination "cat.png")
+        c.eqStr("…title in single quotes" col.title "A cat")
+        def sc:MdNode (MdPluginsTest.find((MdBlock.parseText("Look: ![cat]\n\n[cat]: <cat.png>\n")) "image"))
+        c.eqStr("shortcut ![cat]" sc.destination "cat.png")
+        def fold:MdNode (MdPluginsTest.find((MdBlock.parseText("![x][THE  Cat]\n\n[the cat]: c.png\n")) "image"))
+        c.eqStr("labels match case- and space-folded" fold.destination "c.png")
+        def none:MdNode (MdBlock.parseText("![x][nope]\n"))
+        c.eqInt("an undefined label is no image" (MdPluginsTest.count(none "image")) 0)
+        def inNote:MdNode (MdBlock.parseText("Text[^1].\n\n[^1]: See ![pic][p].\n\n[p]: p.png\n"))
+        def noteImg:MdNode (MdPluginsTest.find(inNote "image"))
+        c.eqStr("…and resolves inside a footnote too" noteImg.destination "p.png")
+        def inBox:MdNode (MdBlock.parseText("::: note\n![pic][p]\n:::\n\n[p]: p.png\n"))
+        def boxImg:MdNode (MdPluginsTest.find(inBox "image"))
+        c.eqStr("…and inside a container" boxImg.destination "p.png")
+    }
+
+    sfn imagesDrawn:void (c:PluginCheck) {
+        def v (new Vfs())
+        def mem (new VfsMemory())
+        def blob (new VfsBlob())
+        def raw:string "PNGBYTES"
+        def buf:buffer (buffer_alloc (strlen raw))
+        def bi:int 0
+        while (bi < (strlen raw)) {
+            buffer_set buf bi (charAt raw bi)
+            bi = (bi + 1)
+        }
+        blob.bytes = buf
+        blob.contentType = "image/png"
+        blob.pixelW = 240
+        blob.pixelH = 120
+        mem.put("/logo.png" blob)
+        v.mount("/" mem)
+        def src:string "![The logo][logo]\n\nAfter.\n\n[logo]: logo.png \"Logo\"\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.setImages(v "/")
+        l.layoutContinuous(doc 600.0)
+        def pic:MdBox (new MdBox())
+        pic.kind = -1
+        for l.boxes b:MdBox i {
+            if (b.kind == 4) {
+                pic = b
+            }
+        }
+        c.eqInt("a reference image is drawn as the picture" pic.kind 4)
+        c.eqStr("…from the definition's address" pic.imagePath "/logo.png")
+        c.eqInt("…not as its alt text" (MdPluginsTest.textIndex(l "[The logo]")) -1)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Footnotes
+    ; ----------------------------------------------------------------------
+    sfn footnotesParsed:void (c:PluginCheck) {
+        print "-- footnotes --"
+        def doc:MdNode (MdBlock.parseText((MdPluginsTest.demo())))
+        c.eqInt("three footnotes are numbered" (doc.noteCount()) 3)
+        c.eqInt("four references" (MdPluginsTest.count(doc "footnote_ref")) 4)
+        def p1:MdNode (doc.childAt(4))
+        c.eqStr("[^first] is a reference in its paragraph" (MdPluginsTest.kids(p1)) "text footnote_ref text")
+        def r1:MdNode (p1.childAt(1))
+        c.eqStr("…to the label" r1.info "first")
+        c.eqInt("…numbered 1" r1.noteNumber 1)
+        def r2:MdNode ((doc.childAt(5)).childAt(1))
+        c.eqInt("[^second] is 2" r2.noteNumber 2)
+        def r3:MdNode ((doc.childAt(6)).childAt(1))
+        c.eqStr("^[…] is a reference too" r3.kind "footnote_ref")
+        c.eqInt("…numbered in the order met" r3.noteNumber 3)
+        def r4:MdNode ((doc.childAt(7)).childAt(1))
+        c.eqInt("a reference used twice has the same number" r4.noteNumber 2)
+        c.eqInt("…and is its second reference" r4.noteSub 1)
+        def p7:MdNode (doc.childAt(7))
+        def after7:MdNode (p7.childAt(2))
+        c.eqStr("…and the text after it is text" after7.literal ".")
+        c.ok("a reference's source is its brackets" ((r1.srcStart >= 0) && ((r1.srcEnd - r1.srcStart) == 8)))
+
+        def d1:MdNode (doc.noteAt(1))
+        c.eqStr("footnote 1 is the [^first] definition" d1.info "first")
+        c.eqStr("…which holds two paragraphs: the indented one continues it" (MdPluginsTest.kids(d1)) "paragraph paragraph")
+        c.eqStr("…with its markup" (MdPluginsTest.kids((d1.childAt(0)))) "text strong")
+        def at8:MdNode (doc.childAt(8))
+        c.eqStr("…and stands where it was written" at8.kind "footnote_def")
+        def d3:MdNode (doc.noteAt(3))
+        c.eqStr("the inline note's body is a definition with no label" d3.info "")
+        def d3p:MdNode (d3.childAt(0))
+        def d3t:MdNode (d3p.childAt(0))
+        c.eqStr("…holding its text as a paragraph" d3t.literal "Text of inline footnote")
+        c.eqInt("…written nowhere in the tree" (MdPluginsTest.count(doc "footnote_def")) 2)
+        def d2:MdNode (doc.noteAt(2))
+        c.eqInt("footnote 2 was referred to twice" d2.noteRefs 2)
+
+        def order:MdNode (MdBlock.parseText("B[^b] then A[^a].\n\n[^a]: Aaa\n[^b]: Bbb\n"))
+        def o1:MdNode (order.noteAt(1))
+        c.eqStr("numbered by first reference, not by definition" o1.info "b")
+        c.eqStr("a definition interrupts the one before" (MdPluginsTest.kids(order)) "paragraph footnote_def footnote_def")
+        def unused:MdNode (MdBlock.parseText("Plain.\n\n[^x]: Never used.\n"))
+        c.eqInt("an unreferenced footnote gets no number" (unused.noteCount()) 0)
+        c.eqInt("…and is still a definition" (MdPluginsTest.count(unused "footnote_def")) 1)
+        def undef:MdNode (MdBlock.parseText("A [^nope] here.\n"))
+        c.eqInt("a label nobody defined is not a reference" (MdPluginsTest.count(undef "footnote_ref")) 0)
+        def undef0:MdNode (undef.childAt(0))
+        c.eqStr("…it stays text" (undef0.plainText()) "A [^nope] here.")
+        def spaced:MdNode (MdBlock.parseText("[^a b]: c\n"))
+        c.eqInt("a label with a space is no footnote" (MdPluginsTest.count(spaced "footnote_def")) 0)
+        def caret:MdNode (MdBlock.parseText("2^10 is 1024\n"))
+        c.eqStr("a caret in prose is one text node" (MdPluginsTest.kids((caret.childAt(0)))) "text")
+        def nested:MdNode (MdBlock.parseText("Hi^[see [the *spec*](u) and `a]`] there\n"))
+        def nn:MdNode (nested.noteAt(1))
+        c.eqStr("an inline note's brackets nest, and code is not a bracket" (MdPluginsTest.kids((nn.childAt(0)))) "text link text code")
+        def np0:MdNode (nested.childAt(0))
+        def npl:MdNode (np0.lastChild())
+        c.eqStr("…and the text after it goes on" npl.literal " there")
+        def lazy:MdNode (MdBlock.parseText("x[^1]\n\n[^1]: one\ntwo\n\n    three\n\nafter\n"))
+        def ld:MdNode (lazy.noteAt(1))
+        def ld0:MdNode (ld.childAt(0))
+        c.eqStr("a lazy line continues a footnote's paragraph" (ld0.plainText()) "one two")
+        c.eqInt("…an indented one after a blank is its next paragraph" (ld.childCount()) 2)
+        def lazyLast:MdNode (lazy.lastChild())
+        c.eqStr("…and an unindented one ends it" lazyLast.kind "paragraph")
+    }
+
+    sfn footnotesDrawn:void (c:PluginCheck) {
+        def l:MdLayout (MdPluginsTest.slides((MdPluginsTest.demo()) ""))
+        def ref:MdBox (new MdBox())
+        ref.kind = -1
+        for l.boxes b:MdBox i {
+            if ((b.noteRef == 1) && (ref.kind < 0)) {
+                ref = b
+            }
+        }
+        def word:MdBox (MdPluginsTest.textBox(l "Footnote 1 link"))
+        c.eqStr("a reference draws its number" ref.text "1")
+        c.ok("…smaller than the text" (ref.size < word.size))
+        c.ok("…raised above it" (ref.y < word.y))
+        c.ok("…right after the word" ((fabs (ref.x - (word.x + word.w))) < 1.0))
+        def m1:MdBox (MdPluginsTest.textBox(l "1."))
+        def m3:MdBox (MdPluginsTest.textBox(l "3."))
+        c.eqInt("the notes are drawn, numbered" m3.kind 0)
+        c.eqInt("…as the foot of a page" m1.furniture 3)
+        c.eqInt("…the page of their first reference" m1.page ref.page)
+        def body:MdBox (MdPluginsTest.textBox(l "Text of inline footnote"))
+        c.eqInt("an inline note's text is drawn there too" body.furniture 3)
+        c.ok("…smaller than the text" (body.size < word.size))
+        c.ok("…below everything else on its page" (MdPluginsTest.belowText(l m1)))
+        c.ok("…at the page's foot" ((m3.y + m3.h) > (l.contentBottom - 30.0)))
+        c.ok("…in number order" (m1.y < m3.y))
+        c.ok("…under a short rule" (MdPluginsTest.ruleAbove(l m1)))
+        def defText:MdBox (MdPluginsTest.textBox(l "Footnote text."))
+        c.eqInt("a definition draws nothing where it stands: its text is only a note" defText.furniture 3)
+        c.ok("a labelled note's boxes find its definition in the source" (m1.srcStart > 0))
+        c.eqInt("an inline note's claim no block's source" body.srcStart -1)
+
+        def two:MdLayout (MdPluginsTest.slides("# A\n\nOne[^a].\n\n# B\n\nTwo[^b].\n\n[^a]: First note.\n[^b]: Second note.\n" ""))
+        def fn1:MdBox (MdPluginsTest.textBox(two "First note."))
+        c.eqInt("each note is at the foot of the slide that refers to it" fn1.page 0)
+        def fn2:MdBox (MdPluginsTest.textBox(two "Second note."))
+        c.eqInt("…the second on the second" fn2.page 1)
+
+        def nested:MdLayout (MdPluginsTest.slides("Hi[^a].\n\n[^a]: See also[^b].\n[^b]: Deeper.\n" ""))
+        def deeper:MdBox (MdPluginsTest.textBox(nested "Deeper."))
+        c.eqInt("a note's own note goes with it" deeper.page 0)
+        c.eqInt("…and is drawn once" (MdPluginsTest.countText(nested "Deeper.")) 1)
+
+        def col:MdLayout (MdPluginsTest.column((MdPluginsTest.demo()) ""))
+        def last:MdBox (MdPluginsTest.textBox(col "here be dragons"))
+        def n1:MdBox (MdPluginsTest.textBox(col "1."))
+        c.ok("without pages, the notes close the document" (n1.y > (last.y + last.h)))
+        def n3:MdBox (MdPluginsTest.textBox(col "3."))
+        c.eqInt("…all of them" n3.kind 0)
+        c.ok("…and the document is tall enough for them" (col.documentHeight > (n1.y + n1.h)))
+    }
+
+    sfn countText:int (l:MdLayout t:string) {
+        def n:int 0
+        for l.boxes b:MdBox i {
+            if ((b.kind == 0) && (b.text == t)) {
+                n = (n + 1)
+            }
+        }
+        return n
+    }
+
+    ; every box of the page's own text ends above `m`
+    sfn belowText:boolean (l:MdLayout m:MdBox) {
+        for l.boxes b:MdBox i {
+            if ((b.page == m.page) && (b.furniture == 0)) {
+                if ((b.y + b.h) > m.y) {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
+    sfn ruleAbove:boolean (l:MdLayout m:MdBox) {
+        for l.boxes b:MdBox i {
+            if ((((b.page == m.page) && (b.furniture == 3)) && (b.kind == 1)) && (b.y < m.y)) {
+                if (b.w < (l.contentW * 0.5)) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    ; A slide full of text whose first line refers to a long note: the note's
+    ; room is kept, so the text breaks to the next slide before it.
+    sfn footnotesReserved:void (c:PluginCheck) {
+        def src:string "# Full\n\nFirst line refers[^n].\n\n"
+        def i:int 0
+        while (i < 40) {
+            src = (src + "Line " + (to_string i) + " of the slide.\n\n")
+            i = (i + 1)
+        }
+        src = (src + "[^n]: A note that is long enough to take two lines at the foot of the slide, so that the room it needs is more than one line of the small text it is set in.\n")
+        def l:MdLayout (MdPluginsTest.slides(src ""))
+        def m:MdBox (MdPluginsTest.textBox(l "1."))
+        c.eqInt("the note is on the first slide" m.page 0)
+        c.ok("…and no line of that slide runs into it" (MdPluginsTest.belowText(l m)))
+        c.ok("…because the text went on to another slide" (l.pageCount > 1))
+        c.ok("…while the note still sits at the slide's foot" ((m.y + m.h) <= (l.contentBottom + 0.5)))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Definition lists
+    ; ----------------------------------------------------------------------
+    sfn defListsParsed:void (c:PluginCheck) {
+        print "-- definition lists --"
+        def doc:MdNode (MdBlock.parseText((MdPluginsTest.demo())))
+        def dl:MdNode (MdPluginsTest.find(doc "dl"))
+        c.eqStr("a term and its definitions are one list" (MdPluginsTest.kids(dl)) "dt dd dt dd")
+        def dt0:MdNode (dl.childAt(0))
+        c.eqStr("a term is its line" (dt0.plainText()) "Term 1")
+        def dd1:MdNode (dl.childAt(1))
+        def dd1p:MdNode (dd1.childAt(0))
+        c.eqStr("a lazy line continues the definition" (dd1p.plainText()) "Definition 1 with lazy continuation.")
+        c.eqStr("a term keeps its markup" (MdPluginsTest.kids((dl.childAt(2)))) "text emph")
+        def dd2:MdNode (dl.childAt(3))
+        c.eqStr("a definition holds blocks" (MdPluginsTest.kids(dd2)) "paragraph code_block paragraph")
+        def ddCode:MdNode (dd2.childAt(1))
+        c.eqStr("…code indented four past its own indent" ddCode.literal "  { some code, part of Definition 2 }\n")
+        c.ok("blank lines between definitions loosen it" (! dl.listTight))
+        c.eqInt("the demo has two lists" (MdPluginsTest.count(doc "dl")) 2)
+        def compact:MdNode (MdPluginsTest.find(doc "dl"))
+        def second:MdNode (doc.childAt(13))
+        c.eqStr("the compact style: ~ markers, a term with two" (MdPluginsTest.kids(second)) "dt dd dt dd dd")
+        def at12:MdNode (doc.childAt(12))
+        c.eqStr("…the italic line above is not a term" at12.kind "paragraph")
+
+        def tight:MdNode ((MdBlock.parseText("Apple\n: A fruit.\n: A company.\nPear\n: Another.\n")).childAt(0))
+        c.eqStr("one term, two definitions, a term after" (MdPluginsTest.kids(tight)) "dt dd dd dd")
+        c.ok("…and a lazy line is not a term" true)
+        def tight2:MdNode ((MdBlock.parseText("Apple\n: A fruit.\n: A company.\n")).childAt(0))
+        c.ok("without blank lines it is tight" tight2.listTight)
+        def two:MdNode (MdBlock.parseText("a\nb\n: c\n"))
+        c.eqStr("a two-line paragraph is prose with a colon in it" (MdPluginsTest.kids(two)) "paragraph")
+        def gap:MdNode (MdBlock.parseText("a\n\n\n: c\n"))
+        c.eqInt("two blank lines are too many" (MdPluginsTest.count(gap "dl")) 0)
+        def empty:MdNode (MdBlock.parseText("a\n:\n"))
+        c.eqInt("an empty definition is none" (MdPluginsTest.count(empty "dl")) 0)
+        def nospace:MdNode (MdBlock.parseText("a\n:b\n"))
+        c.eqInt("the marker wants a space" (MdPluginsTest.count(nospace "dl")) 0)
+        def quoted:MdNode (MdBlock.parseText("> a\n: b\n"))
+        c.eqStr("a marker line can still be a lazy line of a quote" (MdPluginsTest.kids(quoted)) "block_quote")
+        def ended:MdNode (MdBlock.parseText("T\n: d\n\nAfter.\n"))
+        c.eqStr("an unindented paragraph ends the list" (MdPluginsTest.kids(ended)) "dl paragraph")
+    }
+
+    sfn defListsDrawn:void (c:PluginCheck) {
+        def l:MdLayout (MdPluginsTest.column("Term\n: The definition.\n\nAfter.\n" ""))
+        def t:MdBox (MdPluginsTest.textBox(l "Term"))
+        def d:MdBox (MdPluginsTest.textBox(l "The definition."))
+        c.ok("a term is drawn bold" t.bold)
+        c.ok("…its definition not" (! d.bold))
+        c.ok("…under it" (d.y > t.y))
+        c.ok("…indented" (d.x > (t.x + 10.0)))
+        def after:MdBox (MdPluginsTest.textBox(l "After."))
+        c.ok("the next block is at the margin again" ((fabs (after.x - t.x)) < 0.5))
+        def code:MdLayout (MdPluginsTest.column("T\n:   D\n\n        code here\n" ""))
+        def cb:MdBox (MdPluginsTest.textBox(code "code here"))
+        c.ok("code in a definition is drawn as code" (cb.family == code.style.monoFamily))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Custom containers
+    ; ----------------------------------------------------------------------
+    sfn containersParsed:void (c:PluginCheck) {
+        print "-- custom containers --"
+        def doc:MdNode (MdBlock.parseText((MdPluginsTest.demo())))
+        def box:MdNode (doc.lastChild())
+        c.eqStr("::: warning is a container" box.kind "container")
+        c.eqStr("…named" box.info "warning")
+        c.ok("…its name is its class" (box.hasClass("warning")))
+        c.eqStr("…its content parsed as blocks" (MdPluginsTest.kids(box)) "paragraph")
+        c.eqStr("…with their markup" (MdPluginsTest.kids((box.childAt(0)))) "emph")
+
+        def titled:MdNode ((MdBlock.parseText("::: tip Read **this** first\nBody.\n:::\n")).childAt(0))
+        c.eqStr("the words after the name are a title" titled.title "Read **this** first")
+        c.eqStr("…and the name is still the class" titled.info "tip")
+        def nested:MdNode (MdBlock.parseText("::::: outer\nA\n\n::: inner\nB\n:::\n\nC\n:::::\n\nD\n"))
+        def outer:MdNode (nested.childAt(0))
+        c.eqStr("more colons outside nest a container" (MdPluginsTest.kids(outer)) "paragraph container paragraph")
+        c.eqStr("…and the text after it is outside" (MdPluginsTest.kids(nested)) "container paragraph")
+        def same:MdNode (MdBlock.parseText("::: a\n::: b\nx\n:::\n:::\n"))
+        c.eqStr("the same number of colons closes the outer one (as markdown-it)" (MdPluginsTest.kids(same)) "container paragraph")
+        def open:MdNode (MdBlock.parseText("::: note\nNever closed.\n\nStill in.\n"))
+        c.eqStr("an unclosed container runs to the end" (MdPluginsTest.kids((open.childAt(0)))) "paragraph paragraph")
+        def bare:MdNode (MdBlock.parseText(":::\ntext\n:::\n"))
+        c.eqStr("colons with no name are text" (MdPluginsTest.kids(bare)) "paragraph")
+        def interrupts:MdNode (MdBlock.parseText("Para\n::: note\nIn\n:::\n"))
+        c.eqStr("a container interrupts a paragraph" (MdPluginsTest.kids(interrupts)) "paragraph container")
+        def fence:MdNode (MdBlock.parseText("::: note\n```\ncode\n:::\nafter\n"))
+        c.eqStr("the closing line wins over a fence inside, as the plugin's scan does" (MdPluginsTest.kids(fence)) "container paragraph")
+        def span:MdNode (MdBlock.parseText("::: note\nIn\n:::\n"))
+        def spanBox:MdNode (span.childAt(0))
+        c.eqInt("the container's source includes its closing line" spanBox.srcEnd 15)
+    }
+
+    sfn containersDrawn:void (c:PluginCheck) {
+        def l:MdLayout (MdPluginsTest.column("Before.\n\n::: warning\n*here be dragons*\n:::\n\nAfter.\n" ""))
+        c.eqInt("a container draws a plate" (MdPluginsTest.plates(l)) 1)
+        def plate:MdBox (MdPluginsTest.firstPlate(l))
+        def t:MdBox (MdPluginsTest.textBox(l "here be dragons"))
+        c.ok("…around its content" ((t.y > plate.y) && ((t.y + t.h) < (plate.y + plate.h))))
+        c.ok("…painted first" ((MdPluginsTest.indexOfBox(l plate)) < (MdPluginsTest.textIndex(l "here be dragons"))))
+        c.eqStr("…on the theme's neutral surface when nothing says otherwise" plate.fill l.style.codeBackground)
+        def after:MdBox (MdPluginsTest.textBox(l "After."))
+        c.ok("…and what follows clears it" (after.y >= (plate.y + plate.h)))
+
+        def css:MdLayout (MdPluginsTest.column("::: warning\nCareful.\n:::\n" ".warning { background-color: #ffeecc; border-radius: 2pt }"))
+        def cp:MdBox (MdPluginsTest.firstPlate(css))
+        c.eqStr("a sheet's .warning colours the plate" cp.fill "#FFEECC")
+        c.ok("…and rounds it" ((fabs (cp.radius - 2.0)) < 0.01))
+        def other:MdLayout (MdPluginsTest.column("::: tip\nFine.\n:::\n" ".warning { background-color: #ffeecc }"))
+        def op:MdBox (MdPluginsTest.firstPlate(other))
+        c.ok("…only the containers of that class" (op.fill != "#FFEECC"))
+
+        def nest:MdLayout (MdPluginsTest.column("::::: outer\nA\n\n::: inner\nB\n:::\n:::::\n" ""))
+        c.eqInt("nested containers are a plate in a plate" (MdPluginsTest.plates(nest)) 2)
+        def titled:MdLayout (MdPluginsTest.column("::: tip Read this\nBody.\n:::\n" ""))
+        def tt:MdBox (MdPluginsTest.textBox(titled "Read this"))
+        def tbody:MdBox (MdPluginsTest.textBox(titled "Body."))
+        c.ok("a title is drawn bold over the content" (tt.bold && (tt.y < tbody.y)))
+        def none:MdLayout (MdPluginsTest.column("::: note\nPlain.\n:::\n{container=none}\n" ""))
+        c.eqInt("{container=none} after it takes the plate away" (MdPluginsTest.plates(none)) 0)
+        def slide:MdLayout (MdPluginsTest.slides("# S\n\n::: warning\n*here be dragons*\n:::\n" ""))
+        c.eqInt("…and on a slide" (MdPluginsTest.plates(slide)) 1)
+    }
+
+    sfn indexOfBox:int (l:MdLayout want:MdBox) {
+        for l.boxes b:MdBox i {
+            if ((((b.kind == want.kind) && (b.y == want.y)) && (b.x == want.x)) && (b.w == want.w)) {
+                return i
+            }
+        }
+        return -1
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The writers
+    ; ----------------------------------------------------------------------
+    sfn html:void (c:PluginCheck) {
+        print "-- HTML, PowerPoint, Word --"
+        def out:string (MdToHtml.render((MdBlock.parseText((MdPluginsTest.demo())))))
+        c.has("an image through its reference" out "<img src=\"https://octodex.github.com/images/dojocat.jpg\" alt=\"Alt text\" title=\"The Dojocat\" />")
+        c.has("a reference as markdown-it-footnote writes it" out "link<sup class=\"footnote-ref\"><a href=\"#fn1\" id=\"fnref1\">[1]</a></sup>.")
+        c.has("…a second reference to the same note" out "<a href=\"#fn2\" id=\"fnref2:1\">[2:1]</a>")
+        c.has("the notes after the document" out "<hr class=\"footnotes-sep\" />\n<section class=\"footnotes\">\n<ol class=\"footnotes-list\">\n<li id=\"fn1\" class=\"footnote-item\"><p>Footnote <strong>can have markup</strong></p>\n<p>and multiple paragraphs. <a href=\"#fnref1\" class=\"footnote-backref\">")
+        c.has("…with a link back to each reference" out "<a href=\"#fnref2:1\" class=\"footnote-backref\">")
+        c.has("…the inline one too" out "<li id=\"fn3\" class=\"footnote-item\"><p>Text of inline footnote <a href=\"#fnref3\"")
+        c.ok("…and not where they were defined" ((indexOf out "<p>Footnote text.") > (indexOf out "footnotes-sep")))
+        c.has("a definition list, loose" out "<dl>\n<dt>Term 1</dt>\n<dd>\n<p>Definition 1\nwith lazy continuation.</p>\n</dd>\n<dt>Term 2 with <em>inline markup</em></dt>")
+        c.has("…its code" out "<pre><code>  { some code, part of Definition 2 }\n</code></pre>")
+        def tight:string (MdToHtml.render((MdBlock.parseText("Apple\n: A fruit.\n: A company.\n"))))
+        c.eqStr("a tight one" tight "<dl>\n<dt>Apple</dt>\n<dd>A fruit.</dd>\n<dd>A company.</dd>\n</dl>\n")
+        c.has("a container as markdown-it-container writes it" out "<div class=\"warning\">\n<p><em>here be dragons</em></p>\n</div>\n")
+    }
+
+    sfn pptx:void (c:PluginCheck) {
+        def src:string (MdPluginsTest.demo())
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (MdPluginsTest.slidesOf(doc src ""))
+        def maker:MdToPptx (new MdToPptx())
+        def d:PptxDeck (maker.deck(doc l))
+        def all:string ""
+        def s:int 0
+        while (s < (d.slideCount())) {
+            def sl:PptxSlideRef (d.slideAt(s))
+            all = (all + (sl.text()) + "\n--\n")
+            s = (s + 1)
+        }
+        c.has("a deck's reference is its number" all "Footnote 1 link[1].")
+        c.has("…its notes are on the slide" all "can have markup")
+        c.has("…the inline one too" all "Text of inline footnote")
+        c.has("a definition list's terms" all "Term 2 with inline markup")
+        c.has("…and definitions" all "Definition 1 with lazy continuation.")
+        c.has("a container's content" all "here be dragons")
+        c.eqInt("nothing was dropped" maker.result.dropped 0)
+        def plates:int 0
+        s = 0
+        while (s < (d.slideCount())) {
+            def sref:PptxSlideRef (d.slideAt(s))
+            def sm:PptxSlide (sref.model())
+            for sm.shapes sh:PptxShape k {
+                if (sh.preset == "roundRect") {
+                    plates = (plates + 1)
+                }
+            }
+            s = (s + 1)
+        }
+        c.eqInt("the container's plate is a rounded shape" plates 1)
+    }
+
+    sfn docx:void (c:PluginCheck) {
+        def maker:MdToDocx (new MdToDocx())
+        def rd:RichDocument (maker.build((MdBlock.parseText((MdPluginsTest.demo()))) (new MdStyle())))
+        def all:string ""
+        def i:int 0
+        while (i < (rd.paragraphCount())) {
+            def para:Paragraph (rd.paragraphAt(i))
+            all = (all + (para.plainText()) + "\n")
+            i = (i + 1)
+        }
+        c.has("Word: a reference is its number" all "Footnote 1 link[1].")
+        c.has("…the notes close the document, numbered" all "1. Footnote can have markup\nand multiple paragraphs.\n2. Footnote text.\n3. Text of inline footnote\n")
+        c.has("…a term, then its definition" all "Term 1\nDefinition 1 with lazy continuation.\n")
+        c.has("…a container's content" all "here be dragons")
+    }
+}

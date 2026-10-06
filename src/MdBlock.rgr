@@ -40,6 +40,8 @@ Import "MdAttrs.rgr"
 class MdBlock {
     def doc:MdNode (MdNode.create("document"))
     def refs:[string:MdLinkRef]
+    ; footnote definitions, as the blocks find them; numbered by the inlines
+    def notes:MdNotes (new MdNotes())
     def inline:MdInline (new MdInline())
 
     ; the open-block stack, root first
@@ -90,6 +92,7 @@ class MdBlock {
 
     fn run:MdNode (text:string) {
         doc = (MdNode.create("document"))
+        notes = (new MdNotes())
         clear stack
         push stack doc
         lineNumber = 0
@@ -126,7 +129,9 @@ class MdBlock {
         }
         MdBlock.foldAttributes(doc)
         MdBlock.splitMath(doc)
+        inline.notes = notes
         this.processInlines(doc doc 0)
+        doc.notes = notes.list
         return doc
     }
 
@@ -253,6 +258,12 @@ class MdBlock {
         if (parentKind == "block_quote") { return (childKind != "item") }
         if (parentKind == "item") { return (childKind != "item") }
         if (parentKind == "list") { return (childKind == "item") }
+        ; the plugins' containers hold blocks as a quote does; a definition
+        ; list holds its terms and definitions and nothing else
+        if (parentKind == "footnote_def") { return (childKind != "item") }
+        if (parentKind == "container") { return (childKind != "item") }
+        if (parentKind == "dd") { return (childKind != "item") }
+        if (parentKind == "dl") { return (childKind == "dd") }
         return false
     }
 
@@ -276,6 +287,8 @@ class MdBlock {
         def node:MdNode (MdNode.create(kind))
         node.srcStart = (lineStart + startCol)
         node.srcEnd = node.srcStart
+        node.firstLineNo = lineNumber
+        node.lastLineNo = lineNumber
         def parent:MdNode (this.tip())
         parent.add(node)
         push stack node
@@ -405,6 +418,7 @@ class MdBlock {
         def n:int (strlen line)
         def rest:string (substring line offset n)
         push t.lines (prefix + rest)
+        t.lastLineNo = lineNumber
 
         ; …and where every character of it came from. Built here, against the
         ; raw text, because this is the only place that still knows both.
@@ -578,6 +592,9 @@ class MdBlock {
         if (c == 60) { return true }
         if (c == 62) { return true }
         if (c == 45) { return true }
+        ; `:` opens a `::: container` or a `: definition`; `[` a `[^note]:`
+        if (c == 58) { return true }
+        if (c == 91) { return true }
         if (MdChar.isDigit(c)) { return true }
         return false
     }
@@ -616,6 +633,54 @@ class MdBlock {
         }
         if (kind == "list") { return 0 }
         if (kind == "document") { return 0 }
+        ; A definition list goes on while its definitions do: a line that is
+        ; neither in one nor starts one ends it, because a list cannot hold a
+        ; paragraph (`canContain`) — the way a bullet list ends.
+        if (kind == "dl") { return 0 }
+        ; A definition: its content is indented two past its marker
+        ; (markdown-it-deflist's `ddIndent`), and blank lines inside it are
+        ; its own until a line less indented ends it.
+        if (kind == "dd") {
+            if blank {
+                this.advanceNextNonspace()
+                return 0
+            }
+            def wantDd:int (node.markerOffset + node.padding)
+            if (indent >= wantDd) {
+                this.advanceOffset(wantDd true)
+                return 0
+            }
+            return 1
+        }
+        ; A footnote's continuation is indented four (markdown-it-footnote
+        ; adds four to the block indent), and a lazy line continues its
+        ; paragraph as anywhere else.
+        if (kind == "footnote_def") {
+            if blank {
+                this.advanceNextNonspace()
+                return 0
+            }
+            if (indent >= 4) {
+                this.advanceOffset(4 true)
+                return 0
+            }
+            return 1
+        }
+        ; `:::` closes the container it is at least as long as — before the
+        ; blocks inside it are asked, so a fence or a paragraph inside cannot
+        ; carry on past it, which is what markdown-it-container's search for
+        ; its end marker means. The closing line is part of the container.
+        if (kind == "container") {
+            if (! indented) {
+                def closeColons:int (MdBlock.closingFenceLength(line nextNonspace 58))
+                if (closeColons >= node.fenceLength) {
+                    this.finalizeThrough(idx)
+                    node.srcEnd = (lineStart + (strlen line))
+                    return 2
+                }
+            }
+            return 0
+        }
         if (kind == "heading") { return 1 }
         if (kind == "attrs") { return 1 }
         if (kind == "thematic_break") { return 1 }
@@ -691,6 +756,10 @@ class MdBlock {
         if (r != 0) { return r }
         r = (this.startAtxHeading())
         if (r != 0) { return r }
+        r = (this.startFootnoteDef())
+        if (r != 0) { return r }
+        r = (this.startCustomContainer())
+        if (r != 0) { return r }
         r = (this.startFencedCode())
         if (r != 0) { return r }
         r = (this.startHtmlBlock())
@@ -698,6 +767,8 @@ class MdBlock {
         r = (this.startSetextHeading())
         if (r != 0) { return r }
         r = (this.startThematicBreak())
+        if (r != 0) { return r }
+        r = (this.startDefinition())
         if (r != 0) { return r }
         r = (this.startListItem())
         if (r != 0) { return r }
@@ -737,6 +808,187 @@ class MdBlock {
         MdAttrs.applyTo(a rest)
         this.advanceOffset((n - offset) false)
         return 2
+    }
+
+    ; ----------------------------------------------------------------------
+    ; markdown-it's standard plugins
+    ; ----------------------------------------------------------------------
+    ;
+    ; Three block syntaxes that are not CommonMark and that every markdown-it
+    ; demo document uses. Each opens a container here exactly as a block
+    ; quote or a list item does — the same stack, the same continuation
+    ; question per line — so what may be inside them, lazy continuation lines
+    ; and blank lines all come from the algorithm above rather than from a
+    ; second parser. The rules are the plugins' own, cited where they bite.
+
+    ; `[^label]: text` (markdown-it-footnote). The label runs to the first
+    ; `]` and may not be empty or hold a space; the `:` must follow at once.
+    ; It is tried before a paragraph and a link reference definition, so it
+    ; interrupts a paragraph and `[^x]: y` is never a link to `y`.
+    fn startFootnoteDef:int () {
+        if indented { return 0 }
+        def n:int (strlen line)
+        def s:int nextNonspace
+        if ((this.charAtOffset(s)) != 91) { return 0 }
+        if ((this.charAtOffset((s + 1))) != 94) { return 0 }
+        def i:int (s + 2)
+        while (i < n) {
+            def c:int (charAt line i)
+            if (c == 32) { return 0 }
+            if (c == 93) { break }
+            i = (i + 1)
+        }
+        if (i == (s + 2)) { return 0 }
+        if (i >= n) { return 0 }
+        if ((this.charAtOffset((i + 1))) != 58) { return 0 }
+        def label:string (substring line (s + 2) i)
+        this.closeUnmatchedBlocks()
+        def fd:MdNode (this.addChild("footnote_def" s))
+        fd.info = label
+        notes.define(label fd)
+        this.advanceNextNonspace()
+        this.advanceOffset(((i + 2) - offset) false)
+        ; the spaces after the colon are not content
+        this.findNextNonspace()
+        this.advanceNextNonspace()
+        return 1
+    }
+
+    ; `::: warning` (markdown-it-container): three or more colons and a
+    ; name, then anything — a title. Any name is a container; it becomes the
+    ; block's class, so a sheet styles `.warning`. It closes at a line of at
+    ; least as many colons and nothing else, so a container is nested in
+    ; another by giving the outer one more (`::::`), as markdown-it needs.
+    fn startCustomContainer:int () {
+        if indented { return 0 }
+        def s:int nextNonspace
+        if ((this.charAtOffset(s)) != 58) { return 0 }
+        def n:int (strlen line)
+        def i:int s
+        while ((i < n) && ((charAt line i) == 58)) {
+            i = (i + 1)
+        }
+        def count:int (i - s)
+        if (count < 3) { return 0 }
+        def params:string (trim (substring line i n))
+        def name:string (MdBlock.firstWord(params))
+        if (! (MdBlock.isContainerName(name))) { return 0 }
+        this.closeUnmatchedBlocks()
+        def c:MdNode (this.addChild("container" s))
+        c.fenceChar = 58
+        c.fenceLength = count
+        c.info = name
+        c.title = (trim (substring params (strlen name) (strlen params)))
+        c.addClass(name)
+        this.advanceOffset((n - offset) false)
+        return 2
+    }
+
+    ; A word a sheet can name as a class: letters, digits, `-` and `_`.
+    sfn isContainerName:boolean (name:string) {
+        def n:int (strlen name)
+        if (n == 0) { return false }
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt name i)
+            def ok:boolean (MdChar.isAlnum(c))
+            if ((c == 45) || (c == 95)) { ok = true }
+            if (c > 127) { ok = true }
+            if (! ok) { return false }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; `: definition` or `~ definition` (markdown-it-deflist), under a term.
+    ;
+    ; The term is a paragraph of exactly one line, right above the marker or
+    ; one blank line above it; a paragraph of two lines is prose with a colon
+    ; in it. Once a list is open, a marker line that is not inside the
+    ; definition before it is the next definition of the same term, and a
+    ; new term right after the list carries the same list on.
+    ;
+    ; Every test here is made BEFORE anything is closed: a marker line that
+    ; turns out not to be a definition may still be a lazy continuation of a
+    ; paragraph in a quote above it.
+    fn startDefinition:int () {
+        if indented { return 0 }
+        def s:int nextNonspace
+        def c:int (this.charAtOffset(s))
+        if ((c != 58) && (c != 126)) { return 0 }
+        if (! (MdChar.isSpaceOrTab((this.charAtOffset((s + 1)))))) { return 0 }
+        ; no empty definitions
+        def n:int (strlen line)
+        def k:int (s + 1)
+        while ((k < n) && (MdChar.isSpaceOrTab((charAt line k)))) {
+            k = (k + 1)
+        }
+        if (k >= n) { return 0 }
+        def cont:MdNode (itemAt stack container)
+        if (cont.kind == "dl") {
+            this.closeUnmatchedBlocks()
+            return (this.openDefinition())
+        }
+        if (cont.kind == "paragraph") {
+            if ((array_length cont.lines) != 1) { return 0 }
+            def termAt:int cont.srcStart
+            this.closeUnmatchedBlocks()
+            this.finalizeTop()
+            container = (this.tipIndex())
+            def parent:MdNode (this.tip())
+            if (! (parent.hasChildren())) { return 0 }
+            def term:MdNode (parent.lastChild())
+            ; a line that was only a link reference definition is gone
+            if ((term.kind != "paragraph") || (term.srcStart != termAt)) { return 0 }
+            return (this.termToList(parent term))
+        }
+        if (! (cont.hasChildren())) { return 0 }
+        def last:MdNode (cont.lastChild())
+        if ((last.kind != "paragraph") || last.open) { return 0 }
+        if (last.firstLineNo != last.lastLineNo) { return 0 }
+        if (last.lastLineNo != (lineNumber - 2)) { return 0 }
+        this.closeUnmatchedBlocks()
+        return (this.termToList(cont last))
+    }
+
+    ; The closed one-line paragraph at the end of `parent` becomes a term:
+    ; of the list just before it when there is one, else of a new list.
+    fn termToList:int (parent:MdNode term:MdNode) {
+        removeLast parent.children
+        term.kind = "dt"
+        def reuse:boolean false
+        if (parent.hasChildren()) {
+            def prev:MdNode (parent.lastChild())
+            if ((prev.kind == "dl") && (! prev.open)) {
+                reuse = true
+            }
+        }
+        if reuse {
+            def dl:MdNode (parent.lastChild())
+            dl.open = true
+            push stack dl
+            dl.add(term)
+        } {
+            def dl2:MdNode (this.addChild("dl" nextNonspace))
+            dl2.srcStart = term.srcStart
+            dl2.add(term)
+        }
+        return (this.openDefinition())
+    }
+
+    ; A definition, at the marker on this line. Its content starts one
+    ; column after the marker's space; the rest of the spaces are the
+    ; content's own indent, so `:     code` is code, as in markdown-it.
+    fn openDefinition:int () {
+        def markerIndent:int indent
+        def at:int nextNonspace
+        this.advanceNextNonspace()
+        this.advanceOffset(1 false)
+        this.advanceOffset(1 true)
+        def dd:MdNode (this.addChild("dd" at))
+        dd.markerOffset = markerIndent
+        dd.padding = 2
+        return 1
     }
 
     fn startBlockQuote:int () {
@@ -1372,6 +1624,9 @@ class MdBlock {
         if (kind == "list") {
             node.listTight = (MdBlock.listIsTight(node))
         }
+        if (kind == "dl") {
+            node.listTight = (MdBlock.dlIsTight(node))
+        }
         ; `srcEnd` was stamped from the start of the line this block is being
         ; closed ON, which for a block that opens and closes on one line is the
         ; line it STARTED on — so a one-line HTML block came out as [32,32] and
@@ -1535,6 +1790,29 @@ class MdBlock {
                     if ((! isLast) || (! subLast)) { return false }
                 }
                 j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; markdown-it-deflist's rule: a definition list is loose when a blank
+    ; line ends a definition that something follows in the list, or when
+    ; one separates two blocks inside a definition. A blank line between a
+    ; term and its definition does not loosen it.
+    sfn dlIsTight:boolean (dl:MdNode) {
+        def n:int (dl.childCount())
+        def i:int 0
+        while (i < n) {
+            def dd:MdNode (dl.childAt(i))
+            if (dd.kind == "dd") {
+                if (dd.lastLineBlank && (i < (n - 1))) { return false }
+                def kids:int (dd.childCount())
+                def j:int 0
+                while (j < (kids - 1)) {
+                    if (MdBlock.endsWithBlankLine((dd.childAt(j)))) { return false }
+                    j = (j + 1)
+                }
             }
             i = (i + 1)
         }

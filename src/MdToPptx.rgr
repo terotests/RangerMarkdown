@@ -313,7 +313,7 @@ class MdToPptx {
                     def box:PptxShapeRef (slide.addTextBox(b.x b.y (b.w + 2.0) b.h b.text))
                     MdToPptx.tight(box)
                     def m:PptxShape (box.model())
-                    m.name = (? (b.furniture == 1) "Header" "Footer")
+                    m.name = (? (b.furniture == 1) "Header" (? (b.furniture == 3) "Footnote" "Footer"))
                     def r:PptxRunRef (box.runAt(0 0))
                     r.font(b.family b.size)
                     r.bold(b.bold)
@@ -442,6 +442,8 @@ class MdToPptx {
     ; ----------------------------------------------------------------------
     fn block:void (d:PptxDeck node:MdNode) {
         if (node.kind == "front_matter") { return }
+        ; a footnote is drawn at the foot of its slide, with the furniture
+        if (node.kind == "footnote_def") { return }
         if (MdGallery.isGallery(node)) {
             this.gallery(d node)
             return
@@ -519,6 +521,14 @@ class MdToPptx {
         }
         if (kind == "math_block") {
             this.formula(slide node)
+            return
+        }
+        if (kind == "dl") {
+            this.defList(slide node x y w h)
+            return
+        }
+        if (kind == "container") {
+            this.customContainer(d slide node)
             return
         }
         result.dropped = (result.dropped + 1)
@@ -1114,6 +1124,9 @@ class MdToPptx {
         if ((((k == "math") || (k == "strong")) || ((k == "emph") || (k == "code"))) || (k == "link")) {
             return true
         }
+        if (k == "footnote_ref") {
+            return true
+        }
         def i:int 0
         while (i < (node.childCount())) {
             def c:MdNode (node.childAt(i))
@@ -1138,6 +1151,99 @@ class MdToPptx {
         }
         def tmpl:PptxTextRun (itemAt para.runs 0)
         para.runs = (this.mathRuns(node tmpl))
+    }
+
+    ; A definition list, as one text box: each term a bold paragraph at the
+    ; box's edge, each definition's blocks a paragraph indented under it as
+    ; far as the layout indented them.
+    fn defList:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {
+        def box:PptxShapeRef (slide.addTextBox(x y w h ""))
+        MdToPptx.tight(box)
+        def m:PptxShape (box.model())
+        clear m.text.paragraphs
+        def page:int (this.pageOf(node))
+        def i:int 0
+        while (i < (node.childCount())) {
+            def c:MdNode (node.childAt(i))
+            if (c.kind == "dt") {
+                push m.text.paragraphs (this.defParagraph(c page true 0.0))
+            }
+            if (c.kind == "dd") {
+                def k:int 0
+                while (k < (c.childCount())) {
+                    push m.text.paragraphs (this.defParagraph((c.childAt(k)) page false layout.style.listIndent))
+                    k = (k + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        result.paragraphs = (result.paragraphs + 1)
+    }
+
+    fn defParagraph:PptxParagraph (node:MdNode page:int bold:boolean indent:double) {
+        def p (new PptxParagraph)
+        p.marginLeftPt = indent
+        p.marginSet = true
+        def r (new PptxTextRun)
+        r.text = (trim (MdToPptx.flatText(node)))
+        r.fontFamily = layout.style.bodyFamily
+        r.fontSizePt = layout.style.bodySize
+        r.sizeSet = true
+        r.color = (PptxApi.colorOf(layout.style.textColor))
+        if bold {
+            r.bold = true
+            r.boldSet = true
+        }
+        def drawn:MdBox (this.runBoxOf(node page))
+        MdToPptx.asDrawn(r drawn)
+        if bold {
+            r.bold = true
+            r.boldSet = true
+        }
+        if (node.kind == "code_block") {
+            r.fontFamily = layout.style.monoFamily
+            r.fontSizePt = layout.style.codeSize
+        }
+        push p.runs r
+        if (MdToPptx.hasInline(node)) {
+            p.runs = (this.mathRuns(node r))
+        }
+        return p
+    }
+
+    ; A `::: container`: the plate the layout drew under it, a rounded shape
+    ; of its colour, then its title and its blocks as the blocks they are.
+    fn customContainer:void (d:PptxDeck slide:PptxSlideRef node:MdNode) {
+        def page:int (this.pageOf(node))
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if ((((b.page == page) && (b.kind == 1)) && (b.srcStart == node.srcStart)) && (b.furniture == 0)) {
+                if ((b.radius > 0.0) && ((strlen b.fill) > 0)) {
+                    def plate:PptxShapeRef (slide.addShape("roundRect" b.x b.y b.w b.h))
+                    plate.fill(b.fill)
+                    plate.noLine()
+                    def pm:PptxShape (plate.model())
+                    pm.name = ("Container " + node.info)
+                }
+            }
+            if ((((b.page == page) && (b.kind == 0)) && (b.srcStart == node.srcStart)) && ((strlen node.title) > 0)) {
+                if (b.text == node.title) {
+                    def tb:PptxShapeRef (slide.addTextBox(b.x b.y (b.w + 2.0) b.h b.text))
+                    MdToPptx.tight(tb)
+                    def r:PptxRunRef (tb.runAt(0 0))
+                    r.font(b.family b.size)
+                    r.bold(true)
+                    r.color(b.color)
+                }
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (node.childCount())) {
+            this.block(d (node.childAt(k)))
+            k = (k + 1)
+        }
     }
 
     ; The runs of `node`'s text in the style of `tmpl`: text, an equation,
@@ -1206,6 +1312,20 @@ class MdToPptx {
                 cr.highlight = (PptxApi.colorOf(band))
             }
             push out cr
+            return
+        }
+        ; A footnote reference. The layout raises its number; a text run here
+        ; has no baseline shift to give it, so it is written as the HTML
+        ; export captions it, `[1]`, smaller and in the link colour. The note
+        ; is on the slide's foot, with the furniture.
+        if (node.kind == "footnote_ref") {
+            def fr (new PptxTextRun)
+            tmpl.copyStyleTo(fr)
+            fr.color = (PptxApi.colorOf(layout.style.linkColor))
+            fr.text = ("[" + (to_string node.noteNumber) + "]")
+            fr.fontSizePt = (tmpl.fontSizePt * 0.75)
+            fr.sizeSet = true
+            push out fr
             return
         }
         if (node.kind == "math") {
