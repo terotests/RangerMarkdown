@@ -1406,6 +1406,13 @@ class MdVegaRender {
             return
         }
         if (c.op == "text") {
+            ; A label the overlap pass hid (opacity 0) is not drawn at all,
+            ; as VlEvg / VlEvgList leave it out: the PDF writer paints text
+            ; without its colour's alpha, so a hidden axis label came out
+            ; printed over its neighbours there.
+            if (c.opacity <= 0.0) {
+                return
+            }
             def tx:double (padX + ((c.x + c.dx) * scale))
             def ty:double (padY + ((c.y + c.dy) * scale))
             def size:double (c.fontSize * scale)
