@@ -56,6 +56,9 @@ class MdContainer {
     def hug:boolean false
     ; the colour of a soft shadow under the plate, "" for none
     def shadow:string ""
+    ; a line round the plate (`border: 2pt solid #7ee0ff`), "" for none
+    def border:string ""
+    def borderWidth:double 0.0
 
     Constructor () {
     }

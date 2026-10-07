@@ -72,6 +72,8 @@ class MdStyle {
     def highlightCode:boolean true
 
     def textColor:string "#1f2328"
+    ; `p { color }`: a paragraph's text, "" for the document's
+    def paraColor:string ""
     ; The page's own ground, and a picture on it.
     ;
     ; `background-color` was already here three times — for code, for a table
@@ -102,6 +104,8 @@ class MdStyle {
     ; its own colour: this is the colour of ordinary text in there, not a wash
     ; over everything.
     def quoteColor:string "#57606a"
+    ; `blockquote { background-color }`: a band under the quote, "" for none
+    def quoteBackground:string ""
 
     ; `{container=box}` / `{container=bubble}`: the theme's plate,
     ; `container { background-color; border-radius }`. "" / negative leave it
@@ -111,6 +115,12 @@ class MdStyle {
     ; `container { box-shadow: 0 6pt 18pt rgba(…) }`: the colour of a soft
     ; shadow under the plate, "" for none
     def containerShadow:string ""
+    ; `container { padding; border }`: the room inside the plate and a line
+    ; round it, -1 / "" to leave them to `MdContainer.plan`
+    def containerPadX:double -1.0
+    def containerPadY:double -1.0
+    def containerBorder:string ""
+    def containerBorderWidth:double -1.0
 
     def listIndent:double 22.0
     def markerGap:double 8.0
@@ -131,6 +141,8 @@ class MdStyle {
 
     def tableBorder:string "#d0d7de"
     def tableHeadBackground:string "#f6f8fa"
+    ; `th { color }`: the header row's text, "" for the table's own
+    def tableHeadColor:string ""
     def cellPadX:double 7.0
     def cellPadY:double 5.0
     ; the size a table's text is set at, 0 for the body's
@@ -212,7 +224,191 @@ class MdStyle {
     ; never up: a three-node flowchart should not become a poster.
     def embedSpacing:double 12.0
 
+    ; `font-weight`, `font-style`, `text-transform` and `letter-spacing` for
+    ; the elements a sheet names them for (`h1`, `heading`, `document`, `p`,
+    ; `li`, `blockquote`), by element name (`MdTypo`, `typoFor`)
+    def typoTags:[string]
+    def typoList:[MdTypo]
+
     Constructor () {
+    }
+
+    ; The typography a sheet gave `tag`, created empty on first ask.
+    fn typoAt:MdTypo (tag:string) {
+        def i:int 0
+        while (i < (array_length typoTags)) {
+            if ((itemAt typoTags i) == tag) {
+                return (itemAt typoList i)
+            }
+            i = (i + 1)
+        }
+        def t:MdTypo (new MdTypo())
+        push typoTags tag
+        push typoList t
+        return t
+    }
+
+    ; …and what holds for a block written as `tag`: the document's, then
+    ; `heading`'s for a heading, then the tag's own — each over the last.
+    fn typoFor:MdTypo (tag:string) {
+        def out:MdTypo (new MdTypo())
+        if ((array_length typoTags) == 0) {
+            return out
+        }
+        out.over((this.typoOf("document")))
+        if (((strlen tag) == 2) && ((charAt tag 0) == 104)) {
+            out.over((this.typoOf("heading")))
+        }
+        out.over((this.typoOf(tag)))
+        return out
+    }
+
+    fn typoOf:MdTypo (tag:string) {
+        def i:int 0
+        while (i < (array_length typoTags)) {
+            if ((itemAt typoTags i) == tag) {
+                return (itemAt typoList i)
+            }
+            i = (i + 1)
+        }
+        return (new MdTypo())
+    }
+
+    fn typoText:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length typoTags)) {
+            def t:MdTypo (itemAt typoList i)
+            out = (out + (itemAt typoTags i) + "=" + (t.text()) + ";")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The look, without the sizes
+    ; ----------------------------------------------------------------------
+    ;
+    ; Every colour, face, picture and typography the style holds, as a list,
+    ; and the same list put back. A slide's own rules (`#id h2 { color }`,
+    ; `.dark page { background-color }`) are laid over the style while that
+    ; slide is laid out and taken off again after (`MdLayout.enterScope`);
+    ; sizes are not in it, because a slide that is shrunk to fit scales the
+    ; style's sizes in place and a second copy of them would undo that.
+    ;
+    ; **A colour added above and not added here stays the same on every
+    ; slide** — that is the cost of the list; `MdCssTest` checks a few.
+    fn look:[string] () {
+        def v:[string] ([] _:string (bodyFamily monoFamily headingFamily headingColor h1Color h2Color h3Color h4Color h5Color h6Color))
+        push v codeBackground
+        push v markBackground
+        push v markColor
+        push v kbdBackground
+        push v kbdBorder
+        push v codeBorder
+        push v codeKeyword
+        push v codeString
+        push v codeComment
+        push v codeNumber
+        push v codePlain
+        push v textColor
+        push v pageBackground
+        push v pageBackgroundImage
+        push v mutedColor
+        push v linkColor
+        push v ruleColor
+        push v quoteBarColor
+        push v quoteColor
+        push v quoteBackground
+        push v containerBackground
+        push v containerShadow
+        push v markerColor
+        push v tableBorder
+        push v tableHeadBackground
+        push v tableHeadColor
+        push v tableCellTones
+        push v headerColor
+        push v footerColor
+        push v headerBackground
+        push v footerBackground
+        push v headerRule
+        push v footerRule
+        push v imgAlign
+        push v (this.typoText())
+        push v containerBorder
+        push v paraColor
+        return v
+    }
+
+    fn setLook:void (v:[string]) {
+        if ((array_length v) < 47) {
+            return
+        }
+        bodyFamily = (itemAt v 0)
+        monoFamily = (itemAt v 1)
+        headingFamily = (itemAt v 2)
+        headingColor = (itemAt v 3)
+        h1Color = (itemAt v 4)
+        h2Color = (itemAt v 5)
+        h3Color = (itemAt v 6)
+        h4Color = (itemAt v 7)
+        h5Color = (itemAt v 8)
+        h6Color = (itemAt v 9)
+        codeBackground = (itemAt v 10)
+        markBackground = (itemAt v 11)
+        markColor = (itemAt v 12)
+        kbdBackground = (itemAt v 13)
+        kbdBorder = (itemAt v 14)
+        codeBorder = (itemAt v 15)
+        codeKeyword = (itemAt v 16)
+        codeString = (itemAt v 17)
+        codeComment = (itemAt v 18)
+        codeNumber = (itemAt v 19)
+        codePlain = (itemAt v 20)
+        textColor = (itemAt v 21)
+        pageBackground = (itemAt v 22)
+        pageBackgroundImage = (itemAt v 23)
+        mutedColor = (itemAt v 24)
+        linkColor = (itemAt v 25)
+        ruleColor = (itemAt v 26)
+        quoteBarColor = (itemAt v 27)
+        quoteColor = (itemAt v 28)
+        quoteBackground = (itemAt v 29)
+        containerBackground = (itemAt v 30)
+        containerShadow = (itemAt v 31)
+        markerColor = (itemAt v 32)
+        tableBorder = (itemAt v 33)
+        tableHeadBackground = (itemAt v 34)
+        tableHeadColor = (itemAt v 35)
+        tableCellTones = (itemAt v 36)
+        headerColor = (itemAt v 37)
+        footerColor = (itemAt v 38)
+        headerBackground = (itemAt v 39)
+        footerBackground = (itemAt v 40)
+        headerRule = (itemAt v 41)
+        footerRule = (itemAt v 42)
+        imgAlign = (itemAt v 43)
+        this.setTypoText((itemAt v 44))
+        containerBorder = (itemAt v 45)
+        paraColor = (itemAt v 46)
+    }
+
+    fn setTypoText:void (text:string) {
+        def tags:[string]
+        def list:[MdTypo]
+        def parts:[string] (strsplit text ";")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def part:string (itemAt parts i)
+            def eq:int (indexOf part "=")
+            if (eq > 0) {
+                push tags (substring part 0 eq)
+                push list (MdTypo.parse((substring part (eq + 1) (strlen part))))
+            }
+            i = (i + 1)
+        }
+        typoTags = tags
+        typoList = list
     }
 
     ; Every field of this style, as one string.
@@ -282,6 +478,9 @@ class MdStyle {
         if headerBold { out = (out + "/hb") }
         if footerBold { out = (out + "/fb") }
         out = (out + " img " + imgAlign + "/" + (to_string imgMaxHeight))
+        out = (out + " quote+ " + quoteBackground + " th " + tableHeadColor + " p " + paraColor)
+        out = (out + " plate " + (to_string containerPadX) + "/" + (to_string containerPadY) + "/" + containerBorder + "/" + (to_string containerBorderWidth))
+        out = (out + " typo " + (this.typoText()))
         out = ((out + " embed ") + (to_string embedSpacing))
         return out
     }
@@ -327,3 +526,99 @@ class MdStyle {
 }
 
 ; One piece of inline text with one look.
+
+; `font-weight`, `font-style`, `text-transform` and `letter-spacing` as a
+; block's text takes them. -1 / "" / unset is "not said", so one rule can be
+; laid over another (`over`) the way the cascade inherits them.
+class MdTypo {
+    ; 1 bold, 0 normal, -1 not said
+    def weight:int -1
+    ; 1 italic, 0 normal, -1 not said
+    def italic:int -1
+    ; "uppercase" / "lowercase" / "capitalize" / "none", "" for not said
+    def transform:string ""
+    ; in points; `spacingSet` false for not said
+    def spacing:double 0.0
+    def spacingSet:boolean false
+
+    Constructor () {
+    }
+
+    fn copy:MdTypo () {
+        def t:MdTypo (new MdTypo())
+        t.over(this)
+        return t
+    }
+
+    fn isEmpty:boolean () {
+        return ((((weight < 0) && (italic < 0)) && ((strlen transform) == 0)) && (spacingSet == false))
+    }
+
+    ; what `top` says, over what this says
+    fn over:void (top:MdTypo) {
+        if (top.weight >= 0) { weight = top.weight }
+        if (top.italic >= 0) { italic = top.italic }
+        if ((strlen top.transform) > 0) { transform = top.transform }
+        if top.spacingSet {
+            spacing = top.spacing
+            spacingSet = true
+        }
+    }
+
+    fn text:string () {
+        def sp:string ""
+        if spacingSet { sp = (to_string spacing) }
+        return ((to_string weight) + "," + (to_string italic) + "," + transform + "," + sp)
+    }
+
+    sfn parse:MdTypo (t:string) {
+        def out:MdTypo (new MdTypo())
+        def parts:[string] (strsplit t ",")
+        if ((array_length parts) < 4) {
+            return out
+        }
+        def w@(optional):int (str2int (itemAt parts 0))
+        out.weight = (?? w -1)
+        def it@(optional):int (str2int (itemAt parts 1))
+        out.italic = (?? it -1)
+        out.transform = (itemAt parts 2)
+        def sp:string (itemAt parts 3)
+        if ((strlen sp) > 0) {
+            def d@(optional):double (to_double sp)
+            out.spacing = (?? d 0.0)
+            out.spacingSet = true
+        }
+        return out
+    }
+
+    ; `text` as `text-transform` says to set it. Letters only change case;
+    ; `capitalize` raises the first letter of each word.
+    sfn apply:string (mode:string text:string) {
+        if (mode == "uppercase") { return (to_uppercase text) }
+        if (mode == "lowercase") { return (to_lowercase text) }
+        if (mode == "capitalize") {
+            def out:string ""
+            def start:boolean true
+            def n:int (strlen text)
+            def i:int 0
+            while (i < n) {
+                def c:int (charAt text i)
+                def ch:string (strfromcode c)
+                if ((c == 32) || ((c == 9) || ((c == 10) || (c == 45)))) {
+                    start = true
+                    out = (out + ch)
+                } {
+                    if start {
+                        out = (out + (to_uppercase ch))
+                    } {
+                        out = (out + ch)
+                    }
+                    start = false
+                }
+                i = (i + 1)
+            }
+            return out
+        }
+        return text
+    }
+}

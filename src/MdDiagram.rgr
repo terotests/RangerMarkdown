@@ -125,7 +125,7 @@ class MdDiagram {
 
     sfn walk:void (node:MdNode cache:MdEmbedCache width:double styleName:string) {
         if (node.kind == "heading") {
-            cache.underHeading(node.level (MdAnchor.slug((node.plainText()))))
+            cache.underHeadingNode(node)
         }
         ; A list whose list-style names a figure (`{list-style=swot}`) is
         ; that figure: a slot with the list's items as its source, the same

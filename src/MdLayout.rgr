@@ -104,6 +104,8 @@ class MdRun {
     def kbd:boolean false
     def shift:int 0
     def shiftOf:double 0.0
+    ; `letter-spacing`, in points: added after every character
+    def spacing:double 0.0
     ; a colour behind the text (`<span style="background-color">`), "" none
     def fill:string ""
     ; A footnote reference: the number it draws. Not part of the style, so
@@ -132,6 +134,7 @@ class MdRun {
         r.kbd = kbd
         r.shift = shift
         r.shiftOf = shiftOf
+        r.spacing = spacing
         r.fill = fill
         return r
     }
@@ -168,6 +171,7 @@ class MdSeg {
     def shiftOf:double 0.0
     def fill:string ""
     def noteRef:int 0
+    def spacing:double 0.0
 
     Constructor () {
     }
@@ -214,6 +218,8 @@ class MdBox {
     def family:string "Open Sans"
     def size:double 11.0
     def bold:boolean false
+    ; `letter-spacing` in points, after every character
+    def spacing:double 0.0
     def italic:boolean false
     def color:string "#1f2328"
     def fill:string ""
@@ -761,9 +767,158 @@ class MdLayout {
     }
 
     ; What the sheet says about one block. Empty when there is no sheet,
-    ; which is the common case and costs one selector match.
+    ; which is the common case and costs one selector match. Under a slide
+    ; or section, as being under it (`#intro .lead`).
     fn styleOf:CssComputed (node:MdNode) {
-        return (sheet.resolve(node))
+        return (sheet.resolveIn(node scopeCtx))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A slide's own rules
+    ; ----------------------------------------------------------------------
+
+    ; At the start of a layout: no heading yet, and the style's look as the
+    ; sheet and the front matter left it, to come back to.
+    fn startScopes:void () {
+        def none:[MdNode]
+        scopeHeads = none
+        def noCtx@(optional):CssNode
+        scopeCtx = noCtx
+        clear paperFrom
+        clear paperColour
+        clear paperPicture
+        paperPending = false
+        scoped = sheet.hasScoped
+        if scoped {
+            baseLook = (style.look())
+        }
+    }
+
+    ; …and at its end, the look put back: a host reads the style after a
+    ; layout and must not find the last slide's colours in it.
+    fn endScopes:void () {
+        if scoped {
+            style.setLook(baseLook)
+        }
+    }
+
+    ; A heading of the document begins: the blocks after it are under it
+    ; (and under the ones above it of a lower level).
+    fn enterHeading:void (h:MdNode) {
+        if ((h.level < 1) || (h.level > 6)) {
+            return
+        }
+        while ((array_length scopeHeads) < 7) {
+            push scopeHeads (new MdNode())
+        }
+        set_at scopeHeads h.level h
+        def d:int (h.level + 1)
+        while (d <= 6) {
+            set_at scopeHeads d (new MdNode())
+            d = (d + 1)
+        }
+        this.enterScope()
+    }
+
+    ; The headings block `i` of `doc` is under, found by walking back: for a
+    ; block laid out again on its own (a slide shrunk to fit).
+    fn scopeAtBlock:void (doc:MdNode i:int) {
+        def heads:[MdNode]
+        while ((array_length heads) < 7) {
+            push heads (new MdNode())
+        }
+        def limit:int 7
+        def j:int i
+        while ((j >= 0) && (limit > 1)) {
+            def c:MdNode (doc.childAt(j))
+            if ((c.kind == "heading") && (c.level < limit)) {
+                set_at heads c.level c
+                limit = c.level
+            }
+            j = (j - 1)
+        }
+        scopeHeads = heads
+        this.enterScope()
+    }
+
+    fn enterScope:void () {
+        scopeCtx = (MdCss.scopeOf(scopeHeads))
+        if (scoped == false) {
+            return
+        }
+        style.setLook(baseLook)
+        sheet.applyLook(style scopeCtx)
+        ; the page's own colour from here on, when it is not the sheet's
+        def n:int (array_length paperFrom)
+        def last:string (style.pageBackground + "|" + style.pageBackgroundImage)
+        def was:string ""
+        if (n > 0) {
+            was = ((itemAt paperColour (n - 1)) + "|" + (itemAt paperPicture (n - 1)))
+        } {
+            was = ((itemAt baseLook 22) + "|" + (itemAt baseLook 23))
+        }
+        if (last != was) {
+            if (paperPending && (n > 0)) {
+                set_at paperColour (n - 1) style.pageBackground
+                set_at paperPicture (n - 1) style.pageBackgroundImage
+            } {
+                push paperFrom page
+                push paperColour style.pageBackground
+                push paperPicture style.pageBackgroundImage
+            }
+            paperPending = true
+        }
+    }
+
+    ; The heading that began a scope is on page `p`: so is the scope's
+    ; colour, from there on.
+    fn settlePaper:void (p:int) {
+        if (paperPending == false) {
+            return
+        }
+        paperPending = false
+        def n:int (array_length paperFrom)
+        if (n == 0) {
+            return
+        }
+        set_at paperFrom (n - 1) p
+        ; one before it on the same page is overruled by it
+        if ((n > 1) && ((itemAt paperFrom (n - 2)) == p)) {
+            def keepC:string (itemAt paperColour (n - 1))
+            def keepP:string (itemAt paperPicture (n - 1))
+            remove_index paperFrom (n - 1)
+            remove_index paperColour (n - 1)
+            remove_index paperPicture (n - 1)
+            set_at paperColour (n - 2) keepC
+            set_at paperPicture (n - 2) keepP
+        }
+    }
+
+    ; The colour of page `p`: the sheet's, or the one a slide's own rules
+    ; gave it (`.dark page { background-color }`).
+    fn paperOf:string (p:int) {
+        def out:string style.pageBackground
+        def i:int 0
+        while (i < (array_length paperFrom)) {
+            if ((itemAt paperFrom i) <= p) {
+                out = (itemAt paperColour i)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; …and its picture
+    fn pictureOf:string (p:int) {
+        def out:string style.pageBackgroundImage
+        def i:int 0
+        while (i < (array_length paperFrom)) {
+            if ((itemAt paperFrom i) <= p) {
+                out = (itemAt paperPicture i)
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     ; Boxes measured with another style are boxes of another document — and
@@ -794,6 +949,7 @@ class MdLayout {
         boxIndexReady = false
         pageIndexReady = false
         this.resetHeadings()
+        this.startScopes()
         paginate = false
         page = 0
         pageCount = 1
@@ -805,6 +961,7 @@ class MdLayout {
         this.startNotes(doc)
         this.layoutBody(doc)
         this.placeNotesAtEnd()
+        this.endScopes()
         documentHeight = (cursorY + style.margin)
     }
 
@@ -865,6 +1022,7 @@ class MdLayout {
         boxIndexReady = false
         pageIndexReady = false
         this.resetHeadings()
+        this.startScopes()
         paginate = true
         page = 0
         pageCount = 1
@@ -895,6 +1053,7 @@ class MdLayout {
             this.growSlides(doc)
         }
         this.placeNotesPaged()
+        this.endScopes()
         this.emitFurniture()
         if slides {
             this.mirrorBook()
@@ -1541,6 +1700,8 @@ class MdLayout {
         boxIndexReady = false
         pageIndexReady = false
         this.resetHeadings()
+        this.endScopes()
+        this.startScopes()
         page = 0
         pageCount = 1
         cursorY = contentTop
@@ -1561,6 +1722,9 @@ class MdLayout {
     fn armCache:boolean (doc:MdNode) {
         cacheOn = false
         if paginate { return false }
+        ; a block's boxes depend on the slide it is under, which its own
+        ; source does not say
+        if sheet.hasScoped { return false }
         if style.wantToc { return false }
         if ((strlen docSource) == 0) { return false }
         if (doc.readingSig != cacheReading) {
@@ -1833,6 +1997,9 @@ class MdLayout {
                     }
                 }
             }
+            if (child.kind == "heading") {
+                this.enterHeading(child)
+            }
             ; Whether this block opens its slide: a heading that does is the
             ; slide's title, and what comes right under it is fitted to it
             ; (see `fitSlideTitle`) rather than spilled onto a slide of its own.
@@ -1908,6 +2075,35 @@ class MdLayout {
     def slideTitleOnly:boolean false
     ; inside a `{container=…}` plate: a block in it does not get one of its own
     def containerDepth:int 0
+    ; the plate the block being laid out stands on ("" for none) and the
+    ; page under it: a heading's own colour is judged on it, not only the
+    ; text's (`## Title {container=box}` kept its light theme colour on a
+    ; light plate)
+    def plateFill:string ""
+    def platePaper:string ""
+    ; The typography the block being laid out inherits and adds to
+    ; (`MdTypo`: weight, style, transform, spacing), and a face its class
+    ; names (`.serif { font-family }`), "" for the element's own
+    def typo:MdTypo (new MdTypo())
+    def typoDepth:int 0
+    def blockFamily:string ""
+
+    ; The headings the block being laid out is under, by level (1…6), as
+    ; the sheet sees them (`MdCss.scopeOf`): `#intro h2`, `.dark page`. The
+    ; style's look as the sheet left it is kept in `baseLook`, and a slide's
+    ; own rules are laid over it while that slide is laid out (`enterScope`).
+    def scopeHeads:[MdNode]
+    def scopeCtx@(optional):CssNode
+    def baseLook:[string]
+    def scoped:boolean false
+    ; the page's colour and picture from the page a scope began on, when a
+    ; slide's rules changed them (`paperOf`, `pictureOf`)
+    def paperFrom:[int]
+    def paperColour:[string]
+    def paperPicture:[string]
+    ; a mark whose page is the one its heading lands on, not yet known
+    ; (a slide break starts the new page at the heading's first line)
+    def paperPending:boolean false
 
     ; --- footnotes (see "Footnotes" below) --------------------------------
     ; the document whose `notes` are drawn; empty: none
@@ -3220,12 +3416,37 @@ class MdLayout {
         def saved:[double]
         def savedColor:string style.textColor
         def savedAlign:string align
+        def savedTypo:MdTypo typo
+        def savedFamily:string blockFamily
         def own:string (this.blockAlign(node))
         if ((strlen own) > 0) {
             align = own
         }
+        ; the typography it inherits (the document's at the top), then its
+        ; element's (`heading`, then `h2`), then its class's, below
+        def nt:MdTypo (typo.copy())
+        if (typoDepth == 0) {
+            nt = (style.typoOf("document")).copy()
+        }
+        def tag:string (MdCss.tagOf(node))
+        if (node.kind == "heading") {
+            nt.over((style.typoOf("heading")))
+        }
+        nt.over((style.typoOf(tag)))
+        ; a class's background, padding or border: the block on a plate of
+        ; its own, as `{container=box}` would put it (`.note { background-
+        ; color: #fff3cd; padding: 12pt }` needs no attribute)
+        def boxed:boolean false
         if (((strlen sheetText) > 0) && (((node.classCount()) > 0) || ((strlen node.nodeId) > 0))) {
             def got:CssComputed (this.styleOf(node))
+            nt.over((MdCss.typoOf(got)))
+            if (got.has("font-family")) {
+                def fam:string (CssValue.firstFamily((got.get("font-family"))))
+                if ((strlen fam) > 0) {
+                    blockFamily = fam
+                }
+            }
+            boxed = (MdLayout.boxLook(got))
             if (got.has("font-size")) {
                 def r:double (this.safeRatio(node (this.sizeRatio(node (got.get("font-size"))))))
                 if ((r > 0.0) && ((fabs (r - 1.0)) > 0.001)) {
@@ -3241,7 +3462,20 @@ class MdLayout {
                 }
             }
         }
+        typo = nt
+        typoDepth = (typoDepth + 1)
+        ; `p { color }` (a class's own colour, set above, wins)
+        if (((node.kind == "paragraph") && ((strlen style.paraColor) > 0)) && (style.textColor == savedColor)) {
+            if (quoteDepth == 0) {
+                style.textColor = style.paraColor
+            }
+        }
         def plate:string (MdContainer.kindOf(node))
+        if (((strlen plate) == 0) && boxed) {
+            if ((node.hasAttr("container")) == false) {
+                plate = "box"
+            }
+        }
         ; a `::: container` is a plate wherever it is — they nest, with more
         ; colons outside; a block INSIDE a `{container=…}` plate gets none
         if (((strlen plate) > 0) && ((containerDepth == 0) || (node.kind == "container"))) {
@@ -3249,6 +3483,9 @@ class MdLayout {
         } {
             this.blockInner(node x w)
         }
+        typoDepth = (typoDepth - 1)
+        typo = savedTypo
+        blockFamily = savedFamily
         if scaled {
             this.restoreStyle(saved)
         }
@@ -3259,6 +3496,19 @@ class MdLayout {
             align = savedAlign
         }
         currentSrc = outerSrc
+    }
+
+    ; Whether a rule gives its block a box: a solid background, a border or
+    ; padding (a gradient is no colour and gives none).
+    sfn boxLook:boolean (got:CssComputed) {
+        if ((strlen (MdLayout.sheetColour(got "background-color"))) > 0) { return true }
+        if ((strlen (MdLayout.sheetColour(got "background"))) > 0) { return true }
+        if ((strlen (MdCss.borderColour(got))) > 0) { return true }
+        def pads:[double] (MdCss.padding(got))
+        for pads pd:double pdi {
+            if (pd > 0.0) { return true }
+        }
+        return false
     }
 
     ; `{container=box}` / `{container=bubble}` under a block: the block laid
@@ -3273,7 +3523,10 @@ class MdLayout {
         def own:string (MdContainer.fillOf(node))
         def radius:double style.containerRadius
         def shadow:string style.containerShadow
-        if (((strlen sheetText) > 0) && ((node.classCount()) > 0)) {
+        def pads:[double] ([] _:double (style.containerPadY style.containerPadX style.containerPadY style.containerPadX))
+        def border:string style.containerBorder
+        def borderW:double style.containerBorderWidth
+        if (((strlen sheetText) > 0) && (((node.classCount()) > 0) || ((strlen node.nodeId) > 0))) {
             def got:CssComputed (this.styleOf(node))
             if ((strlen own) == 0) {
                 own = (MdLayout.sheetColour(got "background-color"))
@@ -3287,6 +3540,19 @@ class MdLayout {
             if (got.has("box-shadow")) {
                 shadow = (MdContainer.shadowColour((got.get("box-shadow"))))
             }
+            def gp:[double] (MdCss.padding(got))
+            def pi:int 0
+            while (pi < 4) {
+                if ((itemAt gp pi) >= 0.0) {
+                    set_at pads pi (itemAt gp pi)
+                }
+                pi = (pi + 1)
+            }
+            def bc:string (MdCss.borderColour(got))
+            if ((strlen bc) > 0) {
+                border = bc
+                borderW = (MdCss.borderWidth(got 1.0))
+            }
         }
         ; A `::: warning` is a callout on the page, not text lifted off a
         ; picture: on a page of its own colour the plate `{container=box}`
@@ -3299,15 +3565,21 @@ class MdLayout {
         }
         def p:MdContainer (MdContainer.plan(kind own themeFill radius paper style.textColor style.bodySize))
         p.shadow = shadow
+        if ((itemAt pads 0) >= 0.0) { p.padY = (itemAt pads 0) }
+        if ((itemAt pads 3) >= 0.0) { p.padX = (itemAt pads 3) }
+        if (((strlen border) > 0) && (borderW > 0.0)) {
+            p.border = border
+            p.borderWidth = borderW
+        }
         ; `radius=12px` and `padding=20px` (or `padding="10px 24px"`, top and
         ; bottom, then the sides) on the block, as the theme's lengths read
         if (node.hasAttr("radius")) {
             p.radius = (CssValue.fontPoints((node.attrValue("radius")) p.radius))
         }
         if (node.hasAttr("padding")) {
-            def pads:[string] (strsplit (trim (node.attrValue("padding"))) " ")
+            def apads:[string] (strsplit (trim (node.attrValue("padding"))) " ")
             def pv:[string]
-            for pads pp:string pi {
+            for apads pp:string pi {
                 if ((strlen pp) > 0) {
                     push pv pp
                 }
@@ -3333,6 +3605,10 @@ class MdLayout {
         if ((strlen p.ink) > 0) {
             style.textColor = p.ink
         }
+        def savedPlate:string plateFill
+        def savedPlatePaper:string platePaper
+        plateFill = p.fill
+        platePaper = paper
         def before:int (array_length boxes)
         def startPage:int page
         def top:double cursorY
@@ -3341,6 +3617,8 @@ class MdLayout {
         this.blockInner(node (x + p.padX) (w - (p.padX * 2.0)))
         containerDepth = (containerDepth - 1)
         style.textColor = savedInk
+        plateFill = savedPlate
+        platePaper = savedPlatePaper
         def plates:[MdBox] (this.plates(p before startPage top x w))
         if ((array_length plates) == 0) { return }
         def last:MdBox (itemAt plates ((array_length plates) - 1))
@@ -3426,6 +3704,15 @@ class MdLayout {
                     plate.tail = p.tail
                 }
                 push out plate
+                ; `border: 2pt solid …`: a line round the plate, inside it
+                if ((strlen p.border) > 0) {
+                    def half:double (p.borderWidth * 0.5)
+                    def edge:MdBox (MdBox.outline((px + half) (pt + half) (pw - p.borderWidth) (ph - p.borderWidth) p.border p.borderWidth))
+                    edge.radius = p.radius
+                    edge.page = pg
+                    edge.srcStart = currentSrc
+                    push out edge
+                }
             }
             pg = (pg + 1)
         }
@@ -3866,6 +4153,9 @@ class MdLayout {
     ; it runs onto says the right ones.
     fn relayoutBlock:void (doc:MdNode i:int) {
         def child:MdNode (doc.childAt(i))
+        if scoped {
+            this.scopeAtBlock(doc i)
+        }
         if (child.kind == "heading") {
             this.clearSection()
             if (child.level <= splitLevel) {
@@ -4386,12 +4676,30 @@ class MdLayout {
     fn baseRun:MdRun () {
         def r:MdRun (new MdRun())
         r.family = style.bodyFamily
+        if ((strlen blockFamily) > 0) {
+            r.family = blockFamily
+        }
         r.size = style.bodySize
         r.color = style.textColor
         if (quoteDepth > 0) {
             r.color = style.quoteColor
         }
         return r
+    }
+
+    ; A heading's colour where it is: the theme's for its level, or, on a
+    ; plate that colour does not read on, the plate's own ink
+    ; (MdContainer.inkOnPaper, as the text in it gets).
+    fn headingInkHere:string (level:int) {
+        def ink:string (style.headingInk(level))
+        if ((strlen plateFill) == 0) {
+            return ink
+        }
+        def on:string (MdContainer.inkOnPaper(plateFill ink platePaper))
+        if ((strlen on) > 0) {
+            return on
+        }
+        return ink
     }
 
     fn heading:void (node:MdNode x:double w:double) {
@@ -4411,6 +4719,7 @@ class MdLayout {
             push headText (node.plainText())
             push headLevel node.level
             push headPage page
+            this.settlePaper(page)
             push headY cursorY
             this.readEdgesOff(node)
             this.noteHidden(node.srcStart page)
@@ -4420,9 +4729,12 @@ class MdLayout {
         def size:double (style.headingSize(node.level))
         def base:MdRun (new MdRun())
         base.family = style.headingFamily
+        if ((strlen blockFamily) > 0) {
+            base.family = blockFamily
+        }
         base.size = size
         base.bold = true
-        base.color = (style.headingInk(node.level))
+        base.color = (this.headingInkHere(node.level))
         def runs:[MdRun] (this.inlineRuns(node base))
         cursorY = (cursorY + style.headingSpaceBefore)
         ; Recorded BEFORE the lines are placed, so the page is the page the
@@ -4431,6 +4743,7 @@ class MdLayout {
         push headText (node.plainText())
         push headLevel node.level
         push headPage page
+        this.settlePaper(page)
         push headY at
         this.readEdgesOff(node)
         this.paragraph(runs x w)
@@ -4686,6 +4999,29 @@ class MdLayout {
             i = (i + 1)
         }
         def bottom:double (inkBottom + pad)
+        ; `blockquote { background-color }`: a band under the quote on its
+        ; last page, put before its boxes so it is painted first
+        if ((strlen style.quoteBackground) > 0) {
+            def bandTop:double top
+            if (page != startPage) {
+                bandTop = contentTop
+            }
+            def band:MdBox (MdBox.rect(x bandTop w (bottom - bandTop) style.quoteBackground))
+            band.page = page
+            band.srcStart = currentSrc
+            def firstHere:int (array_length boxes)
+            def fi:int ((array_length boxes) - 1)
+            while (fi >= before) {
+                def fb:MdBox (itemAt boxes fi)
+                if (fb.page == page) {
+                    firstHere = fi
+                }
+                fi = (fi - 1)
+            }
+            def one:[MdBox]
+            push one band
+            this.insertBoxes(firstHere one)
+        }
         ; The bar is drawn per page, so a quote that spans a break gets one on
         ; each sheet rather than a single stripe that goes off the bottom.
         if (page == startPage) {
@@ -4702,6 +5038,11 @@ class MdLayout {
         def number:int node.listStart
         listDepth = (listDepth + 1)
         def wasTight:boolean inTightItem
+        ; `li { text-transform … }`: what the items' text inherits
+        def listTypo:MdTypo typo
+        def lt:MdTypo (typo.copy())
+        lt.over((style.typoOf("li")))
+        typo = lt
         ; How far the text is indented, which is as far as the WIDEST marker
         ; needs and never less than the style's own step.
         ;
@@ -4786,6 +5127,7 @@ class MdLayout {
             }
             i = (i + 1)
         }
+        typo = listTypo
         listDepth = (listDepth - 1)
         ; The list's own separation from whatever follows it, which the items
         ; stopped providing when the list went tight. Only the OUTERMOST list
@@ -5042,8 +5384,40 @@ class MdLayout {
     ; JavaScript suite passed and the Go suite laid out an empty page; there
     ; is no warning in between, so the rule here is that an array is a return
     ; value and never an out-parameter.
+    ; The runs of a block's inline content, in the typography it holds
+    ; (`typo`): bold or not, italic or not and the spacing on the base run
+    ; every other copies, then the letters changed as `text-transform` says
+    ; — not in code, which is what it is.
     fn inlineRuns:[MdRun] (node:MdNode base:MdRun) {
-        return (this.collectRuns(node base))
+        if (typo.isEmpty()) {
+            return (this.collectRuns(node base))
+        }
+        if (typo.weight == 1) { base.bold = true }
+        if (typo.weight == 0) { base.bold = false }
+        if (typo.italic == 1) { base.italic = true }
+        if (typo.italic == 0) { base.italic = false }
+        if typo.spacingSet {
+            base.spacing = (MdLayout.spacingFor(typo.spacing base.size))
+        }
+        def runs:[MdRun] (this.collectRuns(node base))
+        def t:string typo.transform
+        if (((strlen t) > 0) && (t != "none")) {
+            for runs r:MdRun ri {
+                if ((r.code == false) && ((strlen r.math) == 0)) {
+                    r.text = (MdTypo.apply(t r.text))
+                }
+            }
+        }
+        return runs
+    }
+
+    ; `letter-spacing` in points: as written, or (negative, from `em`) a
+    ; share of the size
+    sfn spacingFor:double (spacing:double size:double) {
+        if (spacing < 0.0) {
+            return ((0.0 - spacing) * size)
+        }
+        return spacing
     }
 
     fn collectRuns:[MdRun] (node:MdNode base:MdRun) {
@@ -6434,6 +6808,7 @@ class MdLayout {
             b.strike = seg.strike
             b.quiet = seg.quiet
             b.noteRef = seg.noteRef
+            b.spacing = seg.spacing
             this.emit(b)
             if (seg.underline || seg.strike) {
                 def base:double (ty + (this.baselineAt(seg.family seg.bold seg.italic seg.size)))
@@ -6719,6 +7094,9 @@ class MdLayout {
         }
         def face:string (style.faceFor(r.family r.bold r.italic))
         def m:EVGTextMetrics (engine.measureRun(text face r.size))
+        if (r.spacing != 0.0) {
+            return (m.width + (EVGTextEngine.trackingWidth(text r.spacing)))
+        }
         return m.width
     }
 
@@ -6985,6 +7363,7 @@ class MdLayout {
         seg.shift = run.shift
         seg.shiftOf = run.shiftOf
         seg.noteRef = run.noteRef
+        seg.spacing = run.spacing
         seg.x = usedWidth
         seg.w = (this.measureRun(openText run))
         push cur.segs seg
@@ -8109,7 +8488,12 @@ class MdLayout {
     ; measured in one face and drawn in another.
     fn tableCellRuns:[MdRun] (cell:MdNode tones:MdCellTones) {
         def base:MdRun (this.baseRun())
-        if cell.isHeader { base.bold = true }
+        if cell.isHeader {
+            base.bold = true
+            if ((strlen style.tableHeadColor) > 0) {
+                base.color = style.tableHeadColor
+            }
+        }
         def tone:string (tones.toneOfCell(cell))
         if ((strlen tone) > 0) {
             base.bold = true

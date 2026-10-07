@@ -264,12 +264,12 @@ class MdCssTest {
     fn reported:void (c:CssCheck) {
         print "-- and what it cannot do --"
         def css:MdCss (new MdCss())
-        css.addStyleSheet("document { font-size: 18pt; letter-spacing: 2pt; text-shadow: 1px 1px red }")
+        css.addStyleSheet("document { font-size: 18pt; opacity: 0.5; text-shadow: 1px 1px red }")
         def s:MdStyle (new MdStyle())
         css.applyTo(s)
         c.eqNum("what it can do, it did" s.bodySize 18.0)
         c.ok("and what it cannot is named" ((css.unsupportedCount()) >= 2))
-        c.ok("…by name" (MdCssTest.named(css "letter-spacing")))
+        c.ok("…by name" (MdCssTest.named(css "opacity")))
         c.ok("…each of them" (MdCssTest.named(css "text-shadow")))
 
         ; `line-height: 16pt` is a length and the field is a ratio. The size
@@ -414,6 +414,119 @@ class MdCssTest {
         return out
     }
 
+    ; ----------------------------------------------------------------------
+    ; What is not applied, said line by line (MdCssSupport.lint)
+    ; ----------------------------------------------------------------------
+
+    ; the messages the lint gives `css`, joined by "|"
+    sfn lintOf:string (css:string) {
+        def m:MdCss (new MdCss())
+        def notes:[MdCssNote] (m.lintText(css))
+        def out:string ""
+        for notes n:MdCssNote ni {
+            out = (out + n.message + "|")
+        }
+        return out
+    }
+
+    fn linted:void (c:CssCheck) {
+        print "-- every line that does nothing is named --"
+        c.eqStr("a sheet that is all read says nothing" (MdCssTest.lintOf("h1 { color: #123; text-transform: uppercase }\n.lead { font-size: 30pt; padding: 10pt }\n#intro h2 { color: red }\n.dark page { background-color: #000 }")) "")
+        def l1:string (MdCssTest.lintOf(".haalea { opacity: 0.4 }"))
+        c.ok(("an unsupported property is named: " + l1) ((indexOf l1 ".haalea { opacity }: opacity is not supported") >= 0))
+        def l2:string (MdCssTest.lintOf("li:nth-child(2) { color: red }\np::before { content: \"» \" }"))
+        c.ok(("a pseudo-class is named: " + l2) ((indexOf l2 "li:nth-child(2): :nth-child is not supported") >= 0))
+        c.ok("…and a pseudo-element" ((indexOf l2 "p::before: pseudo-elements") >= 0))
+        def l3:string (MdCssTest.lintOf(".rikki { color: ; font-size 20pt }"))
+        c.ok(("an empty value is named: " + l3) ((indexOf l3 ".rikki { color }: no value") >= 0))
+        c.ok("…and a missing colon" ((indexOf l3 "\"font-size 20pt\" has no \":\"") >= 0))
+        def l4:string (MdCssTest.lintOf(".gradientti { background: linear-gradient(90deg, #ff3d7f, #7ee0ff) }"))
+        c.ok(("a gradient is named: " + l4) ((indexOf l4 "gradients are not drawn") >= 0))
+        def l5:string (MdCssTest.lintOf("a { text-decoration: underline }\nslider { color: red }\ndiv > p { color: red }"))
+        c.ok(("a property an element does not read: " + l5) ((indexOf l5 "a { text-decoration }: text-decoration is not supported") >= 0))
+        c.ok("…an element that is not one" ((indexOf l5 "slider: slider is not an element") >= 0))
+        c.ok("…a combinator" ((indexOf l5 "div > p: only the space") >= 0))
+        def l6:string (MdCssTest.lintOf("#erikoisdia h2 { font-size: 40pt }"))
+        c.ok(("a size under a slide: " + l6) ((indexOf l6 "not read under a slide or section") >= 0))
+        def l7:string (MdCssTest.lintOf(".brand { color: var(--nope) }\n@font-face { font-family: X }"))
+        c.ok(("an undefined variable: " + l7) ((indexOf l7 "var(--nope) is not defined") >= 0))
+        c.ok("…an at-rule" ((indexOf l7 "@font-face: at-rules other than") >= 0))
+        c.eqStr("a gallery's cell:nth(n) is read" (MdCssTest.lintOf("cell:nth(2) { background-color: #fff }\ngallery { gap: 4pt }")) "")
+        ; a host's own elements: read under a slide too, and a prefix
+        def host (new MdCssSupport())
+        host.addElement("chart" "color,font-size,padding" "charts")
+        host.addElement("deck" "fx,fx-*" "")
+        host.readsUnderScope("chart")
+        def none:[string]
+        def hn:[MdCssNote] (host.lint("#myynti chart { font-size: 20pt }\ndeck { fx-hue: 200; fxhue: 3 }" none))
+        c.eqInt("a host's element and fx-* are read" (array_length hn) 1)
+        if ((array_length hn) == 1) {
+            def h0:MdCssNote (itemAt hn 0)
+            c.eqStr("…and fxhue is not" h0.property "fxhue")
+        }
+        ; where: the offsets point at the declaration in the text as written
+        def m:MdCss (new MdCss())
+        def text:string "/* note */\nh1 {\n  color: red;\n  opacity: 0.5;\n}"
+        def ns:[MdCssNote] (m.lintText(text))
+        c.eqInt("one note" (array_length ns) 1)
+        if ((array_length ns) == 1) {
+            def n0:MdCssNote (itemAt ns 0)
+            c.eqStr("…at the declaration" (substring text n0.at n0.end) "opacity: 0.5")
+        }
+        ; the sheet added keeps its notes
+        def kept:MdCss (new MdCss())
+        kept.addStyleSheet("h1 { opacity: 1 }")
+        c.eqInt("addStyleSheet keeps the notes" (kept.noteCount()) 1)
+    }
+
+    fn variables:void (c:CssCheck) {
+        print "-- :root variables --"
+        def s:MdStyle (MdCssTest.styled(":root { --brand: #ff3d7f; --ink: var(--brand) }\nh1 { color: var(--brand) }\nh2 { color: var(--ink) }\nh3 { color: var(--missing, #00ff00) }"))
+        c.eqStr("var() is the variable's colour" s.h1Color "#FF3D7F")
+        c.eqStr("…a variable may name another" s.h2Color "#FF3D7F")
+        c.eqStr("…a fallback when it is not defined" s.h3Color "#00FF00")
+        ; a theme's variable, used in the author's own sheet added after it
+        def two:MdCss (new MdCss())
+        two.addStyleSheet(":root { --brand: #102030 }")
+        two.addStyleSheet("a { color: var(--brand) }")
+        def s2:MdStyle (new MdStyle())
+        two.applyTo(s2)
+        c.eqStr("a theme's variable reaches a later sheet" s2.linkColor "#102030")
+        c.eqInt("…and is not reported" (two.noteCount()) 0)
+    }
+
+    fn typography:void (c:CssCheck) {
+        print "-- font-weight, font-style, text-transform, letter-spacing --"
+        def s:MdStyle (MdCssTest.styled("h1 { text-transform: uppercase; letter-spacing: 4pt }\nheading { font-weight: normal }\nh3 { font-style: italic }\ndocument { letter-spacing: 0.05em }"))
+        def h1:MdTypo (s.typoFor("h1"))
+        c.eqStr("h1 is set in capitals" h1.transform "uppercase")
+        c.eqNum("…spaced 4pt" h1.spacing 4.0)
+        c.eqInt("…not bold (heading)" h1.weight 0)
+        def h3:MdTypo (s.typoFor("h3"))
+        c.eqInt("h3 is italic" h3.italic 1)
+        c.eqStr("…and not in capitals" h3.transform "")
+        def p:MdTypo (s.typoFor("p"))
+        c.eqNum("em spacing is kept as a share (negative)" p.spacing -0.05)
+        c.eqStr("capitalize" (MdTypo.apply("capitalize" "hello big world")) "Hello Big World")
+        c.ok("a typography change is a style change" ((s.fingerprint()) != ((new MdStyle()).fingerprint())))
+    }
+
+    fn plates:void (c:CssCheck) {
+        print "-- th, blockquote, code, container boxes --"
+        def s:MdStyle (MdCssTest.styled("th { background-color: #ff3d7f; color: #000 }\nblockquote { background-color: #2a1530 }\ncode { color: #00ff9c }\ncontainer { padding: 20pt 12pt; border: 2pt solid #7ee0ff }"))
+        c.eqStr("th's background is the header row's" s.tableHeadBackground "#FF3D7F")
+        c.eqStr("…and its colour the row's text" s.tableHeadColor "#000000")
+        c.eqStr("a quote's background" s.quoteBackground "#2A1530")
+        c.eqStr("code's colour" s.codePlain "#00FF9C")
+        c.eqNum("container padding top" s.containerPadY 20.0)
+        c.eqNum("…and side" s.containerPadX 12.0)
+        c.eqStr("…a border's colour" s.containerBorder "#7EE0FF")
+        c.eqNum("…and width" s.containerBorderWidth 2.0)
+        ; th after table: th wins
+        def both:MdStyle (MdCssTest.styled("table { background-color: #111111 } th { background-color: #222222 }"))
+        c.eqStr("th wins over table" both.tableHeadBackground "#222222")
+    }
+
     fn run:void () {
         def c:CssCheck (new CssCheck())
         print "== MdCssTest =="
@@ -424,6 +537,10 @@ class MdCssTest {
         this.deck(c)
         this.cached(c)
         this.editing(c)
+        this.linted(c)
+        this.variables(c)
+        this.typography(c)
+        this.plates(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
