@@ -375,6 +375,15 @@ class MdLayout {
     ; by that block's source offset.
     def boxIndexAt:[string:int]
     def boxIndexReady:boolean false
+    ; Built on the first `boxesOnPage` after a layout: the boxes' indexes in
+    ; page order (box order within a page), and where each page's run starts
+    ; in it. A host that asks for every page's boxes then walks each box
+    ; once, not once per page (seconds for a 200-slide deck). A host that
+    ; moves a box to another page after the layout calls `forgetPages`.
+    def pageOrder:[int]
+    def pageFrom:[int]
+    def pageIndexReady:boolean false
+    def pageIndexBoxes:int -1
 
     ; --- the per-block layout cache -------------------------------------------
     ;
@@ -761,6 +770,7 @@ class MdLayout {
         this.checkStyle()
         clear boxes
         boxIndexReady = false
+        pageIndexReady = false
         this.resetHeadings()
         paginate = false
         page = 0
@@ -828,6 +838,7 @@ class MdLayout {
         this.disarmCache()
         clear boxes
         boxIndexReady = false
+        pageIndexReady = false
         this.resetHeadings()
         paginate = true
         page = 0
@@ -1441,6 +1452,7 @@ class MdLayout {
         }
         clear boxes
         boxIndexReady = false
+        pageIndexReady = false
         this.resetHeadings()
         page = 0
         pageCount = 1
@@ -2570,6 +2582,81 @@ class MdLayout {
         boxIndexReady = true
     }
 
+    fn forgetPages:void () {
+        pageIndexReady = false
+    }
+
+    fn buildPageIndex:void () {
+        clear pageOrder
+        clear pageFrom
+        def n:int (array_length boxes)
+        def last:int -1
+        def i:int 0
+        while (i < n) {
+            def b:MdBox (itemAt boxes i)
+            if (b.page > last) {
+                last = b.page
+            }
+            i = (i + 1)
+        }
+        ; pageFrom[p] .. pageFrom[p + 1]: page p's run in pageOrder
+        def p:int 0
+        while (p <= (last + 1)) {
+            push pageFrom 0
+            p = (p + 1)
+        }
+        i = 0
+        while (i < n) {
+            def b2:MdBox (itemAt boxes i)
+            if (b2.page >= 0) {
+                set pageFrom (b2.page + 1) ((itemAt pageFrom (b2.page + 1)) + 1)
+                push pageOrder 0
+            }
+            i = (i + 1)
+        }
+        p = 1
+        while (p <= (last + 1)) {
+            set pageFrom p ((itemAt pageFrom p) + (itemAt pageFrom (p - 1)))
+            p = (p + 1)
+        }
+        def at:[int]
+        p = 0
+        while (p <= last) {
+            push at (itemAt pageFrom p)
+            p = (p + 1)
+        }
+        i = 0
+        while (i < n) {
+            def b3:MdBox (itemAt boxes i)
+            if (b3.page >= 0) {
+                def k:int (itemAt at b3.page)
+                set pageOrder k i
+                set at b3.page (k + 1)
+            }
+            i = (i + 1)
+        }
+        pageIndexBoxes = n
+        pageIndexReady = true
+    }
+
+    ; the indexes in `boxes` of the boxes on page `pg`, in box order
+    fn boxesOnPage:[int] (pg:int) {
+        if ((! pageIndexReady) || (pageIndexBoxes != (array_length boxes))) {
+            this.buildPageIndex()
+        }
+        def out:[int]
+        if ((pg < 0) || ((pg + 1) >= (array_length pageFrom))) {
+            return out
+        }
+        def k:int (itemAt pageFrom pg)
+        def end:int (itemAt pageFrom (pg + 1))
+        while (k < end) {
+            push out (itemAt pageOrder k)
+            k = (k + 1)
+        }
+        return out
+    }
+
     fn firstBoxOf:int (srcStart:int) {
         if (! boxIndexReady) {
             this.buildBoxIndex()
@@ -3211,6 +3298,7 @@ class MdLayout {
             }
         }
         boxes = out
+        pageIndexReady = false
     }
 
     ; How a heading or paragraph sets its lines: `{.center}`, `{.right}`,

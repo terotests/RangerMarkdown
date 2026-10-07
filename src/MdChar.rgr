@@ -163,20 +163,32 @@ class MdChar {
         return false
     }
 
+    ; ASCII A-Z to a-z. The runs between capitals are copied whole and
+    ; joined once: adding one character at a time copies the string so far
+    ; on the Go target, which made a long line take minutes.
     sfn lower:string (s:string) {
-        def out:string ""
+        def parts:[string]
+        def from:int 0
         def i:int 0
         def n:int (strlen s)
         while (i < n) {
             def c:int (charAt s i)
             if ((c >= 65) && (c <= 90)) {
-                out = (out + (MdChar.fromCode((c + 32))))
-            } {
-                out = (out + (substring s i (i + 1)))
+                if (i > from) {
+                    push parts (substring s from i)
+                }
+                push parts (MdChar.fromCode((c + 32)))
+                from = (i + 1)
             }
             i = (i + 1)
         }
-        return out
+        if (from == 0) {
+            return s
+        }
+        if (n > from) {
+            push parts (substring s from n)
+        }
+        return (join parts "")
     }
 
     ; A code point back to a string. `strfromcode` writes UTF-8 directly on

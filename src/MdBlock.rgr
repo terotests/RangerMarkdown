@@ -231,27 +231,37 @@ class MdBlock {
     }
 
     ; Line endings, and the null character the specification replaces.
+    ; CR LF and lone CR to LF, NUL to U+FFFD. The runs between them are
+    ; copied whole and joined once (one character at a time was quadratic
+    ; on the Go target: seconds for a 100 kB deck).
     sfn normalizeSource:string (text:string) {
-        def out:string ""
+        def parts:[string]
+        def from:int 0
         def i:int 0
         def n:int (strlen text)
         while (i < n) {
             def c:int (charAt text i)
-            if (c == 13) {
-                def nc:int -1
-                if ((i + 1) < n) { nc = (charAt text (i + 1)) }
-                out = (out + "\n")
-                if (nc == 10) { i = (i + 1) }
-            } {
-                if (c == 0) {
-                    out = (out + (MdChar.fromCode(65533)))
-                } {
-                    out = (out + (substring text i (i + 1)))
+            if ((c == 13) || (c == 0)) {
+                if (i > from) {
+                    push parts (substring text from i)
                 }
+                if (c == 13) {
+                    push parts "\n"
+                    if (((i + 1) < n) && ((charAt text (i + 1)) == 10)) { i = (i + 1) }
+                } {
+                    push parts (MdChar.fromCode(65533))
+                }
+                from = (i + 1)
             }
             i = (i + 1)
         }
-        return out
+        if (from == 0) {
+            return text
+        }
+        if (n > from) {
+            push parts (substring text from n)
+        }
+        return (join parts "")
     }
 
     ; ----------------------------------------------------------------------
@@ -1389,12 +1399,20 @@ class MdBlock {
     sfn htmlBlockOpens:boolean (t:int rest:string) {
         def n:int (strlen rest)
         if (n < 2) { return false }
-        def low:string (MdChar.lower(rest))
+        ; only the start is lowered: the longest name the kinds 1, 5 and 6
+        ; look for ("</" and a ten-letter tag name and the character after
+        ; it) fits in 32, and a long line is not lowered whole seven times
+        def head:string rest
+        if (n > 32) {
+            head = (substring rest 0 32)
+        }
+        def low:string (MdChar.lower(head))
+        def ln:int (strlen low)
         if (t == 1) {
             if (MdBlock.startsWithAny(low "<script" "<pre" "<textarea" "<style")) {
                 def name:int (MdBlock.tagNameEndFrom(low 1))
                 def after:int -1
-                if (name < n) { after = (charAt low name) }
+                if (name < ln) { after = (charAt low name) }
                 if (after < 0) { return true }
                 if (after == 62) { return true }
                 if (MdChar.isUnicodeWhitespace(after)) { return true }
@@ -1413,10 +1431,10 @@ class MdBlock {
             def i:int 1
             if ((charAt low 1) == 47) { i = 2 }
             def j:int i
-            while (j < n) {
+            while (j < ln) {
                 def c:int (charAt low j)
                 if (! (MdChar.isAlnum(c))) {
-                    j = n
+                    j = ln
                 } {
                     j = (j + 1)
                 }
@@ -1425,13 +1443,13 @@ class MdBlock {
             def name:string (substring low i end)
             if (! (MdBlock.isBlockTag(name))) { return false }
             def after:int -1
-            if (end < n) { after = (charAt low end) }
+            if (end < ln) { after = (charAt low end) }
             if (after < 0) { return true }
             if (after == 62) { return true }
             if (MdChar.isUnicodeWhitespace(after)) { return true }
             if (after == 47) {
                 def after2:int -1
-                if ((end + 1) < n) { after2 = (charAt low (end + 1)) }
+                if ((end + 1) < ln) { after2 = (charAt low (end + 1)) }
                 if (after2 == 62) { return true }
             }
             return false
