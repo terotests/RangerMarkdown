@@ -232,26 +232,31 @@ class MdBlock {
 
     ; Line endings, and the null character the specification replaces.
     sfn normalizeSource:string (text:string) {
-        def out:string ""
+        ; Copied in runs between the characters that change, and joined once:
+        ; `out = (out + c)` per character copies the whole text each time on
+        ; targets without string ropes (Go, Rust, C++), which made a 470 KB
+        ; file take 25 s to open there.
+        def parts:[string]
+        def from:int 0
         def i:int 0
         def n:int (strlen text)
         while (i < n) {
             def c:int (charAt text i)
-            if (c == 13) {
-                def nc:int -1
-                if ((i + 1) < n) { nc = (charAt text (i + 1)) }
-                out = (out + "\n")
-                if (nc == 10) { i = (i + 1) }
-            } {
-                if (c == 0) {
-                    out = (out + (MdChar.fromCode(65533)))
+            if ((c == 13) || (c == 0)) {
+                if (i > from) { push parts (substring text from i) }
+                if (c == 13) {
+                    push parts "\n"
+                    if (((i + 1) < n) && ((charAt text (i + 1)) == 10)) { i = (i + 1) }
                 } {
-                    out = (out + (substring text i (i + 1)))
+                    push parts (MdChar.fromCode(65533))
                 }
+                from = (i + 1)
             }
             i = (i + 1)
         }
-        return out
+        if (from == 0) { return text }
+        if (from < n) { push parts (substring text from n) }
+        return (join parts "")
     }
 
     ; ----------------------------------------------------------------------
