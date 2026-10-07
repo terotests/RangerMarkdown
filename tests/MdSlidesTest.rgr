@@ -1231,6 +1231,14 @@ class MdSlidesTest {
         c.eqInt("…its last row too" (MdSlidesTest.slideOf(on ("r" + (to_string (n - 2))))) 0)
         c.eqInt("and the next slide is the second" (MdSlidesTest.slideOf(on "Text")) 1)
         c.eqInt("one slide was shrunk" on.slidesShrunk 1)
+        ; the slides after the shrunk one moved up a page, and so does a
+        ; hidden title written there: it names its own slide, not the one
+        ; below it
+        def hidSrc:string (head + body + "\nThe closing note.\n\n## Hidden {heading=hidden}\n\nUnder it.\n\n## Last\n\nEnd.\n")
+        def hid:MdLayout (MdSlidesTest.slidesWith(hidSrc css 0.8))
+        c.eqInt("the slide before a hidden title is shrunk" hid.slidesShrunk 1)
+        c.eqInt("what is under the hidden title is on the second slide" (MdSlidesTest.slideOf(hid "Under it.")) 1)
+        c.eqInt("…and the hidden title names that slide" (hid.pageOfHidden((indexOf hidSrc "## Hidden"))) 1)
         ; a table far too long is still split, evenly
         def big:string ""
         def r2:int 0
