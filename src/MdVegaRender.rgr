@@ -1937,19 +1937,37 @@ class MdVegaRender {
         return t
     }
 
+    ; Vega's baselines (canvas's, on an em box 0.8 above the alphabetic
+    ; baseline and 0.2 under it) as where the alphabetic baseline goes,
+    ; then the scene item's top that puts it there. A scene item's text is
+    ; drawn as every EVG painter draws a TEXT command (evg-html.js
+    ; `baselineOf`): its baseline half a leading plus the face's ascent under
+    ; the top of its line box, which is 1.3 sizes (`FlowScene.text`). Taking
+    ; the baseline for 0.8 of a size under the top (the em box) drew every
+    ; chart string a quarter of a size low: a bar's value label under the
+    ; middle of its bar, an axis label under its tick.
     sfn topOf:double (y:double size:double baseline:string) {
+        def base:double y
         if (baseline == "top") {
-            return y
+            base = (y + (size * 0.8))
         }
         if (baseline == "middle") {
-            return (y - (size * 0.5))
+            base = (y + (size * 0.3))
         }
         if (baseline == "bottom") {
-            return (y - size)
+            base = (y - (size * 0.2))
         }
-        ; "alphabetic", and anything this does not know: the baseline sits about
-        ; four fifths of the way down the em box.
-        return (y - (size * 0.8))
+        return (base - (MdVegaRender.baselineDrop(size)))
+    }
+
+    ; How far under a scene text item's top its baseline is drawn: half the
+    ; leading of its 1.3-size line box plus the ascent, for the chart face's
+    ; metrics (Open Sans: ascent 1.069, descent 0.293 of a size; Lato, the
+    ; other deck face, comes within a hundredth of a size of it).
+    sfn baselineDrop:double (size:double) {
+        def asc:double 1.069
+        def desc:double 0.293
+        return (((((1.3 - (asc + desc)) * 0.5)) + asc) * size)
     }
 
     sfn align:string (a:string) {

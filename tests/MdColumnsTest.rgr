@@ -254,6 +254,20 @@ class MdColumnsTest {
         def said:MdNode ((MdBlock.parseText("::: columns\nA\n\nB\n:::\n{widths=\"70 30\"}\n")).childAt(0))
         def ps:MdColumnsPlan (MdColumns.plan(said))
         c.near("widths= says them" (itemAt ps.fracs 0) 0.7 0.001)
+        ; the heading's widths= over the `::: columns` under it
+        def hd:MdNode (MdBlock.parseText("## N11 {widths=\"30 70\"}\n\n::: columns\n**Vasen**\n\n---\n\n- Oikea 1\n:::\n"))
+        def hrow:MdNode (hd.childAt(1))
+        def hp:MdColumnsPlan (MdColumns.plan(hrow))
+        c.near("a heading's widths= reach its ::: columns" (itemAt hp.fracs 0) 0.3 0.001)
+        def hc:MdNode (MdBlock.parseText("## T {widths=\"25 75\"}\n\n::: col A\nx\n:::\n::: col B\ny\n:::\n"))
+        def hcp:MdColumnsPlan (MdColumns.plan((hc.childAt(1))))
+        c.near("…and ::: col blocks side by side" (itemAt hcp.fracs 0) 0.25 0.001)
+        def own:MdNode (MdBlock.parseText("## T {widths=\"25 75\"}\n\n::: columns\nA\n\nB\n:::\n{widths=\"60 40\"}\n"))
+        def op:MdColumnsPlan (MdColumns.plan((own.childAt(1))))
+        c.near("…not over the row's own" (itemAt op.fracs 0) 0.6 0.001)
+        def next:MdNode (MdBlock.parseText("## T {widths=\"25 75\"}\n\nText\n\n## U\n\n::: columns\nA\n\nB\n:::\n"))
+        def np:MdColumnsPlan (MdColumns.plan((next.childAt(3))))
+        c.near("…nor past the next heading" (itemAt np.fracs 0) 0.5 0.001)
         def ws:[double] (pw.widths(500.0))
         c.near("widths and the gap add up to the whole" (((itemAt ws 0) + (itemAt ws 1)) + (MdColumns.gapFor(500.0))) 500.0 0.01)
     }
@@ -381,7 +395,15 @@ class MdColumnsTest {
         def sv:MdBox (MdColumnsTest.boxOf(stm "Iso viesti"))
         def sh:MdBox (MdColumnsTest.boxOf(stm "L05"))
         c.eqInt("statement with text: its title hidden" sh.kind -1)
-        c.ok("…the text at least the title's size" (sv.size >= 29.9))
+        c.ok("…a short text larger than the title" (sv.size > (stm.style.h2Size * 1.4)))
+        def stl:MdLayout (MdColumnsTest.deck("## L05 {layout=statement}\n\nYksi kaksi kolme neljä viisi kuusi seitsemän kahdeksan yhdeksän kymmenen yksitoista kaksitoista kolmetoista\n" ""))
+        def lsz:double 0.0
+        for stl.boxes lb:MdBox lbi {
+            if ((lb.kind == 0) && ((indexOf lb.text "Yksi") == 0)) {
+                lsz = lb.size
+            }
+        }
+        c.ok("…a longer one at the title's size" ((lsz >= (stl.style.h2Size - 0.1)) && (lsz < (stl.style.h2Size * 1.2))))
         c.near("…in the middle" (sv.y + (sv.h * 0.5)) 270.0 20.0)
         c.eqInt("…one slide" stm.pageCount 1)
         def alone:MdLayout (MdColumnsTest.deck("## Kiitos {layout=statement}\n" ""))
