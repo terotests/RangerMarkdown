@@ -3544,6 +3544,11 @@ class MdLayout {
             }
         }
         def plate:string (MdContainer.kindOf(node))
+        ; `::: columns` / `::: col` arrange their blocks: a sheet's
+        ; `container { background }` plates boxes, not them
+        if ((MdColumns.isRow(node)) || (MdColumns.isCell(node))) {
+            boxed = false
+        }
         if (((strlen plate) == 0) && boxed) {
             if ((node.hasAttr("container")) == false) {
                 plate = "box"

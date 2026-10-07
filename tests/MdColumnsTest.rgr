@@ -293,6 +293,12 @@ class MdColumnsTest {
         def y3:MdBox (MdColumnsTest.boxOf(l22 "Kolme"))
         c.near("L22: three headed columns from the heading's layout" y1.y y3.y 0.5)
         c.ok("…in three columns" (y3.x > (y1.x + 500.0)))
+        ; a theme's `container { background-color }` plates boxes, not columns
+        def tl:MdLayout (MdColumnsTest.deck("## L22 {layout=columns}\n\n### Yksi\nTeksti yksi\n\n### Kaksi\nTeksti kaksi\n" "container { background-color: #eef3f9; padding: 12pt; }"))
+        def ty:MdBox (MdColumnsTest.boxOf(tl "Yksi"))
+        def tt:MdBox (MdColumnsTest.boxOf(tl "Teksti yksi"))
+        c.near("…on a theme that plates containers, no plate" ty.x 48.0 0.5)
+        c.near("…and the text at the column's edge" tt.x 48.0 0.5)
 
         def l7:MdLayout (MdColumnsTest.deck("## L07 {layout=image-right}\n\n- Teksti ensin\n- Kuva toisena\n\n![Maisema](media/wide.png)\n" ""))
         def t7:MdBox (MdColumnsTest.boxOf(l7 "Teksti ensin"))
