@@ -69,8 +69,13 @@ class MdContainer {
 
     sfn kindOf:string (node:MdNode) {
         if (! (node.hasAttr("container"))) {
-            ; `::: warning` … `:::` is a box unless it says otherwise
-            if (node.kind == "container") { return "box" }
+            ; `::: warning` … `:::` is a box unless it says otherwise;
+            ; `::: columns` / `::: col` only arrange (MdColumns)
+            if (node.kind == "container") {
+                def nm:string (MdContainer.lower(node.info))
+                if ((((nm == "columns") || (nm == "cols")) || (nm == "col")) || (nm == "column")) { return "" }
+                return "box"
+            }
             return ""
         }
         def v:string (MdContainer.lower((trim (node.attrValue("container")))))

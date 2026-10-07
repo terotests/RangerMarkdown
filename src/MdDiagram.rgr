@@ -49,6 +49,7 @@ Import "MdEmbedKinds.rgr"
 Import "MdVegaRender.rgr"
 Import "MdFigure.rgr"
 Import "MdAnchor.rgr"
+Import "MdColumns.rgr"
 Import "../../rangerflow/domains/mermaid/MermaidRender.rgr"
 Import "../../rangerflow/domains/plantuml/PlantUmlRender.rgr"
 Import "../../rangerflow/domains/graphviz/DotRender.rgr"
@@ -124,12 +125,13 @@ class MdDiagram {
     }
 
     sfn walk:void (node:MdNode cache:MdEmbedCache width:double styleName:string) {
-        if (node.kind == "heading") {
-            cache.underHeadingNode(node)
-        }
-        ; A list whose list-style names a figure (`{list-style=swot}`) is
-        ; that figure: a slot with the list's items as its source, the same
-        ; as the fence the list could have been written as.
+        MdDiagram.walkAt(node cache width styleName false)
+    }
+
+    ; A list whose list-style names a figure (`{list-style=swot}`) is
+    ; that figure: a slot with the list's items as its source, the same
+    ; as the fence the list could have been written as.
+    sfn figureList:void (node:MdNode cache:MdEmbedCache) {
         if (node.kind == "list") {
             def ls:string (cache.listStyleOf(node))
             if (((strlen ls) > 0) && ((MdEmbedKinds.notationOf(ls)) == "figure")) {
@@ -138,19 +140,56 @@ class MdDiagram {
                 node.kind = "embed"
             }
         }
+    }
+
+    sfn walkAt:void (node:MdNode cache:MdEmbedCache width:double styleName:string taken:boolean) {
+        if (node.kind == "heading") {
+            cache.underHeadingNode(node)
+        }
+        ; A list whose list-style names a figure (`{list-style=swot}`) is
+        ; that figure: a slot with the list's items as its source, the same
+        ; as the fence the list could have been written as.
+        MdDiagram.figureList(node cache)
         if (node.kind == "embed") {
             def word:string (MdEmbedKinds.firstWord(node.info))
             def notation:string (MdEmbedKinds.notationOf(word))
             if ((strlen notation) > 0) {
                 ; `{width=360}` under the fence. The LAYOUT works the same
                 ; number out of the same attribute, and it has to be the same
-                ; number: the cache is keyed by it.
+                ; number: the cache is keyed by it. A block whose `width=`
+                ; made its column's width fills the column (MdColumns).
                 def want:string (node.attrValue("width"))
+                if taken {
+                    want = ""
+                }
                 def useW:double (MdEmbedKinds.widthOf(want width))
                 MdDiagram.render(node cache useW styleName word notation)
             }
         }
         if (node.kind == "embed") {
+            return
+        }
+        ; side by side: each block at its column's width, as MdLayout
+        ; lays it out (MdLayout.columnsBlock)
+        if (MdColumns.isRow(node)) {
+            def k:int 0
+            while (k < (node.childCount())) {
+                MdDiagram.figureList((node.childAt(k)) cache)
+                k = (k + 1)
+            }
+            def plan:MdColumnsPlan (MdColumns.plan(node))
+            def ws:[double] (plan.widths(width))
+            def j:int 0
+            while (j < (node.childCount())) {
+                def c2:MdNode (node.childAt(j))
+                def col:int (plan.columnOf(j))
+                if (col < 0) {
+                    MdDiagram.walkAt(c2 cache width styleName false)
+                } {
+                    MdDiagram.walkAt(c2 cache (itemAt ws col) styleName (plan.isTaken(j)))
+                }
+                j = (j + 1)
+            }
             return
         }
         def i:int 0

@@ -1,0 +1,143 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdSlideLayout.rgr — where a slide's content sits: at the top, centred
+; under the title, or the whole slide centred.
+; ============================================================================
+;
+; ````markdown
+; ## Osa 2: tulokset {layout=section}
+;
+; ## Yksi lause keskellä {valign=center}
+;
+; ## Viesti {layout=statement}
+;
+; Iso keskitetty viesti.
+; ````
+;
+; On a slide's title (or `valign:` / `layout:` in the front matter, for every
+; slide that says nothing itself):
+;
+;   valign=center | bottom   the content under the title is set in the
+;                            middle (at the foot) of the room under it;
+;                            `layout=center` is the same as valign=center
+;   layout=section | title   the title and what is under it, together, in
+;                            the middle of the slide, the lines centred
+;   layout=statement         as section, and the text under the title is set
+;                            at the title's size; a statement with text
+;                            under it hides its title (it still names the
+;                            slide), one without is its title, large
+;
+; `layout=columns | comparison | two-column | image-right | image-left` put
+; the content side by side (MdColumns) and are no business of this file.
+;
+; Only geometry: `MdLayout.alignSlides` collects the boxes and moves them.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdChar.rgr"
+
+class MdSlideLayout {
+
+    ; The word that places slide `heading`'s content: "" (the top),
+    ; "center", "bottom", "section", "statement". `deck` is the front
+    ; matter's, for a title that says nothing.
+    sfn wordOf:string (heading:MdNode deck:string) {
+        def lay:string (MdChar.lower((trim (heading.attrValue("layout")))))
+        if ((lay == "section") || (lay == "title")) { return "section" }
+        if (lay == "statement") { return "statement" }
+        if ((lay == "center") || (lay == "middle")) { return "center" }
+        ; said on the slide, `valign=top` too, wins over the deck's
+        if (heading.hasAttr("valign")) {
+            return (MdSlideLayout.valignOf((heading.attrValue("valign"))))
+        }
+        if ((strlen lay) > 0) { return "" }
+        return deck
+    }
+
+    ; `valign=` as a word of this file's: "center", "bottom", "" (top)
+    sfn valignOf:string (v0:string) {
+        def v:string (MdChar.lower((trim v0)))
+        if (((v == "center") || (v == "middle")) || (v == "centre")) { return "center" }
+        if ((v == "bottom") || (v == "end")) { return "bottom" }
+        return ""
+    }
+
+    ; the whole slide moves (and its lines are centred), not only what is
+    ; under the title
+    sfn whole:boolean (word:string) {
+        return ((word == "section") || (word == "statement"))
+    }
+
+    ; How far down the boxes `top`..`bottom` move. `whole`: they include the
+    ; title and go to the middle of contentTop..contentBottom. Otherwise they
+    ; are what is under the title and go to the middle (`center`) or the
+    ; foot (`bottom`) of the room left under it; they never move up.
+    sfn shift:double (word:string top:double bottom:double contentTop:double contentBottom:double) {
+        if ((strlen word) == 0) { return 0.0 }
+        if (bottom <= top) { return 0.0 }
+        def free:double (contentBottom - bottom)
+        if (free <= 0.0) { return 0.0 }
+        if (MdSlideLayout.whole(word)) {
+            def d:double ((free - (top - contentTop)) * 0.5)
+            if (d < 0.0) { return 0.0 }
+            return d
+        }
+        if (word == "bottom") { return free }
+        return (free * 0.5)
+    }
+
+    ; `float=top-right` (and top-left, bottom-right, bottom-left; `right-top`
+    ; and the like read the same): a picture set in that corner of the
+    ; slide, out of the flow. "" for anything else.
+    sfn cornerOf:string (v0:string) {
+        def v:string (MdChar.lower((trim v0)))
+        def top:boolean ((indexOf v "top") >= 0)
+        def bottom:boolean ((indexOf v "bottom") >= 0)
+        def left:boolean ((indexOf v "left") >= 0)
+        def right:boolean ((indexOf v "right") >= 0)
+        if (top == bottom) { return "" }
+        if (left == right) { return "" }
+        def a:string "top"
+        if bottom { a = "bottom" }
+        def b:string "left"
+        if right { b = "right" }
+        return ((a + "-") + b)
+    }
+
+    ; the corner block of a slide's body, when its section has one at the
+    ; top: the share of the width it takes (its `width=` or 12%), 0 for none
+    sfn topCornerShare:double (node:MdNode) {
+        def c:string (MdSlideLayout.cornerOf((node.attrValue("float"))))
+        if ((indexOf c "top") != 0) { return 0.0 }
+        def v:string (trim (node.attrValue("width")))
+        def n:int (strlen v)
+        if ((n > 1) && ((charAt v (n - 1)) == 37)) {
+            def d@(optional):double (str2double (trim (substring v 0 (n - 1))))
+            def f:double ((?? d 12.0) / 100.0)
+            if ((f > 0.0) && (f < 0.5)) { return f }
+        }
+        return 0.12
+    }
+
+    ; A statement whose title has text under it hides the title (the text
+    ; is the slide); run on the parsed document (MdBlock.run), so the
+    ; slide is named by its hidden title everywhere.
+    sfn hideStatementTitles:void (doc:MdNode) {
+        def n:int (doc.childCount())
+        def i:int 0
+        while (i < n) {
+            def c:MdNode (doc.childAt(i))
+            if ((c.kind == "heading") && ((MdSlideLayout.wordOf(c "")) == "statement")) {
+                if (((i + 1) < n) && ((c.hasAttr("heading")) == false)) {
+                    def next:MdNode (doc.childAt((i + 1)))
+                    def opens:boolean ((next.kind == "heading") && (next.level <= c.level))
+                    if ((opens == false) && (next.kind != "front_matter")) {
+                        c.setAttr("heading" "hidden")
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+}

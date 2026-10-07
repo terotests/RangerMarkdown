@@ -43,6 +43,7 @@ npm run markdown:slides:test   # columns, and where a slide breaks
 npm run markdown:pptx:test     # the deck goes out and comes back the same deck
 npm run markdown:gallery:test  # ```gallery, {heading=hidden} and @media print
 npm run markdown:celltones:test # {cells="Suuri=red Matala=green"}: table cells tinted by their text
+npm run markdown:columns:test  # ::: columns, {layout=…}, {valign=…}, {float=top-right}: where a slide's blocks go
 ```
 
 ## Editing the drawing
