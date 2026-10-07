@@ -319,11 +319,11 @@ class MdCellTonesTest {
     }
 
     sfn longTable:void (c:ToneCheck) {
-        print "-- a table cut across slides keeps its tones --"
+        print "-- a table cut across slides keeps its tones (80 rows: a shorter one is set smaller to fit) --"
         def s:string "# Pitkä\n\n| Nro | Tila |\n|---|---|\n"
         def i:int 0
         def reds:int 0
-        while (i < 40) {
+        while (i < 80) {
             def word:string "Valmis"
             if ((i % 3) == 0) {
                 word = "Myöhässä"
@@ -336,7 +336,7 @@ class MdCellTonesTest {
         def l:MdLayout (MdCellTonesTest.slides(s ""))
         c.ok("the table runs over more than one slide" (l.pageCount > 1))
         c.eqInt("every late row is red, on every slide" (MdCellTonesTest.fills(l (MdCellTones.fillOf("red" "#FFFFFF")))) reds)
-        c.eqInt("…and every done row green" (MdCellTonesTest.fills(l (MdCellTones.fillOf("green" "#FFFFFF")))) (40 - reds))
+        c.eqInt("…and every done row green" (MdCellTonesTest.fills(l (MdCellTones.fillOf("green" "#FFFFFF")))) (80 - reds))
         ; the header said again on each slide is never toned
         def p:int 0
         def lastPage:int 0
