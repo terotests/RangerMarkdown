@@ -102,18 +102,7 @@ class MdHtmlTable {
 
 class MdHtml {
     sfn lower:string (s:string) {
-        def out:string ""
-        def i:int 0
-        def n:int (strlen s)
-        while (i < n) {
-            def c:int (charAt s i)
-            if ((c >= 65) && (c <= 90)) {
-                c = (c + 32)
-            }
-            out = (out + (strfromcode c))
-            i = (i + 1)
-        }
-        return out
+        return (MdChar.lower(s))
     }
 
     ; `text-align` out of "color: red; text-align: center".
