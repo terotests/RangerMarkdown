@@ -1701,6 +1701,9 @@ class MdBlock {
         if (n.kind == "heading") {
             MdBlock.stripHeadingAttrs(n)
         }
+        if (n.kind == "html_block") {
+            MdBlock.stripHtmlAttrs(n)
+        }
         def kept:[MdNode]
         def i:int 0
         def cnt:int (n.childCount())
@@ -1727,6 +1730,25 @@ class MdBlock {
             MdBlock.foldAttributes((itemAt kept j))
             j = (j + 1)
         }
+    }
+
+    ; An HTML block runs on to the blank line, so `{cells=…}` written on the
+    ; line under `</table>` is the block's last line. It is the block's
+    ; attributes, as it is under any other block.
+    sfn stripHtmlAttrs:void (n:MdNode) {
+        def lit:string n.literal
+        def end:int (strlen lit)
+        while ((end > 0) && (MdAttrs.isSpaceCode((charAt lit (end - 1))))) {
+            end = (end - 1)
+        }
+        def nl:int (lastIndexOf (substring lit 0 end) "\n")
+        if (nl < 0) { return }
+        def tail:string (trim (substring lit (nl + 1) end))
+        if (((strlen tail) == 0) || ((charAt tail 0) != 123)) { return }
+        if (! (MdAttrs.isBlock(tail))) { return }
+        if (! (MdAttrs.applyTo(n tail))) { return }
+        n.literal = (substring lit 0 (nl + 1))
+        n.shiftMap(0 (nl + 1))
     }
 
     sfn stripHeadingAttrs:void (n:MdNode) {
