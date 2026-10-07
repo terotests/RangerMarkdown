@@ -28,6 +28,7 @@ Import "MdChar.rgr"
 Import "MdAnchor.rgr"
 Import "MdAttrs.rgr"
 Import "MdGallery.rgr"
+Import "MdCellTones.rgr"
 Import "../../math/src/MathRender.rgr"
 Import "../../vfs/src/Vfs.rgr"
 
@@ -55,6 +56,13 @@ class MdToHtml {
     ; pictures written in, and pictures asked for that the store lacked
     def pictures:int 0
     def missedPictures:int 0
+    ; Cells coloured by their text (`MdCellTones`): the theme's mapping for
+    ; every table (`table { cell-tones }`), and the two pages the colours are
+    ; worked out against — the page follows the reader's light or dark
+    ; setting, so a toned cell carries both, as CSS `light-dark()`.
+    def cellTones:string ""
+    def paperLight:string "#FFFFFF"
+    def paperDark:string "#0D1117"
 
     Constructor () {
     }
@@ -552,6 +560,7 @@ class MdToHtml {
             return
         }
         def head:MdNode (node.childAt(0))
+        def tones:MdCellTones (MdCellTones.forTable(node cellTones))
         this.lit("<thead>")
         this.cr()
         this.lit("<tr>")
@@ -560,7 +569,7 @@ class MdToHtml {
         def i:int 0
         while (i < cells) {
             def cell:MdNode (head.childAt(i))
-            this.walkCell(cell "th")
+            this.walkCell(cell "th" tones)
             i = (i + 1)
         }
         this.lit("</tr>")
@@ -579,7 +588,7 @@ class MdToHtml {
                 def rc:int (row.childCount())
                 while (c < rc) {
                     def cell2:MdNode (row.childAt(c))
-                    this.walkCell(cell2 "td")
+                    this.walkCell(cell2 "td" tones)
                     c = (c + 1)
                 }
                 this.lit("</tr>")
@@ -593,16 +602,34 @@ class MdToHtml {
         this.cr()
     }
 
-    fn walkCell:void (cell:MdNode tag:string) {
+    fn walkCell:void (cell:MdNode tag:string tones:MdCellTones) {
         def attr:string ""
         def alen:int (strlen cell.align)
         if (alen > 0) {
             attr = ((" align=\"" + cell.align) + "\"")
         }
+        def tone:string (tones.toneOfCell(cell))
+        if ((strlen tone) > 0) {
+            attr = (attr + (this.toneAttrs(tone)))
+        }
         this.lit(((("<" + tag) + attr) + ">"))
         this.walkChildren(cell)
         this.lit((("</" + tag) + ">"))
         this.cr()
+    }
+
+    ; A toned cell's class and colours: the tint and the ink for a light page
+    ; and for a dark one, the light pair first for a browser without
+    ; `light-dark()`.
+    fn toneAttrs:string (tone:string) {
+        def fl:string (MdCellTones.fillOf(tone paperLight))
+        def fd:string (MdCellTones.fillOf(tone paperDark))
+        def il:string (MdCellTones.inkOf(tone paperLight))
+        def id:string (MdCellTones.inkOf(tone paperDark))
+        def css:string ("background:" + fl + ";background:light-dark(" + fl + "," + fd + ");")
+        css = (css + "color:" + il + ";color:light-dark(" + il + "," + id + ");")
+        css = (css + "font-weight:700;text-align:center;vertical-align:middle")
+        return (" class=\"tone\" data-tone=\"" + (MdToHtml.escape(tone)) + "\" style=\"" + css + "\"")
     }
 
     ; `{#id}` when the heading has one, else the slug of its words; a name

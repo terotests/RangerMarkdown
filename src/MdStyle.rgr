@@ -133,6 +133,9 @@ class MdStyle {
     ; the size a table's text is set at, 0 for the body's
     ; (`table { font-size }`)
     def tableSize:double 0.0
+    ; `table { cell-tones: "Done=green Late=red" }`: cells coloured by their
+    ; text in every table (`MdCellTones`), "" for none
+    def tableCellTones:string ""
 
     def pageWidth:double 595.28
     def pageHeight:double 841.89
@@ -256,6 +259,7 @@ class MdStyle {
         out = ((((out + " table ") + tableBorder) + "/") + tableHeadBackground)
         out = ((((out + "/") + (to_string cellPadX)) + "/") + (to_string cellPadY))
         out = ((out + "/") + (to_string tableSize))
+        out = ((out + "/") + tableCellTones)
         out = ((((out + " page ") + (to_string pageWidth)) + "/") + (to_string pageHeight))
         out = ((out + "/") + (to_string margin))
         if forPrint {

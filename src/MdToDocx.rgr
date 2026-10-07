@@ -30,6 +30,7 @@
 Import "MdNode.rgr"
 Import "MdGallery.rgr"
 Import "MdStyle.rgr"
+Import "MdCellTones.rgr"
 Import "MdEmbedKinds.rgr"
 Import "MdEmbed.rgr"
 Import "../../docx_viewer/src/RichDocument.rgr"
@@ -443,6 +444,10 @@ class MdToDocx {
         def line:string (MdToDocx.hexOf(style.tableBorder))
         t.borderColor = line
         def shade:string (MdToDocx.hexOf(style.tableHeadBackground))
+        ; cells coloured by their text (`MdCellTones`), worked out against
+        ; the same page colour as the slide's
+        def tones:MdCellTones (MdCellTones.forTable(node style.tableCellTones))
+        def paper:string (MdCellTones.paperOf(style.pageBackground style.textColor))
         r = 0
         while (r < (node.childCount())) {
             def rowNode:MdNode (node.childAt(r))
@@ -466,6 +471,13 @@ class MdToDocx {
                 if (c < (rowNode.childCount())) {
                     def cellNode:MdNode (rowNode.childAt(c))
                     p.align = (MdToDocx.alignOf(cellNode.align))
+                    def tone:string (tones.toneOfCell(cellNode))
+                    if ((strlen tone) > 0) {
+                        cell.fillHex = (MdToDocx.hexOf((MdCellTones.fillOf(tone paper))))
+                        base.bold = true
+                        base.colorHex = (MdToDocx.hexOf((MdCellTones.inkOf(tone paper))))
+                        p.align = 1
+                    }
                     this.inline(cellNode p base)
                 }
                 push cell.paragraphs p

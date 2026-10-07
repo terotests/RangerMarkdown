@@ -42,6 +42,7 @@ npm run markdown:css:test      # a template says it, the style holds it, nothing
 npm run markdown:slides:test   # columns, and where a slide breaks
 npm run markdown:pptx:test     # the deck goes out and comes back the same deck
 npm run markdown:gallery:test  # ```gallery, {heading=hidden} and @media print
+npm run markdown:celltones:test # {cells="Suuri=red Matala=green"}: table cells tinted by their text
 ```
 
 ## Editing the drawing
@@ -265,6 +266,7 @@ src/
   MdCss.rgr         a stylesheet over the document, through gallery/css
   MdThemes.rgr      `theme: corporate` — a name to a stylesheet, no files
   MdToPptx.rgr      the deck, as text PowerPoint can reflow
+  MdCellTones.rgr   `{cells=…}`: a table cell's tone by its text, and its colours
   MdEmbedKinds.rgr  which fence words name a drawing — no imports, read by both
   MdDiagram.rgr     the diagram handler — the only file that knows RangerFlow
   md_demo.rgr       the only file that touches a disk
@@ -630,3 +632,36 @@ staging; the bytes a picture or a background image needs are in
   counts only on a screen. `MdGallery.effectiveDpi` is what a picture
   prints at.
 
+## Cells coloured by their value: `{cells=…}`
+
+````markdown
+| Riski          | Todennäköisyys | Vaikutus   |
+|----------------|----------------|------------|
+| Keskittyminen  | Keskisuuri     | Suuri      |
+| Avainasiakkaat | Matala         | Suuri      |
+{cells="Suuri=red Korkea=red Keskisuuri=amber Matala=green"}
+````
+
+- The attribute line under a table maps a cell's text to a tone. The WHOLE
+  text of the cell is matched, trimmed and case-blind; pairs are separated by
+  spaces, commas or semicolons, and a text with a space in it is quoted:
+  `{cells="'Very high'=red, Low=green"}`. The same text twice: the later wins.
+- Tones: `red`, `amber` (`yellow`, `orange`), `green`, `blue`, `grey`
+  (`gray`), or any CSS colour (`#8e44ad`, `purple`). A tone that is no colour
+  is skipped.
+- A matched cell is drawn on a muted tint of the PAGE's colour (22 % of the
+  tone) with its text bold, centred both ways, in the tone moved towards white
+  on a dark page or black on a light one until it stands at least 4.5 : 1 off
+  the fill (WCAG AA). So one table reads the same in a dark theme and a light
+  one. The header row is never matched.
+- A theme says it for every table: `table { cell-tones: "Done=green Late=red" }`;
+  a table's own `{cells=…}` adds to it and wins where both name a text.
+- The same on the slide (`MdLayout.tableRow`), in the PPTX (`a:tcPr` fill,
+  bold run in the tone's ink, centred and anchored middle), in the DOCX
+  (cell shading, bold, centred) and in the HTML (`class="tone"
+  data-tone="red"` with `light-dark()` colours for the reader's light and dark
+  setting). A table cut across slides keeps its tones on every slide. Raw
+  HTML `<table>`s are not matched.
+- The model is `MdCellTones` (no layout, no drawing):
+  `forTable(node themeSpec)`, `toneOfCell(cell)`, `fillOf(tone paper)`,
+  `inkOf(tone paper)`, `paperOf(pageBackground textColor)`.

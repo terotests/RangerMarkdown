@@ -41,6 +41,7 @@
 
 Import "MdNode.rgr"
 Import "MdLayout.rgr"
+Import "MdCellTones.rgr"
 Import "MdToEvg.rgr"
 Import "MdEmbedKinds.rgr"
 Import "MdDeckSync.rgr"
@@ -1494,6 +1495,9 @@ class MdToPptx {
             push sh.tableRowH rowH
             r = (r + 1)
         }
+        ; cells coloured by their text: the layout's mapping and colours
+        def tones:MdCellTones (MdCellTones.forTable(node layout.style.tableCellTones))
+        def paper:string (layout.tablePaper())
         r = 0
         def page:int (this.pageOf(node))
         while (r < rows) {
@@ -1503,6 +1507,7 @@ class MdToPptx {
                 def cell (new PptxTableCell)
                 def drawn (new MdBox())
                 drawn.kind = -1
+                def tone:string ""
                 if (cc < (row.childCount())) {
                     drawn = (this.runBoxOf((row.childAt(cc)) page))
                     def cn:MdNode (row.childAt(cc))
@@ -1512,6 +1517,13 @@ class MdToPptx {
                         if (a == "right") { cell.align = "r" }
                         if (a == "center") { cell.align = "ctr" }
                     }
+                    tone = (tones.toneOfCell(cn))
+                }
+                ; a toned cell is a value: bold, in the middle of its cell
+                if ((strlen tone) > 0) {
+                    cell.bold = true
+                    cell.align = "ctr"
+                    cell.anchor = "ctr"
                 }
                 cell.fontSizePt = layout.style.bodySize
                 if (r == 0) {
@@ -1542,6 +1554,13 @@ class MdToPptx {
                     if (band.kind >= 0) {
                         cell.fill = (PptxApi.colorOf(band.fill))
                     }
+                }
+                ; …on its tint, in its ink, on whichever slide the layout
+                ; put the row (a row cut onto the next slide has no drawn box
+                ; on this one to be read from)
+                if ((strlen tone) > 0) {
+                    cell.fill = (PptxApi.colorOf((MdCellTones.fillOf(tone paper))))
+                    cr.color = (PptxApi.colorOf((MdCellTones.inkOf(tone paper))))
                 }
                 push cp.runs cr
                 push cell.body.paragraphs cp

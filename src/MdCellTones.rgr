@@ -1,0 +1,273 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdCellTones.rgr — a table's cells coloured by what they say.
+; ============================================================================
+;
+; ````markdown
+; | Riski          | Todennäköisyys | Vaikutus   |
+; |----------------|----------------|------------|
+; | Keskittyminen  | Keskisuuri     | Suuri      |
+; | Avainasiakkaat | Matala         | Suuri      |
+; {cells="Suuri=red Korkea=red Keskisuuri=amber Matala=green"}
+; ````
+;
+; A risk table, a status table, a traffic light: the same few words in many
+; cells, and each word has a colour. The mapping is said ONCE, under the
+; table, rather than on every cell — markdown has no syntax for a cell's
+; attributes, and the words are what the colour is about anyway.
+;
+; THE MAPPING. `text=tone` pairs, separated by spaces, commas or semicolons.
+; The text is matched against the WHOLE of a cell's text, trimmed and
+; case-blind (`suuri` = `Suuri` = ` SUURI `); a text with spaces in it is
+; quoted, `'Very high'=red`. A tone is `red`, `amber` (`yellow`, `orange`),
+; `green`, `blue`, `grey` (`gray`) — or any colour CSS can name, `#8e44ad`.
+; The same text said twice: the later one wins. The header row is never
+; coloured: it says what the column is, not a value in it.
+;
+; A theme can say it for every table: `table { cell-tones: "Done=green" }`.
+; A table's own `{cells=…}` is read after it, so it adds to that and wins
+; where both name the same text.
+;
+; THE COLOURS are not the tone's own: a pure red cell on a dark slide is a
+; warning light, on a white page a stop sign. The FILL is the page's colour
+; with a little of the tone in it (a muted tint, `fillShare`), so a table
+; reads as one thing on either; the TEXT is the tone moved towards white on
+; a dark page and towards black on a light one until it stands 4.5 : 1 off
+; the fill (WCAG AA), and is set bold. Both are worked out from the page's
+; colour, so one deck reads the same in a light theme and a dark one.
+;
+; Nothing here measures or draws: the slide layout, the PPTX, the DOCX and the
+; HTML each ask `forTable` once per table and `toneOf` per cell.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdContainer.rgr"
+Import "pkg:evg/EVGColor.rgr"
+
+class MdCellTones {
+    ; matched text (trimmed, lower case) and its tone, in the order said
+    def keys:[string]
+    def tones:[string]
+
+    Constructor () {
+    }
+
+    ; how much of the tone is in a cell's fill
+    sfn fillShare:double () {
+        return 0.22
+    }
+
+    ; the contrast the text is held to, against its fill
+    sfn needContrast:double () {
+        return 4.5
+    }
+
+    fn isEmpty:boolean () {
+        return ((array_length keys) == 0)
+    }
+
+    fn count:int () {
+        return (array_length keys)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Reading a mapping
+    ; ----------------------------------------------------------------------
+
+    sfn parse:MdCellTones (spec:string) {
+        def t:MdCellTones (new MdCellTones())
+        t.addSpec(spec)
+        return t
+    }
+
+    ; The mapping for one table: the theme's (`table { cell-tones }`), then
+    ; the table's own `{cells=…}` over it.
+    sfn forTable:MdCellTones (node:MdNode themeSpec:string) {
+        def t:MdCellTones (MdCellTones.parse(themeSpec))
+        t.addSpec((node.attrValue("cells")))
+        return t
+    }
+
+    ; `a=red b=green`, added to what is here; a pair that is not one (no
+    ; `=`, an empty side, a tone that is no colour) is skipped.
+    fn addSpec:void (spec:string) {
+        def s:string (MdCellTones.unquote((trim spec)))
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (MdCellTones.isGap(c)) {
+                i = (i + 1)
+                continue
+            }
+            ; the text: quoted, or up to the `=`
+            def key:string ""
+            if ((c == 39) || (c == 34)) {
+                def e:int (i + 1)
+                while ((e < n) && ((charAt s e) != c)) {
+                    e = (e + 1)
+                }
+                key = (substring s (i + 1) e)
+                i = (e + 1)
+            } {
+                def e2:int i
+                while (e2 < n) {
+                    def c2:int (charAt s e2)
+                    if (c2 == 61) { break }
+                    if (MdCellTones.isGap(c2)) { break }
+                    e2 = (e2 + 1)
+                }
+                key = (substring s i e2)
+                i = e2
+            }
+            ; `=` and the tone, up to the next gap
+            if ((i >= n) || ((charAt s i) != 61)) {
+                ; not a pair: skip to the next gap
+                while ((i < n) && (! (MdCellTones.isGap((charAt s i))))) {
+                    i = (i + 1)
+                }
+                continue
+            }
+            i = (i + 1)
+            def t0:int i
+            while ((i < n) && (! (MdCellTones.isGap((charAt s i))))) {
+                i = (i + 1)
+            }
+            def tone:string (to_lowercase (substring s t0 i))
+            this.add(key tone)
+        }
+    }
+
+    ; One pair. A text said again takes the new tone.
+    fn add:void (text:string tone:string) {
+        def k:string (MdCellTones.keyOf(text))
+        if ((strlen k) == 0) { return }
+        if ((strlen (MdCellTones.hueOf(tone))) == 0) { return }
+        def at:int (indexOf keys k)
+        if (at >= 0) {
+            set_at tones at tone
+            return
+        }
+        push keys k
+        push tones tone
+    }
+
+    ; The tone of a cell that says `text`, or "" for none.
+    fn toneOf:string (text:string) {
+        if ((array_length keys) == 0) { return "" }
+        def at:int (indexOf keys (MdCellTones.keyOf(text)))
+        if (at < 0) { return "" }
+        return (itemAt tones at)
+    }
+
+    ; …of a table cell, by its text. A header cell has none.
+    fn toneOfCell:string (cell:MdNode) {
+        if cell.isHeader { return "" }
+        return (this.toneOf((cell.plainText())))
+    }
+
+    sfn keyOf:string (text:string) {
+        return (to_lowercase (trim text))
+    }
+
+    sfn isGap:boolean (c:int) {
+        if ((c == 32) || (c == 9)) { return true }
+        if ((c == 10) || (c == 13)) { return true }
+        if ((c == 44) || (c == 59)) { return true }
+        return false
+    }
+
+    ; a CSS string value comes with its quotes on
+    sfn unquote:string (s:string) {
+        def n:int (strlen s)
+        if (n < 2) { return s }
+        def q:int (charAt s 0)
+        if (((q == 34) || (q == 39)) && ((charAt s (n - 1)) == q)) {
+            ; …unless the quotes are a quoted TEXT's: `'a b'=red` ends in d
+            return (substring s 1 (n - 1))
+        }
+        return s
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The colours
+    ; ----------------------------------------------------------------------
+
+    ; The tone's own colour, `#RRGGBB`, or "" when it names none.
+    sfn hueOf:string (tone:string) {
+        def t:string (to_lowercase (trim tone))
+        if (t == "red") { return "#D64545" }
+        if ((t == "amber") || ((t == "yellow") || (t == "orange"))) { return "#D99A1E" }
+        if (t == "green") { return "#2F9E66" }
+        if (t == "blue") { return "#3B7DD8" }
+        if ((t == "grey") || (t == "gray")) { return "#8A8F98" }
+        if ((strlen t) == 0) { return "" }
+        def c:EVGColor (EVGColor.parse(t))
+        if (! c.isSet) { return "" }
+        return (c.toHexString())
+    }
+
+    ; The colour cells stand on: the page's own when it has one, else the
+    ; page the text colour was chosen for (light text, a dark page).
+    sfn paperOf:string (pageBackground:string textColor:string) {
+        if ((strlen pageBackground) > 0) {
+            def pc:EVGColor (EVGColor.parse(pageBackground))
+            if (pc.isSet && ((pc.alpha()) > 0.5)) {
+                return ((EVGColor.rgb((pc.red()) (pc.green()) (pc.blue()))).toHexString())
+            }
+        }
+        if ((MdContainer.luminance(textColor)) > 0.4) { return "#1B1F24" }
+        return "#FFFFFF"
+    }
+
+    sfn isDark:boolean (paper:string) {
+        return ((MdContainer.luminance(paper)) < 0.18)
+    }
+
+    ; A cell's fill: the paper with a little of the tone in it.
+    sfn fillOf:string (tone:string paper:string) {
+        def hue:string (MdCellTones.hueOf(tone))
+        if ((strlen hue) == 0) { return "" }
+        return (MdCellTones.mix(paper hue (MdCellTones.fillShare())))
+    }
+
+    ; A cell's text: the tone, lighter on a dark page and darker on a light
+    ; one, until it reads on the fill.
+    sfn inkOf:string (tone:string paper:string) {
+        def hue:string (MdCellTones.hueOf(tone))
+        if ((strlen hue) == 0) { return "" }
+        def fill:string (MdCellTones.fillOf(tone paper))
+        def pole:string "#000000"
+        def t:double 0.3
+        if (MdCellTones.isDark(fill)) {
+            pole = "#FFFFFF"
+            t = 0.45
+        }
+        while (t < 1.0) {
+            def ink:string (MdCellTones.mix(hue pole t))
+            if ((MdContainer.contrast(ink fill)) >= (MdCellTones.needContrast())) {
+                return ink
+            }
+            t = (t + 0.05)
+        }
+        return pole
+    }
+
+    ; `a` taken `t` of the way to `b`, `#RRGGBB`
+    sfn mix:string (a:string b:string t:double) {
+        def ca:EVGColor (EVGColor.parse(a))
+        def cb:EVGColor (EVGColor.parse(b))
+        if (! ca.isSet) { return b }
+        if (! cb.isSet) { return a }
+        def r:int (MdCellTones.lerp((ca.red()) (cb.red()) t))
+        def g:int (MdCellTones.lerp((ca.green()) (cb.green()) t))
+        def bl:int (MdCellTones.lerp((ca.blue()) (cb.blue()) t))
+        return ((EVGColor.rgb(r g bl)).toHexString())
+    }
+
+    sfn lerp:int (a:int b:int t:double) {
+        def v:double ((to_double a) + (((to_double b) - (to_double a)) * t))
+        return (to_int (v + 0.5))
+    }
+}

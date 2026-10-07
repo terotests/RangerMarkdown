@@ -1,7 +1,8 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ============================================================================
-; MdFigureTest.rgr — ```process, ```swot and ```timeline, as geometry.
+; MdFigureTest.rgr — ```process, ```swot, ```timeline, ```stats and ```cards,
+; as geometry.
 ; ============================================================================
 ;
 ;   npm run markdown:figure:test
@@ -220,7 +221,7 @@ class FigureCheck {
         def i:int 0
         while (i < (array_length sc.items)) {
             def s:SceneItem (itemAt sc.items i)
-            if ((s.kind == 3) && (s.bold == false)) {
+            if ((s.kind == 1) && (s.bold == false)) {
                 if (s.fontSize < lo) {
                     lo = s.fontSize
                 }
@@ -271,6 +272,99 @@ class FigureCheck {
             i = (i + 1)
         }
         return low
+    }
+
+    ; the lowest WCAG ratio of any text over what is under it, as is (no
+    ; allowance for large text)
+    fn lowestRatio:double (sc:FlowScene paper:string) {
+        def low:double 99.0
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def s:SceneItem (itemAt sc.items i)
+            if ((s.kind == 1) && ((strlen (trim s.text)) > 0)) {
+                def px:double (s.x + (s.fontSize * 0.4))
+                if (s.align == "center") {
+                    px = (s.x + (s.w * 0.5))
+                }
+                def py:double (s.y + (s.fontSize * 0.6))
+                def under:string paper
+                def k:int 0
+                while (k < i) {
+                    def r:SceneItem (itemAt sc.items k)
+                    if ((r.kind == 0) && ((((px >= r.x) && (px <= (r.x + r.w))) && (py >= r.y)) && (py <= (r.y + r.h)))) {
+                        under = r.fill
+                    }
+                    k = (k + 1)
+                }
+                def q:double (MdFigure.ratio(s.fill under))
+                if (q < low) {
+                    low = q
+                }
+            }
+            i = (i + 1)
+        }
+        return low
+    }
+
+    ; the round badges (a square rectangle rounded to a circle), in order
+    fn badges:[SceneItem] (sc:FlowScene) {
+        def out:[SceneItem]
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def s:SceneItem (itemAt sc.items i)
+            if (((s.kind == 0) && (s.w > 0.0)) && (((fabs (s.w - s.h)) < 0.01) && (s.radius >= ((s.w * 0.5) - 0.01)))) {
+                push out s
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; the cards: rounded rectangles that are not badges, in order
+    fn cardsOf:[SceneItem] (sc:FlowScene) {
+        def out:[SceneItem]
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def s:SceneItem (itemAt sc.items i)
+            if (((s.kind == 0) && (s.radius > 0.0)) && (s.radius < ((s.w * 0.5) - 0.01))) {
+                push out s
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; every line of text inside the box it was given (measured, at its
+    ; alignment), and inside a card when it starts in one
+    fn textsFit:void (name:string sc:FlowScene) {
+        def v (new FlowView)
+        def over:int 0
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def s:SceneItem (itemAt sc.items i)
+            if ((s.kind == 1) && ((strlen s.text) > 0)) {
+                def mw:double (v.textWidthBold(s.text s.fontSize s.bold))
+                if (mw > (s.w + 0.5)) {
+                    over = (over + 1)
+                    print ("    " + name + ": [" + s.text + "] " + (to_string mw) + " > " + (to_string s.w))
+                }
+                def k:int 0
+                while (k < i) {
+                    def r:SceneItem (itemAt sc.items k)
+                    if ((r.kind == 0) && ((r.radius > 0.0) && (r.radius < ((r.w * 0.5) - 0.01)))) {
+                        if ((((s.x >= r.x) && (s.x < (r.x + r.w))) && (s.y >= r.y)) && (s.y < (r.y + r.h))) {
+                            if (((s.x + mw) > ((r.x + r.w) + 0.5)) || ((s.y + (s.fontSize * 1.2)) > ((r.y + r.h) + 0.5))) {
+                                over = (over + 1)
+                                print ("    " + name + ": [" + s.text + "] out of its card")
+                            }
+                        }
+                    }
+                    k = (k + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        this.ok((name + ": every text inside its box (" + (to_string over) + " over)") (over == 0))
     }
 
     fn hasFill:boolean (sc:FlowScene fill:string) {
@@ -448,6 +542,158 @@ class MdFigureTest {
         c.ok("landscape timeline stays across" ((MdFigure.stacks("timeline" (MdFigure.items(tlText)) st 852.0 10.0)) == false))
         c.textsClear("landscape timeline" tf)
 
+        ; --- the badge model (```timeline, ```cards)
+        c.eqStr("cards is a figure" (MdEmbedKinds.notationOf("cards")) "figure")
+        c.ok("cards: a fence word" ((indexOf (MdFigure.kinds()) "cards") >= 0))
+        def bq:[MdFigureItem] (MdFigure.items("- Q1 Avainasiakkaat: Nimetty vastuuhenkilö\n- Q2: Kasvuohjelma: Lisämyyntikampanja\n- 2023: Founded\n- Kickoff: team named\n- 2026 kevät: MCP-palvelin\n- Vaihe 1: alku\n- 2024\n  - a point"))
+        def lbl:string ""
+        def ttl:string ""
+        def txt:string ""
+        def bi:int 0
+        while (bi < (array_length bq)) {
+            def it:MdFigureItem (itemAt bq bi)
+            lbl = (lbl + (MdFigure.stepLabel(it bi)) + "|")
+            ttl = (ttl + (MdFigure.stepTitle(it)) + "|")
+            txt = (txt + (MdFigure.stepText(it)) + "|")
+            bi = (bi + 1)
+        }
+        c.eqStr("badge: the title's short token, else the number" lbl "Q1|Q2|2023|4|2026|6|2024|")
+        c.eqStr("badge: the card's title without the token" ttl "Avainasiakkaat|Kasvuohjelma|Founded|Kickoff|kevät|Vaihe 1||")
+        c.eqStr("badge: the card's text" txt "Nimetty vastuuhenkilö|Lisämyyntikampanja||team named|MCP-palvelin|alku|• a point|")
+        c.ok("token: Q1, 2027, v2" (((MdFigure.isToken("Q1")) && (MdFigure.isToken("2027"))) && (MdFigure.isToken("v2"))))
+        c.ok("token: not a word, not a long one" (((MdFigure.isToken("Vaihe")) == false) && ((MdFigure.isToken("2026-2027")) == false)))
+        ; a badge's letters read on it: a mid-tone gold reaches 4.5 only
+        ; when the fill is taken a little darker
+        def golds:[string] ([] _:string ("#c4943a" "#e9c46a" "#8b2240" "#2a9d8f" "#59C3C4" "#C6C640" "#4949FF" "#777777" "#ff6600"))
+        def gi:int 0
+        def worstDisc:double 99.0
+        while (gi < (array_length golds)) {
+            def f:string (MdFigure.discFill((itemAt golds gi)))
+            def q:double (MdFigure.ratio((MdFigure.onColor(f)) f))
+            if (q < worstDisc) {
+                worstDisc = q
+            }
+            gi = (gi + 1)
+        }
+        c.ok(("badge fill: its letters 4.5 off it: " + (to_string worstDisc)) (worstDisc >= 4.5))
+        c.eqStr("badge fill: a colour that reads already stays" (MdFigure.discFill("#8b2240")) "#8b2240")
+        c.ok("cards to a row: three of three, four of four, three of five, four of eight" ((((MdFigure.cardColsWanted(3)) == 3) && ((MdFigure.cardColsWanted(4)) == 4)) && (((MdFigure.cardColsWanted(5)) == 3) && ((MdFigure.cardColsWanted(8)) == 4))))
+
+        ; --- cards: Tero's three recommendations (wine, gold), 16:9 and
+        ; portrait
+        def wine (new MdFigureStyle)
+        def wc:[string] ([] _:string ("#8b2240" "#c4943a"))
+        wine.colors = wc
+        wine.paper = "#f8f4ee"
+        wine.ink = "#2b2b2b"
+        wine.muted = "#8a8077"
+        wine.titleFont = "Georgia"
+        def recText:string "- Käynnistä avainasiakasohjelma: 23 asiakasta ≥ 800 tuo 41 % summasta – nimetty vastuuhenkilö Q1:llä.\n- Kasvata keskikokoisia asiakkaita: 49 asiakasta luokissa 300–799: lisämyyntiohjelma Q2:lla.\n- Panosta kolmeen kohdemarkkinaan: USA, Iso-Britannia ja Brasilia tuovat 34 % summasta – kumppanit Q3:lla."
+        def cd:FlowScene (MdFigure.sceneFit("cards" recText wine 852.0 10.0 312.0))
+        def cdB:[SceneItem] (c.badges(cd))
+        def cdC:[SceneItem] (c.cardsOf(cd))
+        c.ok(("cards: three badges, three cards: " + (to_string (array_length cdB)) + " " + (to_string (array_length cdC))) (((array_length cdB) == 3) && ((array_length cdC) == 3)))
+        c.ok("cards: numbered 1 2 3" ((((indexOf (c.texts(cd)) "1|") >= 0) && ((indexOf (c.texts(cd)) "2|") >= 0)) && ((indexOf (c.texts(cd)) "3|") >= 0)))
+        if (((array_length cdB) == 3) && ((array_length cdC) == 3)) {
+            def b0:SceneItem (itemAt cdB 0)
+            def b1:SceneItem (itemAt cdB 1)
+            def b2:SceneItem (itemAt cdB 2)
+            c.ok("cards: badges alternate (wine, gold, wine)" ((b0.fill == b2.fill) && (b0.fill != b1.fill)))
+            def k0:SceneItem (itemAt cdC 0)
+            def k1:SceneItem (itemAt cdC 1)
+            def k2:SceneItem (itemAt cdC 2)
+            c.ok("cards: tints alternate" ((k0.fill == k2.fill) && (k0.fill != k1.fill)))
+            c.ok("cards: one row, one height" ((((fabs (k0.y - k2.y)) < 0.01) && ((fabs (k0.h - k1.h)) < 0.01)) && (k1.x > k0.x)))
+            c.ok("cards: the badge at the card's top left" (((b0.x > k0.x) && (b0.y > k0.y)) && ((b0.x + b0.w) < (k0.x + (k0.w * 0.5)))))
+        }
+        c.ok(("cards: take the slide's room: " + (to_string cd.worldH)) (cd.worldH >= ((312.0 * 0.85) - 1.0)))
+        c.inside("cards 16:9" cd)
+        c.textsClear("cards 16:9" cd)
+        c.textsFit("cards 16:9" cd)
+        c.ok(("cards: every text 4.5 off what is under it: " + (to_string (c.lowestRatio(cd wine.paper)))) ((c.lowestRatio(cd wine.paper)) >= 4.5))
+        c.ok("cards: three across on 16:9" ((MdFigure.cardCols((MdFigure.items(recText)) wine 852.0 10.0)) == 3))
+        def cp:FlowScene (MdFigure.sceneFit("cards" recText wine 460.0 10.0 700.0))
+        c.ok(("cards: fewer to a row in portrait: " + (to_string (MdFigure.cardCols((MdFigure.items(recText)) wine 460.0 10.0)))) ((MdFigure.cardCols((MdFigure.items(recText)) wine 460.0 10.0)) < 3))
+        c.ok(("cards portrait: three badges: " + (to_string (array_length (c.badges(cp))))) ((array_length (c.badges(cp))) == 3))
+        c.ok(("cards portrait: within its room: " + (to_string cp.worldH)) (cp.worldH <= 700.0))
+        c.inside("cards portrait" cp)
+        c.textsClear("cards portrait" cp)
+        c.textsFit("cards portrait" cp)
+        c.ok(("cards portrait: contrast " + (to_string (c.lowestRatio(cp wine.paper)))) ((c.lowestRatio(cp wine.paper)) >= 4.5))
+        ; seven cards: two rows (four and a centred three)
+        def c7:FlowScene (MdFigure.sceneOf("cards" "- A: a\n- B: b\n- C: c\n- D: d\n- E: e\n- F: f\n- G: g" wine 960.0 10.0))
+        def c7C:[SceneItem] (c.cardsOf(c7))
+        c.ok("cards: seven on two rows" (((array_length c7C) == 7) && ((itemAt c7C 4).y > ((itemAt c7C 0).y + 1.0))))
+        c.inside("cards seven" c7)
+        ; a host that stacks: one to a row, the badge beside the text
+        def cst (wine.sized(wine.size))
+        cst.stack = 2
+        def c1:FlowScene (MdFigure.sceneOf("cards" recText cst 460.0 10.0))
+        def c1B:[SceneItem] (c.badges(c1))
+        def c1C:[SceneItem] (c.cardsOf(c1))
+        c.ok("cards stacked: one to a row" (((array_length c1C) == 3) && ((itemAt c1C 1).y > ((itemAt c1C 0).y + (itemAt c1C 0).h))))
+        c.inside("cards stacked" c1)
+        c.textsClear("cards stacked" c1)
+        c.textsFit("cards stacked" c1)
+        ; the palettes and papers the other figures are read in
+        def cpi:int 0
+        while (cpi < 2) {
+            def cqi:int 0
+            while (cqi < 2) {
+                def cs2 (new MdFigureStyle)
+                def cols2:[string] (strsplit (itemAt palettes cpi) " ")
+                cs2.colors = cols2
+                cs2.paper = (itemAt papers cqi)
+                cs2.ink = (itemAt inks cqi)
+                def tag2:string ((itemAt palettes cpi) + " on " + cs2.paper)
+                def cc:FlowScene (MdFigure.sceneOf("cards" recText cs2 852.0 10.0))
+                c.ok(("cards read, " + tag2 + ": " + (to_string (c.lowestRatio(cc cs2.paper)))) ((c.lowestRatio(cc cs2.paper)) >= 4.5))
+                def tc:FlowScene (MdFigure.sceneOf("timeline" tlText cs2 852.0 10.0))
+                c.ok(("timeline reads 4.5, " + tag2 + ": " + (to_string (c.lowestRatio(tc cs2.paper)))) ((c.lowestRatio(tc cs2.paper)) >= 4.5))
+                cqi = (cqi + 1)
+            }
+            cpi = (cpi + 1)
+        }
+
+        ; --- timeline across: a line, a badge per item on it, a card under
+        ; each (Tero's quarters)
+        def qText:string "- Q1 Avainasiakkaat: Nimetty vastuuhenkilö kaikille 23 asiakkaalle, joiden summa ≥ 800.\n- Q2 Kasvuohjelma: Lisämyyntikampanja 49 asiakkaalle luokissa 300–799.\n- Q3 Kohdemarkkinat: Myyntikumppani ja kampanja kohdemarkkinoille: USA, Iso-Britannia ja Brasilia.\n- Q4 Maaportfolio: Pienten maiden (3 yhden asiakkaan maata) jatko ja budjetti 2028."
+        def qt:FlowScene (MdFigure.sceneFit("timeline" qText wine 852.0 10.0 312.0))
+        def qB:[SceneItem] (c.badges(qt))
+        def qC:[SceneItem] (c.cardsOf(qt))
+        c.ok(("timeline: four badges, four cards: " + (to_string (array_length qB)) + " " + (to_string (array_length qC))) (((array_length qB) == 4) && ((array_length qC) == 4)))
+        def qx:string (c.texts(qt))
+        c.ok("timeline: badges Q1..Q4, titles without them" ((((indexOf qx "Q1|") >= 0) && ((indexOf qx "Q4|") >= 0)) && ((indexOf qx "Avainasiakkaat|") >= 0)))
+        c.ok("timeline: one line across" ((c.count(qt 2)) == 1))
+        if (((array_length qB) == 4) && ((array_length qC) == 4)) {
+            def q0:SceneItem (itemAt qB 0)
+            def q1:SceneItem (itemAt qB 1)
+            def q2:SceneItem (itemAt qB 2)
+            def q3:SceneItem (itemAt qB 3)
+            c.ok("timeline: badges alternate" (((q0.fill == q2.fill) && (q1.fill == q3.fill)) && (q0.fill != q1.fill)))
+            c.ok("timeline: badges on one line, evenly spaced" (((fabs (q0.y - q3.y)) < 0.01) && ((fabs (((q1.x - q0.x) - (q3.x - q2.x)))) < 0.01)))
+            def cc0:SceneItem (itemAt qC 0)
+            def cc1:SceneItem (itemAt qC 1)
+            c.ok("timeline: a card under each badge" ((cc0.y > (q0.y + q0.h)) && ((fabs (((cc0.x + (cc0.w * 0.5)) - (q0.x + (q0.w * 0.5))))) < 0.01)))
+            c.ok("timeline: card tints alternate" (cc0.fill != cc1.fill))
+        }
+        c.ok(("timeline: takes the slide's room: " + (to_string qt.worldH)) (qt.worldH >= ((312.0 * 0.85) - 1.0)))
+        c.inside("quarters 16:9" qt)
+        c.textsClear("quarters 16:9" qt)
+        c.textsFit("quarters 16:9" qt)
+        c.ok(("quarters: contrast " + (to_string (c.lowestRatio(qt wine.paper)))) ((c.lowestRatio(qt wine.paper)) >= 4.5))
+        c.textsFit("timeline 16:9" tf)
+        ; portrait: down the room, every text in its box
+        def qp:FlowScene (MdFigure.sceneFit("timeline" qText wine 460.0 10.0 700.0))
+        c.ok("quarters portrait: down" (MdFigure.stacks("timeline" (MdFigure.items(qText)) wine 460.0 10.0)))
+        c.inside("quarters portrait" qp)
+        c.textsClear("quarters portrait" qp)
+        c.textsFit("quarters portrait" qp)
+        ; a title with no token: numbered
+        def tn:FlowScene (MdFigure.sceneOf("timeline" "- Plan: goals\n- Build: code\n- Ship: in use" wine 852.0 10.0))
+        def tnx:string (c.texts(tn))
+        c.ok("timeline: no token, numbered badges" ((((indexOf tnx "1|") >= 0) && ((indexOf tnx "3|") >= 0)) && ((indexOf tnx "Plan|") >= 0)))
+
         ; --- art
         def w1:FlowScene (MdFigure.art("waves" st 1280.0 720.0 1))
         c.ok("waves: a page of lines" ((c.count(w1 2)) > 40))
@@ -548,6 +794,13 @@ class MdFigureTest {
         def m2:MdNode (ld2.childAt(2))
         c.eqStr("sheet: a class's list-style" m0.info "process")
         c.eqStr("sheet: a heading's list-style" m2.info "timeline")
+        ; ```cards from a plain list
+        def lc3 (new MdEmbedCache())
+        def ld3:MdNode (MdBlock.parseText("- Käynnistä: ohjelma\n- Kasvata: asiakkaat\n- Panosta: markkinat\n{list-style=cards}\n"))
+        MdDiagram.prepare(ld3 lc3 800.0 "default")
+        def n3:MdNode (ld3.childAt(0))
+        c.eqStr("list-style=cards: its word" n3.info "cards")
+        c.ok("list-style=cards: drawn" ((lc3.heightFor("cards" n3.literal 800.0)) > 0.0))
 
         if ((strlen outDir) > 0) {
             def dark (new MdFigureStyle)
@@ -567,6 +820,14 @@ class MdFigureTest {
             MdFigureTest.save(outDir "timeline-portrait" td "#ffffff")
             MdFigureTest.save(outDir "swot" s "#ffffff")
             MdFigureTest.save(outDir "timeline" t "#ffffff")
+            MdFigureTest.save(outDir "cards" cd "#f8f4ee")
+            MdFigureTest.save(outDir "cards-portrait" cp "#f8f4ee")
+            MdFigureTest.save(outDir "cards-stacked" c1 "#f8f4ee")
+            MdFigureTest.save(outDir "cards-seven" c7 "#f8f4ee")
+            MdFigureTest.save(outDir "quarters" qt "#f8f4ee")
+            MdFigureTest.save(outDir "quarters-portrait" qp "#f8f4ee")
+            MdFigureTest.save(outDir "cards-dark" (MdFigure.sceneOf("cards" recText dark 960.0 10.0)) "#0b1030")
+            MdFigureTest.save(outDir "timeline-numbered" tn "#f8f4ee")
             MdFigureTest.save(outDir "swot-dark" (MdFigure.sceneOf("swot" "Strengths: strong brand\nWeaknesses: small team\nOpportunities: new markets\n  - Nordics\n  - Germany\nThreats: competitors" dark 960.0 10.0)) "#0b1030")
             MdFigureTest.save(outDir "process-dark" (MdFigure.sceneOf("process" "- Plan: goals and schedule\n- Build: code and tests\n- Ship: in use" dark 960.0 10.0)) "#0b1030")
             MdFigureTest.save(outDir "timeline-dark" (MdFigure.sceneOf("timeline" "2023: Founded\n2024: First product\n2025: 10 000 users\n2026: Abroad" dark 960.0 10.0)) "#0b1030")
