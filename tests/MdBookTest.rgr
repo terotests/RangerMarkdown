@@ -1,0 +1,240 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdBookTest.rgr — `mode: book`: sides, spreads and mirrored margins.
+; ============================================================================
+;
+;   npm run markdown:book:test
+;
+; The front matter is read into a book (mode, render, where it starts, the
+; margins in any unit), the pages pair up into spreads with the cover alone
+; on the right, and a deck laid out as a book has its right-hand pages
+; moved over so the wide margin is at the binding on both sides — but not
+; a full-page picture, which belongs to the sheet.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdLayout.rgr"
+Import "../src/MdCss.rgr"
+Import "../src/MdBook.rgr"
+Import "../src/MdFrontMatter.rgr"
+
+class BookCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print (("    got  " + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+
+    fn near:void (name:string got:double want:double) {
+        if ((fabs (got - want)) < 0.05) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print (("    got  " + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+}
+
+class MdBookTest {
+    sfn main:void () {
+        def t (new BookCheck())
+        MdBookTest.reading(t)
+        MdBookTest.spreads(t)
+        MdBookTest.startLeft(t)
+        MdBookTest.slidesHaveNoSides(t)
+        MdBookTest.margins(t)
+        MdBookTest.layout(t)
+        MdBookTest.fullPage(t)
+        print ((("passed=" + (to_string t.passed)) + " failed=") + (to_string t.failed))
+        if (t.failed == 0) {
+            print "ALL PASS"
+        }
+    }
+
+    sfn bookOf:MdBook (front:string) {
+        def doc:MdNode (MdBlock.parseText(("---\n" + front + "\n---\n\n# A\n")))
+        return (MdBook.of((MdFrontMatter.of(doc))))
+    }
+
+    sfn reading:void (t:BookCheck) {
+        def none:MdBook (MdBookTest.bookOf("title: x"))
+        t.ok("no mode: slides" ((none.isBook()) == false))
+        t.ok("no mode: flat" (none.render == "flat"))
+        t.ok("no margins given" ((none.anyMargin()) == false))
+        def b:MdBook (MdBookTest.bookOf("mode: Book\nrender: realistic\nmargin-top: 20mm\nmargin-inside: 1in\nmargin-outside: 0"))
+        t.ok("mode: book" (b.isBook()))
+        t.ok("render: realistic" (b.isRealistic()))
+        t.ok("starts on the right" (b.start == "right"))
+        t.near("20mm in points" b.marginTop 56.69)
+        t.near("1in in points" b.marginInside 72.0)
+        t.near("0 is a margin" b.marginOutside 0.0)
+        t.near("bottom not given" b.marginBottom -1.0)
+        def odd:MdBook (MdBookTest.bookOf("mode: booklet\nrender: shiny"))
+        t.ok("an unknown mode is slides" ((odd.isBook()) == false))
+        t.ok("an unknown render is flat" (odd.render == "flat"))
+        def flatBook:MdBook (MdBookTest.bookOf("mode: slides\nrender: realistic"))
+        t.ok("realistic needs a book" ((flatBook.isRealistic()) == false))
+    }
+
+    ; 1 alone on the right, then 2|3, 4|5; an even count ends on a page
+    ; alone on the left (the back cover)
+    sfn spreads:void (t:BookCheck) {
+        def b:MdBook (MdBookTest.bookOf("mode: book"))
+        t.ok("page 1 is a right-hand page" (b.isRecto(0)))
+        t.ok("page 2 is a left-hand page" ((b.isRecto(1)) == false))
+        t.ok("page 3 is a right-hand page" (b.isRecto(2)))
+        t.eqInt("1 page, 1 spread" (b.spreadCount(1)) 1)
+        t.eqInt("4 pages, 3 spreads" (b.spreadCount(4)) 3)
+        t.eqInt("5 pages, 3 spreads" (b.spreadCount(5)) 3)
+        t.eqInt("cover: nothing on the left" (b.leftOf(0 5)) -1)
+        t.eqInt("cover: page 1 on the right" (b.rightOf(0 5)) 0)
+        t.eqInt("spread 2: page 2 on the left" (b.leftOf(1 5)) 1)
+        t.eqInt("spread 2: page 3 on the right" (b.rightOf(1 5)) 2)
+        t.eqInt("4 pages: page 4 alone on the left" (b.leftOf(2 4)) 3)
+        t.eqInt("4 pages: nothing on its right" (b.rightOf(2 4)) -1)
+        t.eqInt("page 1's spread" (b.spreadOf(0)) 0)
+        t.eqInt("page 2's spread" (b.spreadOf(1)) 1)
+        t.eqInt("page 3's spread" (b.spreadOf(2)) 1)
+        t.eqInt("page 4's spread" (b.spreadOf(3)) 2)
+        t.eqInt("a spread starts on its left page" (b.firstOf(1 5)) 1)
+        t.eqInt("the cover's spread starts on page 1" (b.firstOf(0 5)) 0)
+    }
+
+    sfn startLeft:void (t:BookCheck) {
+        def b:MdBook (MdBookTest.bookOf("mode: book\nbook-start: left"))
+        t.ok("page 1 is on the left" ((b.isRecto(0)) == false))
+        t.ok("page 2 is on the right" (b.isRecto(1)))
+        t.eqInt("5 pages, 3 spreads" (b.spreadCount(5)) 3)
+        t.eqInt("spread 1 left" (b.leftOf(0 5)) 0)
+        t.eqInt("spread 1 right" (b.rightOf(0 5)) 1)
+        t.eqInt("the last page alone" (b.rightOf(2 5)) -1)
+        t.eqInt("page 4's spread" (b.spreadOf(3)) 1)
+    }
+
+    sfn slidesHaveNoSides:void (t:BookCheck) {
+        def b:MdBook (MdBookTest.bookOf("title: x"))
+        t.eqInt("a deck: one page a spread" (b.spreadCount(4)) 4)
+        t.eqInt("a deck: its page" (b.rightOf(2 4)) 2)
+        t.eqInt("a deck: nothing on the left" (b.leftOf(2 4)) -1)
+        t.eqInt("a deck: spread of page 3" (b.spreadOf(2)) 2)
+    }
+
+    sfn margins:void (t:BookCheck) {
+        def b:MdBook (MdBookTest.bookOf("mode: book\nmargin: 10pt\nmargin-inside: 30pt"))
+        t.near("top falls back to margin" (b.top(56.0 800.0)) 10.0)
+        t.near("inside is its own" (b.inside(56.0 600.0)) 30.0)
+        t.near("left page: outside on the left" (b.leftMargin(1 56.0 600.0)) 10.0)
+        t.near("left page: inside on the right" (b.rightMargin(1 56.0 600.0)) 30.0)
+        t.near("right page: inside on the left" (b.leftMargin(2 56.0 600.0)) 30.0)
+        t.near("right page: outside on the right" (b.rightMargin(2 56.0 600.0)) 10.0)
+        def big:MdBook (MdBookTest.bookOf("mode: book\nmargin-top: 900pt"))
+        t.near("no more than 40% of the page" (big.top(56.0 800.0)) 320.0)
+        def none:MdBook (MdBookTest.bookOf("mode: book"))
+        t.near("nothing given: the page's own" (none.inside(56.0 600.0)) 56.0)
+    }
+
+    sfn slides:MdLayout (src:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        l.style.pageWidth = 420.0
+        l.style.pageHeight = 595.0
+        l.setStyleSheet("")
+        l.applySlideMeta(doc)
+        l.setDocSource(src)
+        l.layoutSlides(doc)
+        return l
+    }
+
+    ; The leftmost text on a page.
+    sfn leftOn:double (l:MdLayout page:int) {
+        def x:double 100000.0
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (((b.kind == 0) && (b.page == page)) && ((strlen b.text) > 0)) {
+                if (b.x < x) {
+                    x = b.x
+                }
+            }
+            i = (i + 1)
+        }
+        return x
+    }
+
+    sfn topOn:double (l:MdLayout page:int) {
+        def y:double 100000.0
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (((b.kind == 0) && (b.page == page)) && ((strlen b.text) > 0)) {
+                if (b.y < y) {
+                    y = b.y
+                }
+            }
+            i = (i + 1)
+        }
+        return y
+    }
+
+    sfn layout:void (t:BookCheck) {
+        def body:string "# Yksi\n\nSivu.\n\n# Kaksi\n\nSivu.\n\n# Kolme\n\nSivu.\n"
+        def front:string "---\nmode: book\nmargin-top: 40pt\nmargin-inside: 60pt\nmargin-outside: 20pt\n---\n\n"
+        def l:MdLayout (MdBookTest.slides((front + body)))
+        t.eqInt("three pages" l.pageCount 3)
+        t.near("page 1 (right): inside margin on the left" (MdBookTest.leftOn(l 0)) 60.0)
+        t.near("page 2 (left): outside margin on the left" (MdBookTest.leftOn(l 1)) 20.0)
+        t.near("page 3 (right): inside margin on the left" (MdBookTest.leftOn(l 2)) 60.0)
+        ; the first line sits as far under the top margin as it does under
+        ; the page's own 56pt: 16pt higher with a 40pt margin
+        def plainTop:MdLayout (MdBookTest.slides(body))
+        t.near("the top margin is the front matter's" (MdBookTest.topOn(l 1)) ((MdBookTest.topOn(plainTop 1)) - 16.0))
+        ; the same margins on a deck of slides: inside is left, nothing moves
+        def flat:MdLayout (MdBookTest.slides(("---\nmargin-inside: 60pt\nmargin-outside: 20pt\n---\n\n" + body)))
+        t.near("slides: page 1 at the inside margin" (MdBookTest.leftOn(flat 0)) 60.0)
+        t.near("slides: page 2 too" (MdBookTest.leftOn(flat 1)) 60.0)
+        ; no front matter at all: the layout it always had
+        def plain:MdLayout (MdBookTest.slides(body))
+        t.near("no book: the page's margin" (MdBookTest.leftOn(plain 1)) plain.style.margin)
+    }
+
+    ; A picture over the whole page stays where it is on a right-hand page.
+    sfn fullPage:void (t:BookCheck) {
+        def l:MdLayout (MdBookTest.slides("---\nmode: book\nmargin-inside: 60pt\nmargin-outside: 20pt\n---\n\n# A\n\nText.\n"))
+        def b:MdBox (MdBox.rect(0.0 0.0 420.0 595.0 "#123456"))
+        b.page = 0
+        push l.boxes b
+        def c:MdBox (MdBox.rect(-8.0 -8.0 436.0 611.0 "#123456"))
+        c.page = 0
+        c.bleeds = true
+        push l.boxes c
+        def d:MdBox (MdBox.rect(20.0 100.0 50.0 50.0 "#123456"))
+        d.page = 0
+        push l.boxes d
+        l.mirrorBook()
+        t.near("a page-wide box stays" b.x 0.0)
+        t.near("a box into the bleed stays" c.x -8.0)
+        t.near("a box in the text column moves" d.x 60.0)
+    }
+}
