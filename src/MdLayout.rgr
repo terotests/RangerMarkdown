@@ -3279,6 +3279,15 @@ class MdLayout {
         }
         def p:MdContainer (MdContainer.plan(kind own themeFill radius paper style.textColor style.bodySize))
         p.shadow = shadow
+        ; A chart or diagram (`{container=box}` under its fence) keeps the
+        ; column it was drawn for — the drawing is cached by that width, so a
+        ; narrower column would find none — and the plate hugs the drawing,
+        ; which has room of its own round its axes and labels.
+        if (node.kind == "embed") {
+            p.padX = 0.0
+            p.hug = true
+            p.tail = 0.0
+        }
         def savedInk:string style.textColor
         if ((strlen p.ink) > 0) {
             style.textColor = p.ink
@@ -3317,10 +3326,25 @@ class MdLayout {
             while (i < n) {
                 def b:MdBox (itemAt boxes i)
                 if ((b.page == pg) && (b.retold == false)) {
+                    def bx0:double b.x
+                    def bx1:double (b.x + b.w)
+                    ; a drawing narrower than its column: where it is drawn
+                    if (b.kind == 3) {
+                        def ei:int (embeds.find(b.embedKind b.embedSource b.w))
+                        if (ei >= 0) {
+                            def e:MdEmbedEntry (embeds.entryAt(ei))
+                            if (e.ok && (e.width > 0.0)) {
+                                bx0 = (b.x + (e.shiftIn(b.w)))
+                                if (e.width < b.w) {
+                                    bx1 = (bx0 + e.width)
+                                }
+                            }
+                        }
+                    }
                     if ((! any) || (b.y < minY)) { minY = b.y }
                     if ((! any) || ((b.y + b.h) > maxY)) { maxY = (b.y + b.h) }
-                    if ((! any) || (b.x < minX)) { minX = b.x }
-                    if ((! any) || ((b.x + b.w) > maxX)) { maxX = (b.x + b.w) }
+                    if ((! any) || (bx0 < minX)) { minX = bx0 }
+                    if ((! any) || (bx1 > maxX)) { maxX = bx1 }
                     any = true
                 }
                 i = (i + 1)
