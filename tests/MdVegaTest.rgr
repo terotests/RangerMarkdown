@@ -34,6 +34,7 @@ Import "../src/MdEmbedKinds.rgr"
 Import "../src/MdDiagram.rgr"
 Import "../src/MdBlock.rgr"
 Import "../src/MdToEvg.rgr"
+Import "../../vfs/src/Vfs.rgr"
 
 class VegaCheck {
     def passed:int 0
@@ -767,6 +768,99 @@ class MdVegaTest {
         c.eqInt("no invisible label in the scene" hidden 0)
     }
 
+    ; An `image` mark draws the picture its `url` names, from the document's
+    ; own pictures (`media/logo.svg`), centred on its point and kept to the
+    ; picture's proportions inside the mark's box. It used to draw nothing:
+    ; the scene had no picture item and the command was dropped silently.
+    fn pictures:void (c:VegaCheck) {
+        print "-- an image mark draws the document's picture --"
+        def spec:string "{\"width\": 300, \"height\": 200, \"data\": {\"values\": [{\"x\": 1, \"y\": 2, \"img\": \"media/logo.svg\"}, {\"x\": 2, \"y\": 5, \"img\": \"media/logo.svg\"}, {\"x\": 3, \"y\": 3, \"img\": \"media/gone.svg\"}]}, \"mark\": {\"type\": \"image\", \"width\": 40, \"height\": 40}, \"encoding\": {\"x\": {\"field\": \"x\", \"type\": \"quantitative\"}, \"y\": {\"field\": \"y\", \"type\": \"quantitative\"}, \"url\": {\"field\": \"img\", \"type\": \"nominal\"}}}"
+        def d:MdVegaDrawing (MdVegaRender.draw(spec 520.0 10.0))
+        c.eqInt("nothing skipped" (array_length d.skipped) 0)
+        def pics:[SceneItem]
+        def i:int 0
+        while (i < (array_length d.scene.items)) {
+            def it:SceneItem (itemAt d.scene.items i)
+            if (it.kind == 5) {
+                push pics it
+            }
+            i = (i + 1)
+        }
+        c.eqInt("three pictures in the scene" (array_length pics) 3)
+        if ((array_length pics) < 3) { return }
+        def p0:SceneItem (itemAt pics 0)
+        c.eqStr("named as written" p0.src "media/logo.svg")
+        c.eqNum("its box is the mark's width" p0.w 40.0)
+        c.eqNum("…and height" p0.h 40.0)
+        ; x = 1 and x = 2 one step apart on the axis; the boxes are centred on
+        ; their points, so the step between their middles is the axis step
+        def p1:SceneItem (itemAt pics 1)
+        c.ok("the higher value is drawn higher" (p1.y < p0.y))
+        c.ok("in the plot" (p0.x > 0.0))
+
+        ; Through the layout, against a store that has one of the two names.
+        def v (new Vfs())
+        def mem (new VfsMemory())
+        def blob (new VfsBlob())
+        def raw:string "<svg/>"
+        def buf:buffer (buffer_alloc (strlen raw))
+        def bi:int 0
+        while (bi < (strlen raw)) {
+            buffer_set buf bi (charAt raw bi)
+            bi = (bi + 1)
+        }
+        blob.bytes = buf
+        blob.contentType = "image/svg+xml"
+        blob.pixelW = 200
+        blob.pixelH = 100
+        mem.put("/media/logo.svg" blob)
+        v.mount("/" mem)
+        def doc:MdNode (MdBlock.parseText(("# T\n\n```vega-lite\n" + spec + "\n```\n")))
+        def l:MdLayout (new MdLayout())
+        l.setImages(v "/")
+        MdDiagram.prepare(doc l.embeds (600.0 - (l.style.margin * 2.0)) "default")
+        l.layoutContinuous(doc 600.0)
+        def dl:EVGDisplayList (MdToEvg.toDisplayList(l 600.0))
+        def found:[EVGDrawCmd]
+        def k:int 0
+        while (k < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds k)
+            if (cmd.kind == 2) {
+                push found cmd
+            }
+            k = (k + 1)
+        }
+        c.eqInt("two pictures reach the display list, the missing one none" (array_length found) 2)
+        if ((array_length found) < 1) { return }
+        def f0:EVGDrawCmd (itemAt found 0)
+        c.eqStr("by the store's path" f0.src "/media/logo.svg")
+        c.ok("kept 2:1 inside the square box" (MdVegaTest.close((f0.w / f0.h) 2.0)))
+        c.ok("a missing picture is counted" (l.missingImages > 0))
+        ; the page's tree (PDF, PPTX) carries the same pictures
+        def root:EVGElement (MdToEvg.buildPage(l 600.0))
+        def le:EVGLayout (new EVGLayout())
+        le.setPageSize(600.0 l.documentHeight)
+        le.layout(root)
+        def tl (new EVGDisplayList())
+        tl.build(root)
+        def treePics:int 0
+        def tk:int 0
+        while (tk < (array_length tl.cmds)) {
+            def tc:EVGDrawCmd (itemAt tl.cmds tk)
+            if ((tc.kind == 2) && (tc.src == "/media/logo.svg")) {
+                treePics = (treePics + 1)
+            }
+            tk = (tk + 1)
+        }
+        c.eqInt("…and the tree the PDF reads" treePics 2)
+    }
+
+    sfn close:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) { d = (0.0 - d) }
+        return (d < 0.01)
+    }
+
     fn run:void () {
         def c (new VegaCheck())
         print "== MdVegaTest =="
@@ -781,6 +875,7 @@ class MdVegaTest {
         this.staggered(c)
         this.inView(c)
         this.hiddenLabels(c)
+        this.pictures(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
