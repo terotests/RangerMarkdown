@@ -76,6 +76,18 @@ class MarkdownTest {
         }
     }
 
+    ; Line endings and NUL, copied in runs: CRLF and a lone CR become LF, NUL
+    ; becomes U+FFFD, and text with neither comes back as it was.
+    fn normalizeSource:void () {
+        def cr:string (strfromcode 13)
+        def nul:string (strfromcode 0)
+        this.eq("crlf" (MdBlock.normalizeSource(((("a" + cr) + "\nb") + cr) + "\n")) "a\nb\n")
+        this.eq("lone cr" (MdBlock.normalizeSource(((cr + "a") + cr) + "b")) "\na\nb")
+        this.eq("nul" (MdBlock.normalizeSource(("x" + nul) + "y")) ("x" + ((MdChar.fromCode(65533)) + "y")))
+        this.eq("untouched" (MdBlock.normalizeSource("plain\ntext")) "plain\ntext")
+        this.eq("empty" (MdBlock.normalizeSource("")) "")
+    }
+
     ; HTML for a page someone opens: raw HTML shown, script addresses dropped,
     ; heading ids, pictures written in. Off, the spec output is untouched.
     fn standaloneHtml:void () {
@@ -252,6 +264,7 @@ class MarkdownTest {
         this.presized()
         this.textEngine()
         this.standaloneHtml()
+        this.normalizeSource()
         print ""
         def p:string (to_string passed)
         def f:string (to_string failed)
