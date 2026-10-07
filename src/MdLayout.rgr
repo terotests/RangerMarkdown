@@ -3551,6 +3551,15 @@ class MdLayout {
             p.border = border
             p.borderWidth = borderW
         }
+        ; A chart or diagram (`{container=box}` under its fence) keeps the
+        ; column it was drawn for — the drawing is cached by that width, so a
+        ; narrower column would find none — and the plate hugs the drawing,
+        ; which has room of its own round its axes and labels.
+        if (node.kind == "embed") {
+            p.padX = 0.0
+            p.hug = true
+            p.tail = 0.0
+        }
         def savedInk:string style.textColor
         if ((strlen p.ink) > 0) {
             style.textColor = p.ink
@@ -3595,10 +3604,25 @@ class MdLayout {
             while (i < n) {
                 def b:MdBox (itemAt boxes i)
                 if ((b.page == pg) && (b.retold == false)) {
+                    def bx0:double b.x
+                    def bx1:double (b.x + b.w)
+                    ; a drawing narrower than its column: where it is drawn
+                    if (b.kind == 3) {
+                        def ei:int (embeds.find(b.embedKind b.embedSource b.w))
+                        if (ei >= 0) {
+                            def e:MdEmbedEntry (embeds.entryAt(ei))
+                            if (e.ok && (e.width > 0.0)) {
+                                bx0 = (b.x + (e.shiftIn(b.w)))
+                                if (e.width < b.w) {
+                                    bx1 = (bx0 + e.width)
+                                }
+                            }
+                        }
+                    }
                     if ((! any) || (b.y < minY)) { minY = b.y }
                     if ((! any) || ((b.y + b.h) > maxY)) { maxY = (b.y + b.h) }
-                    if ((! any) || (b.x < minX)) { minX = b.x }
-                    if ((! any) || ((b.x + b.w) > maxX)) { maxX = (b.x + b.w) }
+                    if ((! any) || (bx0 < minX)) { minX = bx0 }
+                    if ((! any) || (bx1 > maxX)) { maxX = bx1 }
                     any = true
                 }
                 i = (i + 1)
@@ -5123,6 +5147,63 @@ class MdLayout {
     ; before layout began. A diagram nobody prepared is a labelled slot: an
     ; empty rectangle tells a reader nothing, and a silent omission tells
     ; them less.
+    ; The pictures a chart draws (its `image` marks, which name them as the
+    ; document does: `media/logo.svg`), resolved against this layout's
+    ; pictures the way `![](media/logo.svg)` is, and each fitted inside the
+    ; box the chart gave it with its own proportions (Vega's `aspect`, on by
+    ; default). A display list stretches a picture to its box, so the fit is
+    ; made here. A name the store does not have draws nothing and is counted
+    ; in `missingImages`. Works from the name the scene kept in `alt`, so a
+    ; second pass over the same drawing gives the same boxes.
+    fn chartPictures:void (root:EVGElement) {
+        def i:int 0
+        while (i < (array_length root.children)) {
+            def c:EVGElement (itemAt root.children i)
+            i = (i + 1)
+            if ((c.tagName == "img") && ((strlen c.alt) > 0)) {
+                c.src = ""
+                if haveImages {
+                    def path:string (images.resolve(c.alt docDir))
+                    def st:VfsStat (new VfsStat())
+                    if ((strlen path) > 0) {
+                        st = (images.stat(path))
+                    }
+                    if st.found {
+                        c.src = path
+                        if ((st.pixelW > 0) && (st.pixelH > 0)) {
+                            MdLayout.containIn(c (to_double st.pixelW) (to_double st.pixelH))
+                        }
+                    } {
+                        missingImages = (missingImages + 1)
+                    }
+                } {
+                    missingImages = (missingImages + 1)
+                }
+            }
+        }
+    }
+
+    ; `el`'s box made the largest one of the proportions natW : natH that fits
+    ; inside it, centred where it was.
+    sfn containIn:void (el:EVGElement natW:double natH:double) {
+        def x:double el.left.pixels
+        def y:double el.top.pixels
+        def w:double el.width.pixels
+        def h:double el.height.pixels
+        if ((w <= 0.0) || (h <= 0.0)) { return }
+        def k:double (natW / natH)
+        def fw:double w
+        def fh:double (w / k)
+        if (fh > h) {
+            fh = h
+            fw = (h * k)
+        }
+        el.left = (EVGUnit.px((x + ((w - fw) * 0.5))))
+        el.top = (EVGUnit.px((y + ((h - fh) * 0.5))))
+        el.width = (EVGUnit.px(fw))
+        el.height = (EVGUnit.px(fh))
+    }
+
     fn embed:void (node:MdNode x:double w:double) {
         def kind:string (MdLayout.firstWord(node.info))
         ; `{width=360}` under the fence, clamped to the column. `MdDiagram`
@@ -5134,6 +5215,15 @@ class MdLayout {
         def useW:double (MdEmbedKinds.widthOf(want w))
         def known:double (embeds.heightFor(kind node.literal useW))
         def drawn:boolean (known > 0.0)
+        if drawn {
+            def pe:int (embeds.find(kind node.literal useW))
+            if (pe >= 0) {
+                def pentry:MdEmbedEntry (embeds.entryAt(pe))
+                if (pentry.ok && (!null? pentry.root)) {
+                    this.chartPictures((unwrap pentry.root))
+                }
+            }
+        }
         def h:double 64.0
         if drawn { h = known }
         ; On a slide a diagram taller than the room left under its heading is
