@@ -1,0 +1,255 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdBook.rgr — a deck that is a printed book: its pages, sides and spreads.
+; ============================================================================
+;
+;   ---
+;   mode: book            # slides (the default) | book
+;   render: realistic     # flat (the default) | realistic: how a viewer shows it
+;   book-start: right     # right (the default): page 1 is the cover, alone on
+;                         # the right; left: page 1 and 2 face each other
+;   margin: 15mm          # every edge
+;   margin-top: 20mm      # one edge (top, bottom, inside, outside)
+;   margin-inside: 22mm   # the edge at the binding: right of a left page,
+;   margin-outside: 12mm  # left of a right one; outside is the other edge
+;   ---
+;
+; A book is pages that face each other. Page 1 of a book that starts on the
+; right is a recto (a right-hand page) with nothing to its left — the cover —
+; and from there every even page is a verso (left) facing the odd one after
+; it. A spread is the pair, either half of which may be missing (the cover,
+; and the back page of a book with an even count).
+;
+; Everything here is a number of pages and a margin: no layout, no drawing.
+; The layout reads the margins (MdLayout.applyBookMargins); a player reads
+; the spreads to show two pages at once.
+; ============================================================================
+
+Import "MdFrontMatter.rgr"
+
+class MdBook {
+    def mode:string "slides"
+    def render:string "flat"
+    def start:string "right"
+    ; in points; -1 is "not given"
+    def margin:double -1.0
+    def marginTop:double -1.0
+    def marginBottom:double -1.0
+    def marginInside:double -1.0
+    def marginOutside:double -1.0
+
+    Constructor () {
+    }
+
+    ; The front matter's book, or a deck of slides when it says nothing.
+    ; Words the model does not know keep the default, so a typo shows slides
+    ; rather than half a book.
+    sfn of:MdBook (meta:MdMeta) {
+        def b:MdBook (new MdBook())
+        def m:string (MdBook.word((meta.get("mode" ""))))
+        if (m == "book") {
+            b.mode = "book"
+        }
+        def r:string (MdBook.word((meta.get("render" ""))))
+        if (r == "realistic") {
+            b.render = "realistic"
+        }
+        def s:string (MdBook.word((meta.get("book-start" ""))))
+        if (s == "left") {
+            b.start = "left"
+        }
+        b.margin = (MdBook.length(meta "margin"))
+        b.marginTop = (MdBook.length(meta "margin-top"))
+        b.marginBottom = (MdBook.length(meta "margin-bottom"))
+        b.marginInside = (MdBook.length(meta "margin-inside"))
+        b.marginOutside = (MdBook.length(meta "margin-outside"))
+        return b
+    }
+
+    sfn word:string (v:string) {
+        return (MdChar.lower((trim v)))
+    }
+
+    ; A length the front matter gave, in points, or -1. `0` is a length: a
+    ; page with no margin at the top is something a photo book asks for.
+    sfn length:double (meta:MdMeta key:string) {
+        if ((meta.has(key)) == false) {
+            return -1.0
+        }
+        def v:string (MdChar.lower((trim (meta.get(key "")))))
+        if ((v == "0") || (v == "0mm") || (v == "0pt") || (v == "0cm") || (v == "0in")) {
+            return 0.0
+        }
+        return (MdFrontMatter.points(v -1.0))
+    }
+
+    fn isBook:boolean () {
+        return (mode == "book")
+    }
+
+    fn isRealistic:boolean () {
+        return ((mode == "book") && (render == "realistic"))
+    }
+
+    fn anyMargin:boolean () {
+        if (margin >= 0.0) { return true }
+        if (marginTop >= 0.0) { return true }
+        if (marginBottom >= 0.0) { return true }
+        if (marginInside >= 0.0) { return true }
+        return (marginOutside >= 0.0)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Sides and spreads (page indexes from 0)
+    ; ----------------------------------------------------------------------
+
+    ; A right-hand page. A deck of slides has no sides; its pages are all
+    ; "right" so a caller that mirrors nothing for them needs no second test.
+    fn isRecto:boolean (page:int) {
+        if ((mode == "book") == false) {
+            return true
+        }
+        if (start == "left") {
+            return ((page % 2) == 1)
+        }
+        return ((page % 2) == 0)
+    }
+
+    ; How many spreads `pages` pages make. A deck of slides is one page a
+    ; spread.
+    fn spreadCount:int (pages:int) {
+        if (pages <= 0) {
+            return 0
+        }
+        if ((mode == "book") == false) {
+            return pages
+        }
+        if (start == "left") {
+            return (idiv (pages + 1) 2)
+        }
+        return ((idiv pages 2) + 1)
+    }
+
+    fn spreadOf:int (page:int) {
+        if (page < 0) {
+            return 0
+        }
+        if ((mode == "book") == false) {
+            return page
+        }
+        if (start == "left") {
+            return (idiv page 2)
+        }
+        return (idiv (page + 1) 2)
+    }
+
+    ; The page on the left of spread `s`, or -1 (the cover's spread, or one
+    ; past the end).
+    fn leftOf:int (s:int pages:int) {
+        if ((mode == "book") == false) {
+            return -1
+        }
+        def p:int (s * 2)
+        if (start == "right") {
+            p = (p - 1)
+        }
+        if ((p < 0) || (p >= pages)) {
+            return -1
+        }
+        return p
+    }
+
+    ; The page on the right of spread `s`, or -1. A deck of slides shows its
+    ; one page here.
+    fn rightOf:int (s:int pages:int) {
+        def p:int s
+        if (mode == "book") {
+            p = (s * 2)
+            if (start == "left") {
+                p = (p + 1)
+            }
+        }
+        if ((p < 0) || (p >= pages)) {
+            return -1
+        }
+        return p
+    }
+
+    ; The first page of a spread: where going to the spread lands.
+    fn firstOf:int (s:int pages:int) {
+        def l:int (this.leftOf(s pages))
+        if (l >= 0) {
+            return l
+        }
+        return (this.rightOf(s pages))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Margins
+    ; ----------------------------------------------------------------------
+    ;
+    ; Each edge: its own length, else `margin`, else the page's (the theme's
+    ; `page { padding }`). Never more than 40% of the page it is on.
+
+    fn edge:double (own:double fallback:double room:double) {
+        def v:double fallback
+        if (margin >= 0.0) {
+            v = margin
+        }
+        if (own >= 0.0) {
+            v = own
+        }
+        def most:double (room * 0.4)
+        if (v > most) {
+            v = most
+        }
+        if (v < 0.0) {
+            v = 0.0
+        }
+        return v
+    }
+
+    fn top:double (fallback:double pageH:double) {
+        return (this.edge(marginTop fallback pageH))
+    }
+
+    fn bottom:double (fallback:double pageH:double) {
+        return (this.edge(marginBottom fallback pageH))
+    }
+
+    fn inside:double (fallback:double pageW:double) {
+        return (this.edge(marginInside fallback pageW))
+    }
+
+    fn outside:double (fallback:double pageW:double) {
+        return (this.edge(marginOutside fallback pageW))
+    }
+
+    ; The left margin of page `page`: the outside of a left-hand page, the
+    ; inside of a right-hand one. A deck of slides reads inside as left.
+    fn leftMargin:double (page:int fallback:double pageW:double) {
+        if (mode != "book") {
+            return (this.inside(fallback pageW))
+        }
+        if (this.isRecto(page)) {
+            return (this.inside(fallback pageW))
+        }
+        return (this.outside(fallback pageW))
+    }
+
+    fn rightMargin:double (page:int fallback:double pageW:double) {
+        if (mode != "book") {
+            return (this.outside(fallback pageW))
+        }
+        if (this.isRecto(page)) {
+            return (this.outside(fallback pageW))
+        }
+        return (this.inside(fallback pageW))
+    }
+
+    ; One line for a cache key: two books that differ here lay out apart.
+    fn fingerprint:string () {
+        return (mode + "/" + render + "/" + start + "/" + (to_string margin) + "/" + (to_string marginTop) + "/" + (to_string marginBottom) + "/" + (to_string marginInside) + "/" + (to_string marginOutside))
+    }
+}

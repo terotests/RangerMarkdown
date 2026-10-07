@@ -44,6 +44,7 @@ Import "MdCodeLines.rgr"
 Import "MdFrontMatter.rgr"
 Import "MdCss.rgr"
 Import "MdGallery.rgr"
+Import "MdBook.rgr"
 Import "MdCssLimits.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
 Import "../../math/src/MathLayout.rgr"
@@ -515,6 +516,9 @@ class MdLayout {
     ; slide stays as it was. Slides with a picture or an embed are left
     ; alone, since those were sized for the room they had.
     def slideGrow:double 1.0
+    ; `mode: book` and the page margins of the front matter (MdBook): a
+    ; book's right-hand pages are laid out with the inside margin on the left
+    def book:MdBook (new MdBook())
     ; How full a grown slide may get, of the room under the margins.
     def slideGrowFill:double 0.82
     ; Per top-level block: the slide it starts on and the one it ends on.
@@ -810,6 +814,7 @@ class MdLayout {
         if ((sheet.splitLevel) > 0) { splitLevel = sheet.splitLevel }
         if ((strlen sheet.overflow) > 0) { slideOverflow = sheet.overflow }
         def meta:MdMeta (MdFrontMatter.of(doc))
+        book = (MdBook.of(meta))
         if (meta.has("slide-split-level")) {
             def n@(optional):int (str2int (trim (meta.get("slide-split-level" "1"))))
             def lvl:int (?? n 1)
@@ -847,6 +852,9 @@ class MdLayout {
         contentW = (style.pageWidth - (style.margin * 2.0))
         contentTop = style.margin
         contentBottom = (style.pageHeight - style.margin)
+        if slides {
+            this.applyBookMargins()
+        }
         clear headerOff
         clear footerOff
         this.makeEdgeRoom()
@@ -868,7 +876,63 @@ class MdLayout {
         }
         this.placeNotesPaged()
         this.emitFurniture()
+        if slides {
+            this.mirrorBook()
+        }
         documentHeight = style.pageHeight
+    }
+
+    ; The front matter's margins (MdBook), each edge over the page's own.
+    ; Every page of a book is laid out as a LEFT-hand page — the outside
+    ; margin on the left — and `mirrorBook` moves the right-hand pages over
+    ; afterwards. The text column is as wide on both sides of a spread, so a
+    ; page laid out once is right on either side once it is moved; laying a
+    ; page out against its own side would need the side known before the
+    ; block that breaks onto it, which a block cut in two does not know.
+    fn applyBookMargins:void () {
+        def pw:double style.pageWidth
+        def ph:double style.pageHeight
+        def left:double (book.inside(style.margin pw))
+        def right:double (book.outside(style.margin pw))
+        if (book.isBook()) {
+            left = (book.outside(style.margin pw))
+            right = (book.inside(style.margin pw))
+        }
+        contentX = left
+        contentW = ((pw - left) - right)
+        contentTop = (book.top(style.margin ph))
+        contentBottom = (ph - (book.bottom(style.margin ph)))
+    }
+
+    ; A book's right-hand pages, moved from the left-hand layout to their
+    ; own: everything on them by (inside - outside), but not what is drawn
+    ; to the page's edges on purpose (a full-page picture, a band into the
+    ; bleed), which belongs to the sheet and not to its text column.
+    fn mirrorBook:void () {
+        if ((book.isBook()) == false) {
+            return
+        }
+        def pw:double style.pageWidth
+        def dx:double ((book.inside(style.margin pw)) - (book.outside(style.margin pw)))
+        if ((fabs dx) < 0.01) {
+            return
+        }
+        def i:int 0
+        def n:int (array_length boxes)
+        while (i < n) {
+            def b:MdBox (itemAt boxes i)
+            if (((book.isRecto(b.page)) && (b.bleeds == false)) && ((MdLayout.coversPageWidth(b pw)) == false)) {
+                b.x = (b.x + dx)
+                if (b.alignW > 0.0) {
+                    b.alignX = (b.alignX + dx)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn coversPageWidth:boolean (b:MdBox pw:double) {
+        return ((b.x <= 0.5) && ((b.x + b.w) >= (pw - 0.5)))
     }
 
     ; ----------------------------------------------------------------------
@@ -977,6 +1041,9 @@ class MdLayout {
                     ; Outer is right on a recto and left on a verso, counting
                     ; the first sheet as page one.
                     def recto:boolean ((p % 2) == 0)
+                    if (slides && (book.isBook())) {
+                        recto = (book.isRecto(p))
+                    }
                     if recto { nx = ((x + w) - nw) } { nx = x }
                 }
                 def nb:MdBox (MdBox.text(num nx ny nw lh))

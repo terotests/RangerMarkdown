@@ -191,6 +191,27 @@ slide-size: 16:9
 `slide-split-level: 2` means `#` and `##` start a slide and `###` does not.
 Level `1` means only `#` does.
 
+### A deck that is a book
+
+```yaml
+---
+mode: book            # slides (default) | book
+render: realistic     # flat (default) | realistic, for a player that can
+book-start: right     # right (default): page 1 alone on the right; left: 1|2
+margin: 15mm          # every edge; then margin-top, margin-bottom,
+margin-inside: 22mm   # margin-inside (at the binding) and margin-outside
+---
+```
+
+`MdBook` reads these and answers the questions a book has: which side a
+page is on, which pages face each other (`spreadOf`, `leftOf`, `rightOf`),
+and each edge's margin. The layout lays every page out as a left-hand page
+and `mirrorBook` moves the right-hand ones over by inside minus outside, the
+text column being as wide on either side; whatever is drawn to the sheet's
+edges (a full-page picture, a band into the bleed) is not moved. The margin
+keys work on a plain deck too, with inside as the left edge. Showing two
+pages at once, and turning them, is the player's (Sliqtly).
+
 **Flattened keys, deliberately.** `MdFrontMatter` reads `key: value` and says
 so in its header — "A document that wants those wants a configuration file."
 Hugo's front matter is nested, so `slides.split-level` would be the

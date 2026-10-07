@@ -1,6 +1,7 @@
 {
   "scripts": {
     "deck": "bash scripts/rgr-suite.sh ./gallery/markdown/src/md_deck_tool.rgr ./gallery/markdown/bin md_deck_tool.js",
+    "markdown:book:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdBookTest.rgr ./gallery/markdown/bin MdBookTest.js",
     "markdown:gallery:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdGalleryTest.rgr ./gallery/markdown/bin MdGalleryTest.js",
     "markdown:figure:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdFigureTest.rgr ./gallery/markdown/bin MdFigureTest.js",
     "markdown:html:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdHtmlTest.rgr ./gallery/markdown/bin MdHtmlTest.js",
