@@ -1,0 +1,12 @@
+Import "../src/MdCss.rgr"
+class MdLintProbe {
+    sfn main:void () {
+        def t@(optional):string (read_file "/tmp/probe" "deck.css")
+        def text:string (unwrap t)
+        def m:MdCss (new MdCss())
+        def ns:[MdCssNote] (m.lintText(text))
+        for ns n:MdCssNote i {
+            print n.message
+        }
+    }
+}

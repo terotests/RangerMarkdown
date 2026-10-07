@@ -1,0 +1,817 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdCssSupport.rgr — which selectors and properties a sheet can use, and a
+; note on every line that does nothing.
+; ============================================================================
+;
+; A stylesheet that is partly ignored looks exactly like one that works until
+; the slide is drawn: `text-transform: uppercase` on `.kicker`, `th {
+; background-color }`, `#slide h2`, `color: ;`. The only way to find out was
+; to render and compare. This file is the list of what IS read — per element,
+; for a block's own class or id, and under a slide or a section — and `lint`,
+; which reads a sheet against it and says, for each declaration that will not
+; be applied, which one and why:
+;
+;   .haalea { opacity }: opacity is not supported; it is ignored.
+;   li:nth-child(2): :nth-child is not supported; give the block a class.
+;   .rikki: "font-size 20pt" has no ":" and is ignored.
+;
+; The same list is the guide's table of supported properties (`table`), so
+; the two cannot say different things. A host that reads rules of its own
+; (Sliqtly's `chart`, `diagram`, `figure`) adds them with `addElement`.
+;
+; Nothing here applies a sheet: `MdCss` does. This only reads text.
+; ============================================================================
+
+Import "../../css/CssCore.rgr"
+
+; One thing `lint` found: where in the sheet (`at`…`end`, offsets into the
+; text it was handed) and what to tell the author.
+class MdCssNote {
+    def at:int 0
+    def end:int 0
+    def selector:string ""
+    def property:string ""
+    def message:string ""
+
+    Constructor () {
+    }
+}
+
+class MdCssSupport {
+    ; element names and, at the same index, what each one reads (comma list)
+    def elements:[string]
+    def reads:[string]
+    ; …and a short word on what each element is, for the guide
+    def about:[string]
+
+    Constructor () {
+        this.defaults()
+    }
+
+    ; typography any text block takes
+    sfn TYPO:string () {
+        return "font-weight,font-style,text-transform,letter-spacing"
+    }
+
+    ; a box around a block: its plate, padding, border
+    sfn BOX:string () {
+        return "background-color,background,padding,padding-top,padding-right,padding-bottom,padding-left,border,border-color,border-width,border-style,border-radius,box-shadow"
+    }
+
+    ; what a block's own class or id (`.lead`, `#intro`) reads
+    sfn BLOCK:string () {
+        return ("font-size,color,font-family,text-align,column-count,column-gap,list-style," + (MdCssSupport.TYPO()) + "," + (MdCssSupport.BOX()))
+    }
+
+    fn defaults:void () {
+        def t:string (MdCssSupport.TYPO())
+        this.addElement("page" "width,height,padding,background-color,background-image,bleed,safe-area" "the slide or sheet")
+        this.addElement("deck" "split-level,overflow,aspect-ratio,crop-marks" "how a document becomes slides")
+        this.addElement("document" ("font-family,font-size,line-height,color," + t) "all text")
+        this.addElement("body" ("font-family,font-size,line-height,color," + t) "the same as document")
+        this.addElement("p" ("margin-bottom,text-align," + t) "paragraphs")
+        this.addElement("heading" ("font-family,font-size,margin-top,margin-bottom,color,text-align," + t) "every heading level")
+        this.addElement("h1" ("font-size,color,text-align," + t) "a level-1 heading")
+        this.addElement("h2" ("font-size,color,text-align," + t) "a level-2 heading")
+        this.addElement("h3" ("font-size,color,text-align," + t) "a level-3 heading")
+        this.addElement("h4" ("font-size,color,text-align," + t) "a level-4 heading")
+        this.addElement("h5" ("font-size,color,text-align," + t) "a level-5 heading")
+        this.addElement("h6" ("font-size,color,text-align," + t) "a level-6 heading")
+        this.addElement("a" "color" "links")
+        this.addElement("code" "font-family,font-size,line-height,padding,color,background-color,border-color" "code blocks and code in text")
+        this.addElement("mark" "background-color,color" "==highlighted== text")
+        this.addElement("kbd" "background-color,border-color" "<kbd> keys")
+        this.addElement("hr" "color" "--- rules")
+        this.addElement("blockquote" ("color,border-color,border-width,padding-left,padding-top,background-color,background," + t) "> quotes")
+        this.addElement("container" "background-color,background,border-radius,box-shadow,padding,padding-top,padding-right,padding-bottom,padding-left,border,border-color,border-width,border-style" "{container=box|bubble} plates and ::: blocks")
+        this.addElement("list" "padding-left,margin-left,color,list-style" "lists (color = the bullets)")
+        this.addElement("ul" "list-style" "bulleted lists")
+        this.addElement("ol" "list-style" "numbered lists")
+        this.addElement("li" ("margin-bottom," + t) "list items")
+        this.addElement("table" "border-color,background-color,padding-left,padding-top,font-size,cell-tones" "tables (background-color = the header row)")
+        this.addElement("th" "background-color,color" "a table's header row")
+        this.addElement("img" "justify-content,text-align,max-height" "pictures")
+        this.addElement("header" "content,content-left,content-center,content-right,background-image,background-color,border-color,font-weight,text-align,font-size,color,height" "the band at the top of each page")
+        this.addElement("footer" "content,content-left,content-center,content-right,background-image,background-color,border-color,font-weight,text-align,font-size,color,height" "the band at the foot of each page")
+        this.addElement("gallery" "gap,column-gap,columns,column-count,background-color" "```gallery albums")
+        this.addElement("cell" "padding,padding-top,padding-right,padding-bottom,padding-left,border-radius,border-width,border-color,background-color,font-size,color,font-family,text-align,font-weight" "a gallery's cells (cell:nth(n) for one)")
+        this.addElement("caption" "padding,padding-top,padding-right,padding-bottom,padding-left,border-radius,border-width,border-color,background-color,font-size,color,font-family,text-align,font-weight" "a gallery cell's caption")
+    }
+
+    ; An element and what it reads, or more for one already listed.
+    fn addElement:void (name:string props:string what:string) {
+        def i:int (this.indexOf(name))
+        if (i >= 0) {
+            def have:string (itemAt reads i)
+            def more:[string] (strsplit props ",")
+            for more p:string pi {
+                if ((MdCssSupport.listed(have p)) == false) {
+                    have = (have + "," + p)
+                }
+            }
+            set_at reads i have
+            if ((strlen what) > 0) {
+                set_at about i what
+            }
+            return
+        }
+        push elements name
+        push reads props
+        push about what
+    }
+
+    fn indexOf:int (name:string) {
+        def i:int 0
+        while (i < (array_length elements)) {
+            if ((itemAt elements i) == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn isElement:boolean (name:string) {
+        return ((this.indexOf(name)) >= 0)
+    }
+
+    ; what `name` reads, "" for an element that is not one
+    fn propsOf:string (name:string) {
+        def i:int (this.indexOf(name))
+        if (i < 0) {
+            return ""
+        }
+        return (itemAt reads i)
+    }
+
+    sfn listed:boolean (csv:string name:string) {
+        def parts:[string] (strsplit csv ",")
+        def i:int 0
+        while (i < (array_length parts)) {
+            if ((itemAt parts i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; What may be said under a slide or a section (`#intro h2`, `.dark
+    ; page`): its colours, faces, backgrounds, typography and list-style.
+    ; Sizes and spaces are not — a slide shrunk to fit scales those in
+    ; place — so a block that needs another size takes a class.
+    sfn scopedOk:boolean (prop:string) {
+        if ((indexOf prop "color") >= 0) { return true }
+        if ((indexOf prop "background") >= 0) { return true }
+        if ((indexOf prop "font-family") >= 0) { return true }
+        if (MdCssSupport.listed((MdCssSupport.TYPO()) prop)) { return true }
+        if ((prop == "list-style") || ((prop == "text-align") || (prop == "box-shadow"))) { return true }
+        if ((prop == "cell-tones") || (prop == "content")) { return true }
+        return false
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The guide's table
+    ; ----------------------------------------------------------------------
+
+    ; One line per element: `h2 — a level-2 heading: font-size, color, …`,
+    ; then what a class or id reads and what a slide's rules read.
+    fn table:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length elements)) {
+            def name:string (itemAt elements i)
+            def props:string (MdCssSupport.spaced((itemAt reads i)))
+            def what:string (itemAt about i)
+            out = (out + "- `" + name + "`")
+            if ((strlen what) > 0) {
+                out = (out + " (" + what + ")")
+            }
+            out = (out + ": " + props + "\n")
+            i = (i + 1)
+        }
+        out = (out + "- `.class` / `#id` on a block (`{.lead}` under a paragraph or heading): " + (MdCssSupport.spaced((MdCssSupport.BLOCK()))) + "\n")
+        out = (out + "- A slide or section as the first part (`#id h2`, `.dark page`, `slide.dark p`; the id or class is the heading's `{#id .class}`, or its anchor): colours, backgrounds, font-family, " + (MdCssSupport.spaced((MdCssSupport.TYPO()))) + ", list-style, text-align. Sizes and spacing there are not read: give the block a class.\n")
+        out = (out + "- `:root { --brand: #ff3d7f }` and `var(--brand)` (or `var(--brand, #000)`) anywhere a value goes.\n")
+        return out
+    }
+
+    sfn spaced:string (csv:string) {
+        return (join (strsplit csv ",") ", ")
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The lint
+    ; ----------------------------------------------------------------------
+
+    ; Every declaration and selector in `css` that will not be applied, in
+    ; the order they are written. `vars` is the variables the sheets before
+    ; this one defined (`name=value` lines), so `var(--brand)` from the
+    ; theme is known in the author's own sheet.
+    fn lint:[MdCssNote] (css:string vars:[string]) {
+        def out:[MdCssNote]
+        def src:string (MdCssSupport.blankComments(css))
+        def names:[string] (MdCssSupport.varNames(src))
+        for vars v:string vi {
+            def eq:int (indexOf v "=")
+            if (eq > 0) {
+                push names (substring v 0 eq)
+            }
+        }
+        this.lintBlock(src 0 (strlen src) names out)
+        return out
+    }
+
+    ; the rules between `from` and `to`
+    fn lintBlock:void (src:string from:int to:int names:[string] out:[MdCssNote]) {
+        def i:int from
+        while (i < to) {
+            def open:int (MdCssSupport.findIn(src i to 123))
+            if (open < 0) {
+                def tail:string (trim (substring src i to))
+                if ((strlen tail) > 0) {
+                    MdCssSupport.note(out i to tail "" ("\"" + (MdCssSupport.short(tail)) + "\" has no { … } block and is ignored."))
+                }
+                return
+            }
+            def selText:string (trim (substring src i open))
+            def selAt:int (i + ((strlen (substring src i open)) - (strlen (MdCssSupport.trimStart((substring src i open))))))
+            def close:int (CssSheet.matchingBrace(src open))
+            if ((close < 0) || (close > to)) {
+                MdCssSupport.note(out selAt open selText "" (selText + ": the { is never closed; the rest of the sheet is ignored."))
+                return
+            }
+            if ((strlen selText) > 0) {
+                if ((charAt selText 0) == 64) {
+                    def head:string (MdCssSupport.lower(selText))
+                    if ((head == "@media print") || (head == "@media screen")) {
+                        this.lintBlock(src (open + 1) close names out)
+                    } {
+                        MdCssSupport.note(out selAt open selText "" (selText + ": at-rules other than @media print / @media screen are not read; the block is ignored."))
+                    }
+                } {
+                    this.lintRule(src selText selAt (open + 1) close names out)
+                }
+            } {
+                MdCssSupport.note(out open (open + 1) "" "" "A { … } block with no selector is ignored.")
+            }
+            i = (close + 1)
+        }
+    }
+
+    fn lintRule:void (src:string selText:string selAt:int bodyFrom:int bodyTo:int names:[string] out:[MdCssNote]) {
+        ; each selector of the list: what it can read, "" when nothing
+        def sels:[string] (strsplit selText ",")
+        def subjects:[string]
+        def scopedFlags:[boolean]
+        def readable:[string]
+        def isRoot:boolean false
+        for sels raw:string si {
+            def sel:string (trim raw)
+            def why:string (this.selectorProblem(sel))
+            if ((strlen why) > 0) {
+                MdCssSupport.note(out selAt (selAt + (strlen selText)) sel "" why)
+            } {
+                if (MdCssSupport.rootLike(sel)) {
+                    isRoot = (isRoot || (sel == ":root"))
+                }
+                if (sel != ":root") {
+                    push readable sel
+                    push subjects (MdCssSupport.subjectOf(sel))
+                    push scopedFlags (MdCssSupport.isScoped(sel))
+                }
+            }
+        }
+        ; the declarations
+        def body:string (substring src bodyFrom bodyTo)
+        def at:int 0
+        def n:int (strlen body)
+        while (at <= n) {
+            def semi:int (MdCssSupport.declEnd(body at))
+            def piece:string (substring body at semi)
+            def text:string (trim piece)
+            def pAt:int (bodyFrom + (at + ((strlen piece) - (strlen (MdCssSupport.trimStart(piece))))))
+            def pEnd:int (pAt + (strlen text))
+            if ((strlen text) > 0) {
+                def colon:int (indexOf text ":")
+                if (colon <= 0) {
+                    MdCssSupport.note(out pAt pEnd selText "" (selText + ": \"" + (MdCssSupport.short(text)) + "\" has no \":\" and is ignored."))
+                } {
+                    def prop:string (MdCssSupport.lower((trim (substring text 0 colon))))
+                    def value:string (trim (substring text (colon + 1) (strlen text)))
+                    def bang:int (indexOf value "!important")
+                    if (bang >= 0) {
+                        value = (trim (substring value 0 bang))
+                    }
+                    if ((strlen value) == 0) {
+                        MdCssSupport.note(out pAt pEnd selText prop (selText + " { " + prop + " }: no value; the line is ignored."))
+                    } {
+                        this.lintDecl(selText prop value pAt pEnd readable subjects scopedFlags isRoot names out)
+                    }
+                }
+            }
+            at = (semi + 1)
+        }
+    }
+
+    fn lintDecl:void (selText:string prop:string value:string pAt:int pEnd:int readable:[string] subjects:[string] scopedFlags:[boolean] isRoot:boolean names:[string] out:[MdCssNote]) {
+        def head:string (selText + " { " + prop + " }: ")
+        ; variables: kept where every sheet can see them
+        if ((indexOf prop "--") == 0) {
+            if ((isRoot == false) && ((this.anyRootLike(readable)) == false)) {
+                MdCssSupport.note(out pAt pEnd selText prop (head + "variables are read from :root (or document, page) only; define it there."))
+            }
+            return
+        }
+        ; a var() nobody defined
+        def v:int (indexOf value "var(")
+        while (v >= 0) {
+            def close:int (MdCssSupport.findIn(value (v + 4) (strlen value) 41))
+            def inner:string ""
+            if (close > v) {
+                inner = (trim (substring value (v + 4) close))
+            }
+            def comma:int (indexOf inner ",")
+            def name:string inner
+            if (comma >= 0) {
+                name = (trim (substring inner 0 comma))
+            }
+            if ((comma < 0) && ((MdCssSupport.has(names name)) == false)) {
+                MdCssSupport.note(out pAt pEnd selText prop (head + "var(" + name + ") is not defined; the line is ignored."))
+                return
+            }
+            def rest:string (substring value (v + 4) (strlen value))
+            def nx:int (indexOf rest "var(")
+            if (nx < 0) {
+                v = -1
+            } {
+                v = ((v + 4) + nx)
+            }
+        }
+        if ((array_length readable) == 0) {
+            if isRoot {
+                MdCssSupport.note(out pAt pEnd selText prop (head + ":root holds variables (--name) only; this is ignored."))
+            }
+            return
+        }
+        def lowV:string (MdCssSupport.lower(value))
+        if (((indexOf lowV "gradient(") >= 0) && ((prop == "background") || ((prop == "background-color") || (prop == "background-image")))) {
+            MdCssSupport.note(out pAt pEnd selText prop (head + "gradients are not drawn; use one colour."))
+            return
+        }
+        ; read by at least one selector of the list?
+        def anyOk:boolean false
+        def why:string ""
+        def i:int 0
+        while (i < (array_length readable)) {
+            def subj:string (itemAt subjects i)
+            def scoped:boolean (itemAt scopedFlags i)
+            def ok:boolean false
+            if ((strlen subj) == 0) {
+                ok = (MdCssSupport.listed((MdCssSupport.BLOCK()) prop))
+                if (ok == false) {
+                    why = (prop + " is not read for a class or id; it is ignored.")
+                    if ((MdCssSupport.anywhere(this prop)) == false) {
+                        why = (prop + " is not supported; it is ignored.")
+                    }
+                }
+            } {
+                ok = (MdCssSupport.listed((this.propsOf(subj)) prop))
+                if (ok == false) {
+                    why = (prop + " is not read for " + subj + "; it is ignored.")
+                    if ((MdCssSupport.anywhere(this prop)) == false) {
+                        why = (prop + " is not supported; it is ignored.")
+                    }
+                } {
+                    if (scoped && ((MdCssSupport.scopedOk(prop)) == false)) {
+                        ok = false
+                        why = (prop + " is not read under a slide or section; give the block a class for sizes and spacing.")
+                    }
+                }
+            }
+            if (ok) {
+                anyOk = true
+            }
+            i = (i + 1)
+        }
+        if (anyOk == false) {
+            if ((strlen why) == 0) {
+                why = (prop + " is not supported; it is ignored.")
+            }
+            MdCssSupport.note(out pAt pEnd selText prop (head + why))
+        }
+    }
+
+    fn anyRootLike:boolean (sels:[string]) {
+        for sels s:string si {
+            if (MdCssSupport.rootLike(s)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; read by some element or by a class at all
+    sfn anywhere:boolean (sup:MdCssSupport prop:string) {
+        if (MdCssSupport.listed((MdCssSupport.BLOCK()) prop)) {
+            return true
+        }
+        for sup.reads r:string ri {
+            if (MdCssSupport.listed(r prop)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; What is wrong with one selector, "" when it can be read.
+    fn selectorProblem:string (sel:string) {
+        if ((strlen sel) == 0) {
+            return "An empty selector (a stray comma) is ignored."
+        }
+        if (sel == ":root") {
+            return ""
+        }
+        if (sel == "*") {
+            return ""
+        }
+        if ((indexOf sel "::") >= 0) {
+            return (sel + ": pseudo-elements (::before, ::after) are not supported; the rule is ignored.")
+        }
+        if ((indexOf sel "[") >= 0) {
+            return (sel + ": attribute selectors are not supported; give the block a class.")
+        }
+        if ((((indexOf sel ">") >= 0) || ((indexOf sel "+") >= 0)) || ((indexOf sel "~") >= 0)) {
+            return (sel + ": only the space between two parts is read (not >, +, ~); the rule is ignored.")
+        }
+        def words:[string] (CssSheet.splitWhitespace(sel))
+        def n:int (array_length words)
+        def i:int 0
+        while (i < n) {
+            def w:string (itemAt words i)
+            def colon:int (indexOf w ":")
+            if (colon >= 0) {
+                def pseudo:string (substring w colon (strlen w))
+                def paren:int (indexOf pseudo "(")
+                def pname:string pseudo
+                if (paren > 0) {
+                    pname = (substring pseudo 0 paren)
+                }
+                def base:string (substring w 0 colon)
+                if (((pname == ":nth") && (base == "cell")) && (i == (n - 1))) {
+                    ; a gallery's cell:nth(n)
+                } {
+                    return (sel + ": " + pname + " is not supported (only cell:nth(n) in a gallery); give the block a class.")
+                }
+            }
+            def tag:string (MdCssSupport.tagOf(w))
+            if (i == (n - 1)) {
+                if (((strlen tag) > 0) && ((tag != "*") && ((this.isElement(tag)) == false))) {
+                    return (sel + ": " + tag + " is not an element a sheet can style here (" + (this.elementList()) + "); the rule is ignored.")
+                }
+            } {
+                ; an outer part: a slide or a section (its heading's id,
+                ; classes or anchor), or a gallery around its cells
+                if (((strlen tag) > 0) && ((((tag != "slide") && (tag != "section")) && ((tag != "gallery") && (tag != "cell"))) && (tag != "*"))) {
+                    return (sel + ": the part before the last can be a slide's or section's #id / .class (or slide, section), not " + tag + "; the rule is ignored.")
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn elementList:string () {
+        return (join elements ", ")
+    }
+
+    ; the element a selector is about ("" for a bare class or id)
+    sfn subjectOf:string (sel:string) {
+        def words:[string] (CssSheet.splitWhitespace(sel))
+        if ((array_length words) == 0) {
+            return ""
+        }
+        def last:string (itemAt words ((array_length words) - 1))
+        def colon:int (indexOf last ":")
+        if (colon >= 0) {
+            last = (substring last 0 colon)
+        }
+        def tag:string (MdCssSupport.tagOf(last))
+        if (tag == "*") {
+            return ""
+        }
+        return tag
+    }
+
+    ; under a slide or a section: more than one part, the outer ones not a
+    ; gallery's
+    sfn isScoped:boolean (sel:string) {
+        def words:[string] (CssSheet.splitWhitespace(sel))
+        if ((array_length words) < 2) {
+            return false
+        }
+        def first:string (MdCssSupport.tagOf((itemAt words 0)))
+        return ((first != "gallery") && (first != "cell"))
+    }
+
+    ; `h2.lead#x` → `h2`
+    sfn tagOf:string (word:string) {
+        def n:int (strlen word)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt word i)
+            if (((c == 46) || (c == 35)) || (c == 58)) {
+                return (substring word 0 i)
+            }
+            i = (i + 1)
+        }
+        return word
+    }
+
+    ; a rule whose variables every sheet sees
+    sfn rootLike:boolean (sel:string) {
+        def s:string (MdCssSupport.lower((trim sel)))
+        return ((((s == ":root") || (s == "html")) || ((s == "body") || (s == "document"))) || ((s == "page") || (s == "*")))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Variables
+    ; ----------------------------------------------------------------------
+
+    ; `--name` declared in a :root-like rule of `css`, by name
+    sfn varNames:[string] (css:string) {
+        def out:[string]
+        def pairs:[string] (MdCssSupport.varPairs(css))
+        for pairs p:string pi {
+            def eq:int (indexOf p "=")
+            if (eq > 0) {
+                push out (substring p 0 eq)
+            }
+        }
+        return out
+    }
+
+    ; `--name=value` for each variable a :root-like rule of `css` declares,
+    ; in order (a later one of the same name wins where they are used)
+    sfn varPairs:[string] (css:string) {
+        def out:[string]
+        def src:string (CssSheet.stripComments(css))
+        def n:int (strlen src)
+        def i:int 0
+        while (i < n) {
+            def open:int (CssSheet.findChar(src i 123))
+            if (open < 0) {
+                return out
+            }
+            def close:int (CssSheet.matchingBrace(src open))
+            if (close < 0) {
+                return out
+            }
+            def sel:string (trim (substring src i open))
+            if (((strlen sel) > 0) && ((charAt sel 0) == 64)) {
+                ; inside @media print / screen too
+                def inner:[string] (MdCssSupport.varPairs((substring src (open + 1) close)))
+                for inner ip:string ii {
+                    push out ip
+                }
+            } {
+                def root:boolean false
+                for (strsplit sel ",") s:string si {
+                    if (MdCssSupport.rootLike(s)) {
+                        root = true
+                    }
+                }
+                if root {
+                    def decls:[string] (strsplit (substring src (open + 1) close) ";")
+                    for decls d:string di {
+                        def c:int (indexOf d ":")
+                        if (c > 0) {
+                            def name:string (trim (substring d 0 c))
+                            if ((indexOf name "--") == 0) {
+                                push out (name + "=" + (trim (substring d (c + 1) (strlen d))))
+                            }
+                        }
+                    }
+                }
+            }
+            i = (close + 1)
+        }
+        return out
+    }
+
+    ; `css` with every `var(--name)` / `var(--name, fallback)` replaced by
+    ; the variable's value (`vars`: `--name=value`, later wins), or by its
+    ; fallback. One that is neither is left as written, which no value
+    ; reader takes, so the declaration does nothing (and `lint` says so).
+    sfn substitute:string (css:string vars:[string]) {
+        if ((indexOf css "var(") < 0) {
+            return css
+        }
+        def out:string css
+        def round:int 0
+        while ((round < 6) && ((indexOf out "var(") >= 0)) {
+            out = (MdCssSupport.substituteOnce(out vars))
+            round = (round + 1)
+        }
+        return out
+    }
+
+    sfn substituteOnce:string (css:string vars:[string]) {
+        def out:string ""
+        def n:int (strlen css)
+        def i:int 0
+        while (i < n) {
+            def at:int (MdCssSupport.findText(css i "var("))
+            if (at < 0) {
+                out = (out + (substring css i n))
+                return out
+            }
+            out = (out + (substring css i at))
+            ; the matching ) — a fallback may hold rgb(…) or another var(…)
+            def depth:int 0
+            def j:int (at + 3)
+            def close:int -1
+            while ((j < n) && (close < 0)) {
+                def c:int (charAt css j)
+                if (c == 40) { depth = (depth + 1) }
+                if (c == 41) {
+                    depth = (depth - 1)
+                    if (depth == 0) { close = j }
+                }
+                j = (j + 1)
+            }
+            if (close < 0) {
+                out = (out + (substring css at n))
+                return out
+            }
+            def inner:string (substring css (at + 4) close)
+            def comma:int (indexOf inner ",")
+            def name:string (trim inner)
+            def fallback:string ""
+            def hasFallback:boolean false
+            if (comma >= 0) {
+                name = (trim (substring inner 0 comma))
+                fallback = (trim (substring inner (comma + 1) (strlen inner)))
+                hasFallback = true
+            }
+            def value:string (MdCssSupport.valueOf(vars name))
+            if ((strlen value) > 0) {
+                out = (out + value)
+            } {
+                if hasFallback {
+                    out = (out + fallback)
+                } {
+                    ; left as written, marked so the next round skips it
+                    out = (out + "unset-var(" + inner + ")")
+                }
+            }
+            i = (close + 1)
+        }
+        return out
+    }
+
+    sfn valueOf:string (vars:[string] name:string) {
+        def found:string ""
+        for vars v:string vi {
+            def eq:int (indexOf v "=")
+            if ((eq > 0) && ((substring v 0 eq) == name)) {
+                found = (substring v (eq + 1) (strlen v))
+            }
+        }
+        return found
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Text helpers
+    ; ----------------------------------------------------------------------
+
+    sfn note:void (out:[MdCssNote] at:int end:int selector:string property:string message:string) {
+        def m:MdCssNote (new MdCssNote())
+        m.at = at
+        m.end = end
+        m.selector = selector
+        m.property = property
+        m.message = message
+        push out m
+    }
+
+    ; the end of the declaration starting at `at`: the next `;` outside
+    ; parentheses and quotes, or the end of the body
+    sfn declEnd:int (body:string at:int) {
+        def n:int (strlen body)
+        def depth:int 0
+        def quote:int 0
+        def i:int at
+        while (i < n) {
+            def c:int (charAt body i)
+            if (quote != 0) {
+                if (c == quote) { quote = 0 }
+            } {
+                if ((c == 34) || (c == 39)) { quote = c }
+                if (c == 40) { depth = (depth + 1) }
+                if (c == 41) { depth = (depth - 1) }
+                if ((c == 59) && (depth <= 0)) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; comments turned to spaces (newlines kept), so offsets still point
+    ; into the text the author wrote
+    sfn blankComments:string (css:string) {
+        if ((indexOf css "/*") < 0) {
+            return css
+        }
+        def out:string ""
+        def n:int (strlen css)
+        def i:int 0
+        def inC:boolean false
+        while (i < n) {
+            def c:int (charAt css i)
+            if inC {
+                if ((c == 42) && (((i + 1) < n) && ((charAt css (i + 1)) == 47))) {
+                    out = (out + "  ")
+                    i = (i + 2)
+                    inC = false
+                } {
+                    if (c == 10) {
+                        out = (out + "\n")
+                    } {
+                        out = (out + " ")
+                    }
+                    i = (i + 1)
+                }
+            } {
+                if ((c == 47) && (((i + 1) < n) && ((charAt css (i + 1)) == 42))) {
+                    out = (out + "  ")
+                    i = (i + 2)
+                    inC = true
+                } {
+                    out = (out + (strfromcode c))
+                    i = (i + 1)
+                }
+            }
+        }
+        return out
+    }
+
+    sfn findIn:int (s:string from:int to:int ch:int) {
+        def i:int from
+        while (i < to) {
+            if ((charAt s i) == ch) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn findText:int (s:string from:int want:string) {
+        def rest:string (substring s from (strlen s))
+        def k:int (indexOf rest want)
+        if (k < 0) {
+            return -1
+        }
+        return (from + k)
+    }
+
+    sfn trimStart:string (s:string) {
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((((c == 32) || (c == 9)) || (c == 10)) || (c == 13)) {
+                i = (i + 1)
+            } {
+                return (substring s i n)
+            }
+        }
+        return ""
+    }
+
+    sfn has:boolean (list:[string] s:string) {
+        for list x:string xi {
+            if (x == s) {
+                return true
+            }
+        }
+        return false
+    }
+
+    sfn short:string (s:string) {
+        def t:string (trim s)
+        if ((strlen t) > 40) {
+            return ((substring t 0 39) + "…")
+        }
+        return t
+    }
+
+    sfn lower:string (s:string) {
+        return (CssSheet.lower(s))
+    }
+}

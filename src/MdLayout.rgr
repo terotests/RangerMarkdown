@@ -1888,6 +1888,12 @@ class MdLayout {
     def slideTitleOnly:boolean false
     ; inside a `{container=…}` plate: a block in it does not get one of its own
     def containerDepth:int 0
+    ; the plate the block being laid out stands on ("" for none) and the
+    ; page under it: a heading's own colour is judged on it, not only the
+    ; text's (`## Title {container=box}` kept its light theme colour on a
+    ; light plate)
+    def plateFill:string ""
+    def platePaper:string ""
 
     ; --- footnotes (see "Footnotes" below) --------------------------------
     ; the document whose `notes` are drawn; empty: none
@@ -3283,6 +3289,10 @@ class MdLayout {
         if ((strlen p.ink) > 0) {
             style.textColor = p.ink
         }
+        def savedPlate:string plateFill
+        def savedPlatePaper:string platePaper
+        plateFill = p.fill
+        platePaper = paper
         def before:int (array_length boxes)
         def startPage:int page
         def top:double cursorY
@@ -3291,6 +3301,8 @@ class MdLayout {
         this.blockInner(node (x + p.padX) (w - (p.padX * 2.0)))
         containerDepth = (containerDepth - 1)
         style.textColor = savedInk
+        plateFill = savedPlate
+        platePaper = savedPlatePaper
         def plates:[MdBox] (this.plates(p before startPage top x w))
         if ((array_length plates) == 0) { return }
         def last:MdBox (itemAt plates ((array_length plates) - 1))
@@ -4328,6 +4340,21 @@ class MdLayout {
         return r
     }
 
+    ; A heading's colour where it is: the theme's for its level, or, on a
+    ; plate that colour does not read on, the plate's own ink
+    ; (MdContainer.inkOnPaper, as the text in it gets).
+    fn headingInkHere:string (level:int) {
+        def ink:string (style.headingInk(level))
+        if ((strlen plateFill) == 0) {
+            return ink
+        }
+        def on:string (MdContainer.inkOnPaper(plateFill ink platePaper))
+        if ((strlen on) > 0) {
+            return on
+        }
+        return ink
+    }
+
     fn heading:void (node:MdNode x:double w:double) {
         if (style.breakOnH1 && (node.level == 1)) {
             ; A chapter opener starts its own sheet — but not the first one,
@@ -4356,7 +4383,7 @@ class MdLayout {
         base.family = style.headingFamily
         base.size = size
         base.bold = true
-        base.color = (style.headingInk(node.level))
+        base.color = (this.headingInkHere(node.level))
         def runs:[MdRun] (this.inlineRuns(node base))
         cursorY = (cursorY + style.headingSpaceBefore)
         ; Recorded BEFORE the lines are placed, so the page is the page the

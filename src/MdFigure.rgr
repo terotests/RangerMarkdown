@@ -327,12 +327,21 @@ class MdFigure {
     ; (WCAG), else taken towards `ink` (the page's text colour) until it
     ; does, so a title keeps its hue and stays readable in a light theme
     ; and a dark one.
+    ;
+    ; The page's text colour is only a way back when it reads on `bg`
+    ; itself: on a white card (`figure { card-background: #fff }`) under a
+    ; dark theme, light text stays light however far it is taken, so the
+    ; way back is then near-black or white, whichever stands further off.
     sfn readableOn:string (color:string bg:string ink:string need:double) {
+        def toward:string ink
+        if ((MdFigure.ratio(ink bg)) < need) {
+            toward = (MdFigure.onColor(bg))
+        }
         def t:double 0.0
         def out:string color
         while ((t <= 1.0) && ((MdFigure.ratio(out bg)) < need)) {
             t = (t + 0.1)
-            out = (MdFigure.mix(color ink t))
+            out = (MdFigure.mix(color toward t))
         }
         return out
     }
@@ -950,7 +959,7 @@ class MdFigure {
                     MdFigure.put(sc st tl (x + textX) (y + inPad) textW tcol true "left")
                     if ((strlen (it.text())) > 0) {
                         def bl:FlowTextLayout (itemAt bodyLays k)
-                        MdFigure.put(sc st bl (x + textX) (((y + inPad) + tl.height) + (size * 0.35)) textW st.ink false "left")
+                        MdFigure.put(sc st bl (x + textX) (((y + inPad) + tl.height) + (size * 0.35)) textW (MdFigure.readableOn(st.ink (MdFigure.cardFill(st color 0.86)) st.ink 4.5)) false "left")
                     }
                 }
                 c = (c + 1)
@@ -1046,7 +1055,7 @@ class MdFigure {
                 def vl:FlowTextLayout (itemAt valueLays k)
                 MdFigure.put(sc st vl (x + inPad) (y + inPad) textW ink true "left")
                 if ((strlen ((itemAt its k).text())) > 0) {
-                    MdFigure.put(sc st (itemAt labelLays k) (x + inPad) (((y + inPad) + valueH) + (size * 0.3)) textW st.ink false "left")
+                    MdFigure.put(sc st (itemAt labelLays k) (x + inPad) (((y + inPad) + valueH) + (size * 0.3)) textW (MdFigure.readableOn(st.ink fill st.ink 4.5)) false "left")
                 }
                 c = (c + 1)
             }

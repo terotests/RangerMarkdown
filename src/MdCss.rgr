@@ -56,6 +56,7 @@
 ; ============================================================================
 
 Import "MdContainer.rgr"
+Import "MdCssSupport.rgr"
 Import "MdNode.rgr"
 Import "MdStyle.rgr"
 Import "../../css/CssCore.rgr"
@@ -78,6 +79,17 @@ class MdCss {
     def splitLevel:int 0
     def overflow:string ""
     def aspect:string ""
+
+    ; What a sheet can say, per selector (`MdCssSupport`): the lint reads
+    ; against it and the guide lists it. A host adds the elements it reads
+    ; itself (Sliqtly's `chart`, `diagram`, `figure`).
+    def support:MdCssSupport (new MdCssSupport())
+    ; `--name=value` for the variables every sheet so far declared in
+    ; `:root` (or `document`, `page`); `var(--name)` in a later sheet sees
+    ; them, so a theme's brand colour is the author's to use
+    def vars:[string]
+    ; what the lint said about the sheets added, in order
+    def notes:[MdCssNote]
 
     Constructor () {
     }
@@ -109,6 +121,10 @@ class MdCss {
         sheet = (new CssSheet())
         printSheet = (new CssSheet())
         clear unsupported
+        def noVars:[string]
+        vars = noVars
+        def noNotes:[MdCssNote]
+        notes = noNotes
         this.addStyleSheet(was)
     }
 
@@ -116,8 +132,19 @@ class MdCss {
         return ((strlen printText) > 0)
     }
 
-    fn addStyleSheet:void (css:string) {
-        source = (source + css)
+    fn addStyleSheet:void (raw:string) {
+        source = (source + raw)
+        def said:[MdCssNote] (support.lint(raw vars))
+        for said nt:MdCssNote nti {
+            push notes nt
+        }
+        ; `var(--brand)` becomes the colour it names before anything reads
+        ; the text: every reader after this sees plain values
+        def own:[string] (MdCssSupport.varPairs(raw))
+        for own vp:string vpi {
+            push vars vp
+        }
+        def css:string (MdCssSupport.substitute(raw vars))
         def parts:[string] (MdCss.splitMedia(css))
         def screenText:string (MdCss.desugar((itemAt parts 0)))
         def printPart:string (MdCss.desugar((itemAt parts 1)))
@@ -146,6 +173,21 @@ class MdCss {
 
     fn errorAt:string (i:int) {
         return (sheet.errorAt(i))
+    }
+
+    ; What the lint says about `css` were it added now: the notes for an
+    ; editor's gutter, with offsets into `css` itself.
+    fn lintText:[MdCssNote] (css:string) {
+        return (support.lint(css vars))
+    }
+
+    fn noteCount:int () {
+        return (array_length notes)
+    }
+
+    fn noteAt:string (i:int) {
+        def n:MdCssNote (itemAt notes i)
+        return n.message
     }
 
     fn unsupportedCount:int () {
@@ -196,6 +238,7 @@ class MdCss {
         this.list(style (this.forTag("list")))
         this.item(style (this.forTag("li")))
         this.table(style (this.forTag("table")))
+        this.tableHead(style (this.forTag("th")))
         this.picture(style (this.forTag("img")))
         this.furniture(style (this.forTag("header")) true)
         this.furniture(style (this.forTag("footer")) false)
@@ -290,12 +333,89 @@ class MdCss {
         style.bodySize = (this.size(got "font-size" style.bodySize))
         style.lineHeight = (this.ratio(got "line-height" style.lineHeight))
         style.textColor = (this.color(got "color" style.textColor))
-        this.rest(got "font-family,font-size,line-height,color")
+        this.typo(style "document" got)
+        this.rest(got ("font-family,font-size,line-height,color," + (MdCssSupport.TYPO())))
     }
 
     fn para:void (style:MdStyle got:CssComputed) {
         style.paraSpacing = (this.len(got "margin-bottom" style.paraSpacing))
-        this.rest(got "margin-bottom")
+        this.typo(style "p" got)
+        this.rest(got ("margin-bottom,text-align," + (MdCssSupport.TYPO())))
+    }
+
+    ; `font-weight`, `font-style`, `text-transform`, `letter-spacing` for
+    ; the blocks written as `tag` (MdStyle.typoAt), when the rule says any
+    fn typo:void (style:MdStyle tag:string got:CssComputed) {
+        def t:MdTypo (MdCss.typoOf(got))
+        if (t.isEmpty()) {
+            return
+        }
+        applied = (applied + 1)
+        def into:MdTypo (style.typoAt(tag))
+        into.over(t)
+    }
+
+    ; The typography one rule says, unset where it says nothing.
+    sfn typoOf:MdTypo (got:CssComputed) {
+        def t:MdTypo (new MdTypo())
+        if (got.has("font-weight")) {
+            def w:string (CssSheet.lower((CssSheet.tidy((got.get("font-weight"))))))
+            if ((w == "normal") || ((w == "lighter") || ((w == "400") || ((w == "300") || ((w == "100") || ((w == "200") || (w == "500"))))))) {
+                t.weight = 0
+            }
+            if (CssValue.isBold(w)) {
+                t.weight = 1
+            }
+        }
+        if (got.has("font-style")) {
+            def fs:string (CssSheet.lower((CssSheet.tidy((got.get("font-style"))))))
+            if (CssValue.isItalic(fs)) {
+                t.italic = 1
+            }
+            if (fs == "normal") {
+                t.italic = 0
+            }
+        }
+        if (got.has("text-transform")) {
+            def tt:string (CssSheet.lower((CssSheet.tidy((got.get("text-transform"))))))
+            if ((tt == "uppercase") || ((tt == "lowercase") || ((tt == "capitalize") || (tt == "none")))) {
+                t.transform = tt
+            }
+        }
+        if (got.has("letter-spacing")) {
+            def ls:string (CssSheet.lower((CssSheet.tidy((got.get("letter-spacing"))))))
+            if (ls == "normal") {
+                t.spacing = 0.0
+                t.spacingSet = true
+            } {
+                def em:int (indexOf ls "em")
+                if ((em > 0) && (em == ((strlen ls) - 2))) {
+                    ; `0.1em`: a share of the size, kept negative so the
+                    ; layout knows to multiply (MdLayout.spacingFor)
+                    def d@(optional):double (to_double (trim (substring ls 0 em)))
+                    if (!null? d) {
+                        t.spacing = (0.0 - (unwrap d))
+                        t.spacingSet = true
+                    }
+                } {
+                    def pts:double (CssValue.fontPoints(ls -9999.0))
+                    if (pts > -9999.0) {
+                        t.spacing = (MdCss.atLeastZero(pts))
+                        t.spacingSet = true
+                    }
+                }
+            }
+        }
+        return t
+    }
+
+    ; letter-spacing in points is kept zero or more: a negative number in the
+    ; field means `em` (see typoOf)
+    sfn atLeastZero:double (v:double) {
+        if (v < 0.0) {
+            return 0.0
+        }
+        return v
     }
 
     ; The six levels have six sizes and ONE family and ONE pair of margins, so
@@ -308,32 +428,39 @@ class MdCss {
         style.headingSpaceAfter = (this.len(shared "margin-bottom" style.headingSpaceAfter))
         style.h1Size = (this.size(shared "font-size" style.h1Size))
         style.headingColor = (this.color(shared "color" style.headingColor))
-        this.rest(shared "font-family,font-size,margin-top,margin-bottom,color")
+        this.typo(style "heading" shared)
+        this.rest(shared ("font-family,font-size,margin-top,margin-bottom,color,text-align," + (MdCssSupport.TYPO())))
 
         def h1:CssComputed (this.forTag("h1"))
         style.h1Size = (this.size(h1 "font-size" style.h1Size))
         style.h1Color = (this.color(h1 "color" style.h1Color))
-        this.rest(h1 "font-size,color")
+        this.typo(style "h1" h1)
+        this.rest(h1 ("font-size,color,text-align," + (MdCssSupport.TYPO())))
         def h2:CssComputed (this.forTag("h2"))
         style.h2Size = (this.size(h2 "font-size" style.h2Size))
         style.h2Color = (this.color(h2 "color" style.h2Color))
-        this.rest(h2 "font-size,color")
+        this.typo(style "h2" h2)
+        this.rest(h2 ("font-size,color,text-align," + (MdCssSupport.TYPO())))
         def h3:CssComputed (this.forTag("h3"))
         style.h3Size = (this.size(h3 "font-size" style.h3Size))
         style.h3Color = (this.color(h3 "color" style.h3Color))
-        this.rest(h3 "font-size,color")
+        this.typo(style "h3" h3)
+        this.rest(h3 ("font-size,color,text-align," + (MdCssSupport.TYPO())))
         def h4:CssComputed (this.forTag("h4"))
         style.h4Size = (this.size(h4 "font-size" style.h4Size))
         style.h4Color = (this.color(h4 "color" style.h4Color))
-        this.rest(h4 "font-size,color")
+        this.typo(style "h4" h4)
+        this.rest(h4 ("font-size,color,text-align," + (MdCssSupport.TYPO())))
         def h5:CssComputed (this.forTag("h5"))
         style.h5Size = (this.size(h5 "font-size" style.h5Size))
         style.h5Color = (this.color(h5 "color" style.h5Color))
-        this.rest(h5 "font-size,color")
+        this.typo(style "h5" h5)
+        this.rest(h5 ("font-size,color,text-align," + (MdCssSupport.TYPO())))
         def h6:CssComputed (this.forTag("h6"))
         style.h6Size = (this.size(h6 "font-size" style.h6Size))
         style.h6Color = (this.color(h6 "color" style.h6Color))
-        this.rest(h6 "font-size,color")
+        this.typo(style "h6" h6)
+        this.rest(h6 ("font-size,color,text-align," + (MdCssSupport.TYPO())))
     }
 
     fn code:void (style:MdStyle got:CssComputed) {
@@ -343,7 +470,10 @@ class MdCss {
         style.codePadding = (this.len(got "padding" style.codePadding))
         style.codeBackground = (this.color(got "background-color" style.codeBackground))
         style.codeBorder = (this.color(got "border-color" style.codeBorder))
-        this.rest(got "font-family,font-size,line-height,padding,background-color,border-color")
+        ; the text of a listing that is not a keyword, string, comment or
+        ; number — and code in a sentence
+        style.codePlain = (this.color(got "color" style.codePlain))
+        this.rest(got "font-family,font-size,line-height,padding,color,background-color,border-color")
     }
 
     fn mark:void (style:MdStyle got:CssComputed) {
@@ -374,7 +504,10 @@ class MdCss {
         style.quoteBarWidth = (this.len(got "border-width" style.quoteBarWidth))
         style.quoteIndent = (this.len(got "padding-left" style.quoteIndent))
         style.quotePadY = (this.len(got "padding-top" style.quotePadY))
-        this.rest(got "color,border-color,border-width,padding-left,padding-top")
+        style.quoteBackground = (this.color(got "background" style.quoteBackground))
+        style.quoteBackground = (this.color(got "background-color" style.quoteBackground))
+        this.typo(style "blockquote" got)
+        this.rest(got ("color,border-color,border-width,padding-left,padding-top,background,background-color," + (MdCssSupport.TYPO())))
     }
 
     ; the plate under a `{container=…}` block
@@ -385,7 +518,100 @@ class MdCss {
         if (got.has("box-shadow")) {
             style.containerShadow = (MdContainer.shadowColour((this.raw(got "box-shadow"))))
         }
-        this.rest(got "background,background-color,border-radius,box-shadow")
+        def pads:[double] (MdCss.padding(got))
+        if ((itemAt pads 0) >= 0.0) {
+            style.containerPadY = (itemAt pads 0)
+            applied = (applied + 1)
+        }
+        if ((itemAt pads 3) >= 0.0) {
+            style.containerPadX = (itemAt pads 3)
+        }
+        def bc:string (MdCss.borderColour(got))
+        if ((strlen bc) > 0) {
+            style.containerBorder = bc
+            style.containerBorderWidth = (MdCss.borderWidth(got 1.0))
+            applied = (applied + 1)
+        }
+        this.rest(got "background,background-color,border-radius,box-shadow,padding,padding-top,padding-right,padding-bottom,padding-left,border,border-color,border-width,border-style")
+    }
+
+    ; `padding` (one to four lengths) and `padding-top` … `-left`, as
+    ; [top, right, bottom, left] in points; -1 where nothing was said
+    sfn padding:[double] (got:CssComputed) {
+        def out:[double] ([] _:double (-1.0 -1.0 -1.0 -1.0))
+        if (got.has("padding")) {
+            def words:[string] (CssSheet.splitWhitespace((CssSheet.tidy((got.get("padding"))))))
+            def n:int (array_length words)
+            if (n > 0) {
+                def a:double (CssValue.fontPoints((itemAt words 0) -1.0))
+                def b:double a
+                def c:double a
+                def d:double a
+                if (n >= 2) {
+                    b = (CssValue.fontPoints((itemAt words 1) -1.0))
+                    d = b
+                }
+                if (n >= 3) {
+                    c = (CssValue.fontPoints((itemAt words 2) -1.0))
+                }
+                if (n >= 4) {
+                    d = (CssValue.fontPoints((itemAt words 3) -1.0))
+                }
+                out = ([] _:double (a b c d))
+            }
+        }
+        def sides:[string] ([] _:string ("padding-top" "padding-right" "padding-bottom" "padding-left"))
+        def i:int 0
+        while (i < 4) {
+            def name:string (itemAt sides i)
+            if (got.has(name)) {
+                set_at out i (CssValue.fontPoints((got.get(name)) (itemAt out i)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; a border's colour from `border-color` or `border: 2pt solid #7ee0ff`,
+    ; "" for none (`border: none`, or nothing said)
+    sfn borderColour:string (got:CssComputed) {
+        if (got.has("border-color")) {
+            def c:EVGColor (CssValue.color((got.get("border-color"))))
+            if c.isSet {
+                return (MdCss.hexOf(c))
+            }
+        }
+        if (got.has("border")) {
+            def words:[string] (CssSheet.splitWhitespace((CssSheet.tidy((got.get("border"))))))
+            for words w:string wi {
+                def c2:EVGColor (CssValue.color(w))
+                if c2.isSet {
+                    return (MdCss.hexOf(c2))
+                }
+            }
+            def low:string (CssSheet.lower((CssSheet.tidy((got.get("border"))))))
+            if ((low != "none") && (low != "0")) {
+                return "#000000"
+            }
+        }
+        return ""
+    }
+
+    ; …and its width: `border-width`, the length in `border`, else `fallback`
+    sfn borderWidth:double (got:CssComputed fallback:double) {
+        if (got.has("border-width")) {
+            return (CssValue.fontPoints((got.get("border-width")) fallback))
+        }
+        if (got.has("border")) {
+            def words:[string] (CssSheet.splitWhitespace((CssSheet.tidy((got.get("border"))))))
+            for words w:string wi {
+                def first:int (charAt w 0)
+                if (((first >= 48) && (first <= 57)) || (first == 46)) {
+                    return (CssValue.fontPoints(w fallback))
+                }
+            }
+        }
+        return fallback
     }
 
     fn list:void (style:MdStyle got:CssComputed) {
@@ -397,7 +623,16 @@ class MdCss {
 
     fn item:void (style:MdStyle got:CssComputed) {
         style.listTightSpacing = (this.len(got "margin-bottom" style.listTightSpacing))
-        this.rest(got "margin-bottom")
+        this.typo(style "li" got)
+        this.rest(got ("margin-bottom," + (MdCssSupport.TYPO())))
+    }
+
+    ; `th { background-color; color }`: the header row. `table {
+    ; background-color }` says the same for the row, and `th` wins.
+    fn tableHead:void (style:MdStyle got:CssComputed) {
+        style.tableHeadBackground = (this.color(got "background-color" style.tableHeadBackground))
+        style.tableHeadColor = (this.color(got "color" style.tableHeadColor))
+        this.rest(got "background-color,color")
     }
 
     fn table:void (style:MdStyle got:CssComputed) {
