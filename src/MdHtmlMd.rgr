@@ -1,0 +1,356 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdHtmlMd.rgr — HTML a deck carries, said again in what the layout draws
+; ============================================================================
+;
+; A deck written by a person, or by an assistant, mixes HTML into its
+; Markdown: `<ul><li>…</li></ul>` for a list, `style="font-size:32pt"` on a
+; span, `style="background:#123;padding:20px"` on a div. The layout draws
+; Markdown, so what such HTML means is read here, without measuring or
+; drawing anything:
+;
+;   `listItems` / `listMarkdown` — an `<ul>` / `<ol start>` with its `<li>`
+;     items (nested lists too) as Markdown list lines, which the layout then
+;     lays out like any list; a table cell lists the same items as lines.
+;   `MdHtmlStyle.read` — a `style=""` split into what a run of text or a
+;     block can show (colour, background, size, weight, slant, a line under
+;     or through, padding, rounding) and the properties nothing reads, which
+;     the layout reports rather than dropping in silence.
+; ============================================================================
+
+Import "MdHtml.rgr"
+Import "MdChar.rgr"
+
+; one `<li>`: how deep its list is (0 for the outer one), the marker it is
+; written with in Markdown (`-`, `3.`) and its content, on one line
+class MdHtmlItem {
+    def depth:int 0
+    def marker:string "-"
+    def text:string ""
+
+    Constructor () {
+    }
+}
+
+; a list read out of HTML: its items, and one past its closing tag (the
+; end of the text when it is not closed)
+class MdHtmlList {
+    def items:[MdHtmlItem]
+    def end:int 0
+
+    Constructor () {
+    }
+}
+
+; What `style=""` says, in the words the layout uses. "" where it says
+; nothing.
+class MdHtmlStyle {
+    def color:string ""
+    ; `background` / `background-color`: the colour, as written
+    def fill:string ""
+    ; `font-size` as written (`32pt`, `1.5em`, `120%`, `large`)
+    def size:string ""
+    ; "bold" / "normal"
+    def weight:string ""
+    ; "italic" / "normal"
+    def slant:string ""
+    ; 1 on, -1 off (`text-decoration: none`), 0 not said
+    def underline:int 0
+    def strike:int 0
+    def padding:string ""
+    def radius:string ""
+    ; the properties this context does not read, in the order written
+    def ignored:[string]
+
+    Constructor () {
+    }
+
+    ; `style` read for a context that reads the properties in `allowed`
+    ; (names separated by spaces); every other property is `ignored`.
+    sfn read:MdHtmlStyle (style:string allowed:string) {
+        def out:MdHtmlStyle (new MdHtmlStyle())
+        def parts:[string] (strsplit style ";")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (itemAt parts i)
+            i = (i + 1)
+            def colon:int (indexOf p ":")
+            if (colon <= 0) {
+                continue
+            }
+            def k:string (MdChar.lower((trim (substring p 0 colon))))
+            def v:string (trim (substring p (colon + 1) (strlen p)))
+            ; `!important` changes nothing here
+            def bang:int (indexOf v "!")
+            if (bang >= 0) {
+                v = (trim (substring v 0 bang))
+            }
+            if ((strlen v) == 0) {
+                continue
+            }
+            if ((indexOf ((" " + allowed) + " ") ((" " + k) + " ")) < 0) {
+                push out.ignored k
+                continue
+            }
+            def lv:string (MdChar.lower(v))
+            if (k == "color") {
+                out.color = v
+            }
+            if ((k == "background") || (k == "background-color")) {
+                out.fill = (MdHtmlStyle.colourOf(v))
+                if ((strlen out.fill) == 0) {
+                    push out.ignored k
+                }
+            }
+            if (k == "font-size") {
+                out.size = lv
+            }
+            if (k == "font-weight") {
+                out.weight = (MdHtmlStyle.weightOf(lv))
+                if ((strlen out.weight) == 0) {
+                    push out.ignored k
+                }
+            }
+            if (k == "font-style") {
+                if ((lv == "italic") || ((indexOf lv "oblique") == 0)) {
+                    out.slant = "italic"
+                }
+                if (lv == "normal") {
+                    out.slant = "normal"
+                }
+            }
+            if ((k == "text-decoration") || (k == "text-decoration-line")) {
+                def words:[string] (strsplit lv " ")
+                for words w:string wi {
+                    if (w == "underline") {
+                        out.underline = 1
+                    }
+                    if (w == "line-through") {
+                        out.strike = 1
+                    }
+                    if (w == "none") {
+                        out.underline = -1
+                        out.strike = -1
+                    }
+                }
+            }
+            if (k == "padding") {
+                out.padding = lv
+            }
+            if (k == "border-radius") {
+                out.radius = lv
+            }
+        }
+        return out
+    }
+
+    ; the colour in a `background` shorthand: its first word when that is a
+    ; colour (`#1d2a6b`, `rgb(…)`, `red`), "" for a picture or a gradient
+    sfn colourOf:string (v:string) {
+        def t:string (trim v)
+        def lv:string (MdChar.lower(t))
+        if ((indexOf lv "gradient(") >= 0) {
+            return ""
+        }
+        ; `#123 url(x.png) no-repeat`: the colour under the picture
+        def u:int (indexOf lv "url(")
+        if (u >= 0) {
+            def ue:int (indexOfFrom t ")" u)
+            if (ue < 0) {
+                return ""
+            }
+            t = (trim ((substring t 0 u) + " " + (substring t (ue + 1) (strlen t))))
+            lv = (MdChar.lower(t))
+        }
+        if ((strlen t) == 0) {
+            return ""
+        }
+        if (((indexOf lv "rgb") == 0) || ((indexOf lv "hsl") == 0)) {
+            def close:int (indexOf t ")")
+            if (close > 0) {
+                return (substring t 0 (close + 1))
+            }
+            return ""
+        }
+        def sp:int (indexOf t " ")
+        if (sp > 0) {
+            return (substring t 0 sp)
+        }
+        return t
+    }
+
+    ; "bold", "normal" or "" for a weight that is neither word nor number
+    sfn weightOf:string (v:string) {
+        if ((v == "bold") || (v == "bolder")) {
+            return "bold"
+        }
+        if ((v == "normal") || (v == "lighter")) {
+            return "normal"
+        }
+        def n@(optional):int (str2int v)
+        if (null? n) {
+            return ""
+        }
+        if ((unwrap n) >= 600) {
+            return "bold"
+        }
+        return "normal"
+    }
+}
+
+class MdHtmlMd {
+
+    ; The `<ul>` or `<ol>` that starts at `from` (its `<`), with the lists
+    ; inside its items. Text between tags belongs to the item it is in;
+    ; inline tags stay in that text (the layout reads them as it reads any
+    ; inline HTML), `<p>` and `<div>` inside an item are only spaces.
+    sfn listItems:MdHtmlList (s:string from:int) {
+        def out:MdHtmlList (new MdHtmlList())
+        def n:int (strlen s)
+        out.end = n
+        ; per open list: ordered or not, and the number of its next item
+        def ordered:[boolean]
+        def next:[int]
+        def text:string ""
+        def open:boolean false
+        def depth:int 0
+        def marker:string "-"
+        def at:int from
+        def i:int (MdHtml.nextTag(s from))
+        while (i >= 0) {
+            def tg:MdHtmlTag (MdHtml.tagAt(s i))
+            def nm:string tg.name
+            def between:string (substring s at i)
+            def structural:boolean false
+            if (((nm == "ul") || (nm == "ol")) || (nm == "li")) {
+                structural = true
+            }
+            if structural {
+                if open {
+                    text = (text + between)
+                }
+            } {
+                if open {
+                    text = (text + between)
+                    if (((nm == "p") || (nm == "div")) || (nm == "br")) {
+                        text = (text + " ")
+                    } {
+                        text = (text + (substring s i tg.end))
+                    }
+                }
+            }
+            if structural {
+                ; an item ends where the next tag of the list starts
+                if open {
+                    MdHtmlMd.addItem(out depth marker text)
+                    open = false
+                    text = ""
+                }
+                if (((nm == "ul") || (nm == "ol")) && (tg.close == false)) {
+                    push ordered (nm == "ol")
+                    def first:int 1
+                    if (nm == "ol") {
+                        def st@(optional):int (str2int (trim (tg.attr("start"))))
+                        if (!null? st) {
+                            first = (unwrap st)
+                        }
+                    }
+                    push next first
+                }
+                if (((nm == "ul") || (nm == "ol")) && tg.close) {
+                    if ((array_length ordered) > 0) {
+                        remove_index ordered ((array_length ordered) - 1)
+                        remove_index next ((array_length next) - 1)
+                    }
+                    if ((array_length ordered) == 0) {
+                        out.end = tg.end
+                        return out
+                    }
+                }
+                if (((nm == "li") && (tg.close == false)) && ((array_length ordered) > 0)) {
+                    def top:int ((array_length ordered) - 1)
+                    depth = top
+                    marker = "-"
+                    if (itemAt ordered top) {
+                        def num:int (itemAt next top)
+                        marker = ((to_string num) + ".")
+                        set next top (num + 1)
+                    }
+                    open = true
+                    text = ""
+                }
+            }
+            at = tg.end
+            i = (MdHtml.nextTag(s tg.end))
+        }
+        if open {
+            MdHtmlMd.addItem(out depth marker (text + (substring s at n)))
+        }
+        return out
+    }
+
+    sfn addItem:void (out:MdHtmlList depth:int marker:string text:string) {
+        def it:MdHtmlItem (new MdHtmlItem())
+        it.depth = depth
+        it.marker = marker
+        it.text = (MdHtmlMd.oneLine(text))
+        push out.items it
+    }
+
+    ; The items as Markdown list lines, a nested item indented under the
+    ; text of the item above it.
+    sfn listMarkdown:string (list:MdHtmlList) {
+        def lines:[string]
+        ; the indent of each depth, from the markers above it
+        def indent:[string]
+        push indent ""
+        for list.items it:MdHtmlItem k {
+            while ((array_length indent) <= it.depth) {
+                push indent (itemAt indent ((array_length indent) - 1))
+            }
+            def ind:string (itemAt indent it.depth)
+            push lines (((ind + it.marker) + " ") + it.text)
+            def under:string ind
+            def m:int 0
+            while (m <= (strlen it.marker)) {
+                under = (under + " ")
+                m = (m + 1)
+            }
+            while ((array_length indent) > (it.depth + 1)) {
+                remove_index indent ((array_length indent) - 1)
+            }
+            push indent under
+        }
+        return (join lines "\n")
+    }
+
+    ; runs of blanks and line breaks as one space, trimmed
+    sfn oneLine:string (s:string) {
+        def parts:[string]
+        def i:int 0
+        def n:int (strlen s)
+        def from:int 0
+        def blank:boolean true
+        while (i < n) {
+            def c:int (charAt s i)
+            def isBlank:boolean (((c == 32) || (c == 9)) || ((c == 10) || (c == 13)))
+            if isBlank {
+                if (blank == false) {
+                    push parts (substring s from i)
+                }
+                blank = true
+            } {
+                if blank {
+                    from = i
+                }
+                blank = false
+            }
+            i = (i + 1)
+        }
+        if (blank == false) {
+            push parts (substring s from n)
+        }
+        return (join parts " ")
+    }
+}

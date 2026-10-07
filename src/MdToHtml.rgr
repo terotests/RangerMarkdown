@@ -25,6 +25,7 @@
 
 Import "MdNode.rgr"
 Import "MdChar.rgr"
+Import "MdUrl.rgr"
 Import "MdAnchor.rgr"
 Import "MdAttrs.rgr"
 Import "MdGallery.rgr"
@@ -675,28 +676,9 @@ class MdToHtml {
         return ((("data:" + type) + ";base64,") + (MdToHtml.base64((images.read(path)))))
     }
 
-    ; Would following this address run script? `javascript:` and `vbscript:`
-    ; always; `data:` unless a picture is asked for and it is one. Browsers ignore case and leading blanks and controls, so this does.
+    ; Would following this address run script? (`MdUrl.runsScript`)
     sfn runsScript:boolean (dest:string picture:boolean) {
-        def d:string ""
-        def i:int 0
-        def n:int (strlen dest)
-        while (i < n) {
-            def c:int (charAt dest i)
-            if (c > 32) {
-                d = (d + (substring dest i (i + 1)))
-            }
-            i = (i + 1)
-        }
-        d = (MdChar.lower(d))
-        if (((indexOf d "javascript:") == 0) || ((indexOf d "vbscript:") == 0)) {
-            return true
-        }
-        if ((indexOf d "data:") == 0) {
-            ; a picture's own script does not run inside <img>
-            return ((picture && ((indexOf d "data:image/") == 0)) == false)
-        }
-        return false
+        return (MdUrl.runsScript(dest picture))
     }
 
     ; Bytes as base64, in short pieces joined once: one long string grown a

@@ -1,0 +1,362 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdSvg.rgr — an <svg> written into the Markdown, kept as a picture
+; ============================================================================
+;
+; ````markdown
+; <svg width="200" height="100"><circle cx="50" cy="50" r="40" fill="#5ce1ff"/></svg>
+; ````
+;
+; A small drawing written where it is shown, without a file of its own. The
+; slide draws it as a picture: `MdLayout` lays out a paragraph or an HTML
+; block that is one `<svg>` element as the picture `pathOf` names, and the
+; host (the editor's page, the MCP server) draws `clean` of the same text
+; into its picture store under that name, as it draws an SVG file.
+;
+; CLEAN. What is kept is a drawing and nothing else: the shapes, text,
+; gradients, clips, masks and markers of SVG, with their attributes, except
+;   - an `on…` attribute (script),
+;   - a link (`href`, `xlink:href`) that does not point inside the drawing
+;     (`#id`), which keeps out pictures and pages from elsewhere,
+;   - a `style` or any value with `javascript:`, `expression(` or a `url(`
+;     that does not point inside the drawing.
+; `<script>`, `<foreignObject>`, `<style>`, `<image>`, `<a>` and any element
+; not named here are dropped with what is in them. Comments are dropped.
+; The same text always cleans to the same text, so its name is stable.
+; ============================================================================
+
+Import "MdHtml.rgr"
+Import "MdChar.rgr"
+Import "MdNode.rgr"
+
+; an <svg> found in a document: the block it is, and its picture
+class MdSvgUse {
+    def path:string ""
+    def svg:string ""
+    def srcStart:int -1
+
+    Constructor () {
+    }
+}
+
+class MdSvg {
+
+    sfn KEPT:string () {
+        return " svg g path rect circle ellipse line polyline polygon text tspan textpath defs lineargradient radialgradient stop clippath mask pattern symbol use title desc marker "
+    }
+
+    sfn kept:boolean (lowerName:string) {
+        return ((indexOf (MdSvg.KEPT()) ((" " + lowerName) + " ")) >= 0)
+    }
+
+    ; `text` without its `<!-- … -->` comments
+    sfn noComments:string (text:string) {
+        def out:string ""
+        def from:int 0
+        def at:int (indexOf text "<!--")
+        while (at >= 0) {
+            out = (out + (substring text from at))
+            def e:int (indexOfFrom text "-->" (at + 4))
+            if (e < 0) {
+                return out
+            }
+            from = (e + 3)
+            at = (indexOfFrom text "<!--" from)
+        }
+        return (out + (substring text from (strlen text)))
+    }
+
+    ; Is `text` (trimmed) one <svg> element and nothing else?
+    sfn isWhole:boolean (text:string) {
+        def t:string (trim (MdSvg.noComments(text)))
+        def n:int (strlen t)
+        if (n < 6) {
+            return false
+        }
+        if ((MdChar.lower((substring t 0 4))) != "<svg") {
+            return false
+        }
+        def tg:MdHtmlTag (MdHtml.tagAt(t 0))
+        if (tg.name != "svg") {
+            return false
+        }
+        if tg.selfClose {
+            return (tg.end == n)
+        }
+        def close:int (MdHtml.closingOf(t "svg" tg.end))
+        if (close < 0) {
+            return false
+        }
+        def ct:MdHtmlTag (MdHtml.tagAt(t close))
+        return (ct.end == n)
+    }
+
+    sfn safeValue:boolean (v:string) {
+        def l:string (MdChar.lower(v))
+        if (((indexOf l "javascript:") >= 0) || ((indexOf l "vbscript:") >= 0)) {
+            return false
+        }
+        if ((indexOf l "expression(") >= 0) {
+            return false
+        }
+        ; url(#id) only
+        def at:int (indexOf l "url(")
+        while (at >= 0) {
+            def k:int (at + 4)
+            while ((k < (strlen l)) && (((charAt l k) == 32) || (((charAt l k) == 34) || ((charAt l k) == 39)))) {
+                k = (k + 1)
+            }
+            if ((k >= (strlen l)) || ((charAt l k) != 35)) {
+                return false
+            }
+            at = (indexOfFrom l "url(" (at + 4))
+        }
+        return true
+    }
+
+    sfn esc:string (v:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen v)
+        def from:int 0
+        while (i < n) {
+            def c:int (charAt v i)
+            if ((c == 34) || (c == 60)) {
+                out = (out + (substring v from i))
+                if (c == 34) {
+                    out = (out + "&quot;")
+                } {
+                    out = (out + "&lt;")
+                }
+                from = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return (out + (substring v from n))
+    }
+
+    ; the tag written again with only the attributes it may keep
+    sfn openTag:string (tg:MdHtmlTag root:boolean) {
+        def out:string ("<" + tg.rawName)
+        def hasNs:boolean false
+        def i:int 0
+        while (i < (array_length tg.keys)) {
+            def k:string (itemAt tg.keys i)
+            def v:string (itemAt tg.vals i)
+            def keep:boolean true
+            if ((indexOf k "on") == 0) {
+                keep = false
+            }
+            if ((k == "href") || (k == "xlink:href")) {
+                if ((strlen v) == 0) {
+                    keep = false
+                } {
+                    if ((charAt (trim v) 0) != 35) {
+                        keep = false
+                    }
+                }
+            }
+            if ((MdSvg.safeValue(v)) == false) {
+                keep = false
+            }
+            if (k == "xmlns") {
+                hasNs = true
+            }
+            if keep {
+                out = (out + " " + (itemAt tg.rawKeys i) + "=\"" + (MdSvg.esc(v)) + "\"")
+            }
+            i = (i + 1)
+        }
+        if (root && (hasNs == false)) {
+            out = (out + " xmlns=\"http://www.w3.org/2000/svg\"")
+        }
+        if tg.selfClose {
+            return (out + "/>")
+        }
+        return (out + ">")
+    }
+
+    ; The drawing in `text` with only what a picture needs; "" when `text`
+    ; is not an <svg> element.
+    sfn clean:string (text:string) {
+        def s:string (trim (MdSvg.noComments(text)))
+        if ((MdSvg.isWhole(s)) == false) {
+            return ""
+        }
+        def out:string ""
+        def open:[string]
+        def n:int (strlen s)
+        def at:int 0
+        def i:int (MdHtml.nextTag(s 0))
+        while (i >= 0) {
+            if ((array_length open) > 0) {
+                out = (out + (substring s at i))
+            }
+            def tg:MdHtmlTag (MdHtml.tagAt(s i))
+            def next:int tg.end
+            if tg.close {
+                if ((array_length open) > 0) {
+                    def top:string (itemAt open ((array_length open) - 1))
+                    if ((MdChar.lower(top)) == tg.name) {
+                        out = (out + "</" + top + ">")
+                        remove_index open ((array_length open) - 1)
+                    }
+                }
+            } {
+                if (MdSvg.kept(tg.name)) {
+                    out = (out + (MdSvg.openTag(tg ((array_length open) == 0))))
+                    if (tg.selfClose == false) {
+                        push open tg.rawName
+                    }
+                } {
+                    ; dropped, and what is inside it
+                    if (tg.selfClose == false) {
+                        def ce:int (MdHtml.closingOf(s tg.name tg.end))
+                        if (ce < 0) {
+                            next = n
+                        } {
+                            def ctg:MdHtmlTag (MdHtml.tagAt(s ce))
+                            next = ctg.end
+                        }
+                    }
+                }
+            }
+            if ((array_length open) == 0) {
+                ; the root closed: what follows it is not the drawing
+                return out
+            }
+            at = next
+            i = (MdHtml.nextTag(s next))
+        }
+        while ((array_length open) > 0) {
+            out = (out + "</" + (itemAt open ((array_length open) - 1)) + ">")
+            remove_index open ((array_length open) - 1)
+        }
+        return out
+    }
+
+    ; The picture a cleaned drawing is stored as: named by its text, so the
+    ; same drawing written twice is one picture and a changed one is new.
+    sfn pathOf:string (cleanSvg:string) {
+        def a:int 7
+        def b:int 11
+        def i:int 0
+        def n:int (strlen cleanSvg)
+        while (i < n) {
+            def c:int (charAt cleanSvg i)
+            a = (((a * 31) + c) % 1000000007)
+            b = (((b * 37) + c) % 998244353)
+            i = (i + 1)
+        }
+        return ("inline-svg/" + (MdSvg.hex(a)) + (MdSvg.hex(b)) + ".svg")
+    }
+
+    sfn hex:string (v:int) {
+        def digits:string "0123456789abcdef"
+        def out:string ""
+        def x:int v
+        def k:int 0
+        while (k < 8) {
+            def d:int (x % 16)
+            out = ((substring digits d (d + 1)) + out)
+            x = (idiv x 16)
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; The drawing a block is, "" when it is not one: an HTML block or a
+    ; paragraph that is one <svg> element.
+    sfn ofBlock:string (node:MdNode) {
+        if ((node.kind != "html_block") && (node.kind != "paragraph")) {
+            return ""
+        }
+        def lit:string node.literal
+        if (node.kind == "paragraph") {
+            lit = (MdSvg.paraText(node))
+        }
+        if ((indexOf lit "<svg") < 0) {
+            if ((indexOf lit "<SVG") < 0) {
+                return ""
+            }
+        }
+        return (MdSvg.clean(lit))
+    }
+
+    ; A paragraph said again as the HTML it was written as: its tags, its
+    ; text (escaped again), its line breaks. "" when it holds anything else
+    ; (emphasis, a link, a picture), which an <svg> does not.
+    sfn paraText:string (node:MdNode) {
+        def out:string ""
+        def i:int 0
+        while (i < (node.childCount())) {
+            def c:MdNode (node.childAt(i))
+            if (c.kind == "html_inline") {
+                out = (out + c.literal)
+            } {
+                if (c.kind == "text") {
+                    out = (out + (MdSvg.escText(c.literal)))
+                } {
+                    if ((c.kind == "softbreak") || (c.kind == "linebreak")) {
+                        out = (out + "\n")
+                    } {
+                        return ""
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn escText:string (v:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen v)
+        def from:int 0
+        while (i < n) {
+            def c:int (charAt v i)
+            if ((c == 38) || ((c == 60) || (c == 62))) {
+                out = (out + (substring v from i))
+                if (c == 38) {
+                    out = (out + "&amp;")
+                }
+                if (c == 60) {
+                    out = (out + "&lt;")
+                }
+                if (c == 62) {
+                    out = (out + "&gt;")
+                }
+                from = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return (out + (substring v from n))
+    }
+
+    ; Every drawing a document's blocks are, at any depth (a list item, a
+    ; quote, a container), for the host to draw into its picture store.
+    sfn inDoc:[MdSvgUse] (doc:MdNode) {
+        def out:[MdSvgUse]
+        MdSvg.collect(doc out)
+        return out
+    }
+
+    sfn collect:void (node:MdNode out:[MdSvgUse]) {
+        def svg:string (MdSvg.ofBlock(node))
+        if ((strlen svg) > 0) {
+            def u:MdSvgUse (new MdSvgUse())
+            u.svg = svg
+            u.path = (MdSvg.pathOf(svg))
+            u.srcStart = node.srcStart
+            push out u
+            return
+        }
+        def i:int 0
+        while (i < (node.childCount())) {
+            MdSvg.collect((node.childAt(i)) out)
+            i = (i + 1)
+        }
+    }
+}
