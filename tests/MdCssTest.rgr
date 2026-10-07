@@ -452,6 +452,18 @@ class MdCssTest {
         c.ok(("an undefined variable: " + l7) ((indexOf l7 "var(--nope) is not defined") >= 0))
         c.ok("…an at-rule" ((indexOf l7 "@font-face: at-rules other than") >= 0))
         c.eqStr("a gallery's cell:nth(n) is read" (MdCssTest.lintOf("cell:nth(2) { background-color: #fff }\ngallery { gap: 4pt }")) "")
+        ; a host's own elements: read under a slide too, and a prefix
+        def host (new MdCssSupport())
+        host.addElement("chart" "color,font-size,padding" "charts")
+        host.addElement("deck" "fx,fx-*" "")
+        host.readsUnderScope("chart")
+        def none:[string]
+        def hn:[MdCssNote] (host.lint("#myynti chart { font-size: 20pt }\ndeck { fx-hue: 200; fxhue: 3 }" none))
+        c.eqInt("a host's element and fx-* are read" (array_length hn) 1)
+        if ((array_length hn) == 1) {
+            def h0:MdCssNote (itemAt hn 0)
+            c.eqStr("…and fxhue is not" h0.property "fxhue")
+        }
         ; where: the offsets point at the declaration in the text as written
         def m:MdCss (new MdCss())
         def text:string "/* note */\nh1 {\n  color: red;\n  opacity: 0.5;\n}"

@@ -45,6 +45,9 @@ class MdCssSupport {
     def reads:[string]
     ; …and a short word on what each element is, for the guide
     def about:[string]
+    ; elements a host reads whole under a slide or a section too
+    ; (Sliqtly's `#anchor chart { font-size }`)
+    def wholeUnderScope:[string]
 
     Constructor () {
         this.defaults()
@@ -133,6 +136,13 @@ class MdCssSupport {
         return -1
     }
 
+    ; Everything `name` reads is read under a slide or a section as well.
+    fn readsUnderScope:void (name:string) {
+        if ((MdCssSupport.has(wholeUnderScope name)) == false) {
+            push wholeUnderScope name
+        }
+    }
+
     fn isElement:boolean (name:string) {
         return ((this.indexOf(name)) >= 0)
     }
@@ -146,12 +156,21 @@ class MdCssSupport {
         return (itemAt reads i)
     }
 
+    ; `name` in the comma list; an entry ending in `*` (`fx-*`) is a prefix
     sfn listed:boolean (csv:string name:string) {
         def parts:[string] (strsplit csv ",")
         def i:int 0
         while (i < (array_length parts)) {
-            if ((itemAt parts i) == name) {
+            def part:string (itemAt parts i)
+            if (part == name) {
                 return true
+            }
+            def n:int (strlen part)
+            if ((n > 1) && ((charAt part (n - 1)) == 42)) {
+                def head:string (substring part 0 (n - 1))
+                if (((strlen name) > (strlen head)) && ((substring name 0 (strlen head)) == head)) {
+                    return true
+                }
             }
             i = (i + 1)
         }
@@ -385,7 +404,7 @@ class MdCssSupport {
                         why = (prop + " is not supported; it is ignored.")
                     }
                 } {
-                    if (scoped && ((MdCssSupport.scopedOk(prop)) == false)) {
+                    if ((scoped && ((MdCssSupport.scopedOk(prop)) == false)) && ((MdCssSupport.has(wholeUnderScope subj)) == false)) {
                         ok = false
                         why = (prop + " is not read under a slide or section; give the block a class for sizes and spacing.")
                     }
