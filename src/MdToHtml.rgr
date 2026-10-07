@@ -31,6 +31,7 @@ Import "MdGallery.rgr"
 Import "MdCellTones.rgr"
 Import "../../math/src/MathRender.rgr"
 Import "../../vfs/src/Vfs.rgr"
+Import "MdColumns.rgr"
 
 class MdToHtml {
     ; A tight list's items hold their paragraphs' contents without the <p>.
@@ -407,6 +408,10 @@ class MdToHtml {
             this.cr()
             return
         }
+        if (MdColumns.isRow(node)) {
+            this.columns(node)
+            return
+        }
         if (kind == "container") {
             def wasTight4:boolean tight
             tight = false
@@ -425,6 +430,50 @@ class MdToHtml {
             return
         }
         this.walkChildren(node)
+    }
+
+    ; `::: columns` / `{layout=columns}`: what goes across, then a flex row
+    ; of the columns MdColumns makes of the rest, each its share wide.
+    fn columns:void (node:MdNode) {
+        def wasTight:boolean tight
+        tight = false
+        def plan:MdColumnsPlan (MdColumns.plan(node))
+        def li:int 0
+        while (li < (array_length plan.lead)) {
+            this.walk((node.childAt((itemAt plan.lead li))))
+            li = (li + 1)
+        }
+        this.cr()
+        this.lit("<div class=\"columns\" style=\"display:flex;gap:4%;align-items:flex-start\">")
+        this.cr()
+        def g:int 0
+        while (g < (plan.count())) {
+            def pct:int (to_int (((itemAt plan.fracs g) * 96.0) + 0.5))
+            this.lit((("<div class=\"column\" style=\"flex:0 0 " + (to_string pct)) + "%;min-width:0\">"))
+            this.cr()
+            def grp:[int] (itemAt plan.groups g)
+            def k:int 0
+            while (k < (array_length grp)) {
+                def c:MdNode (node.childAt((itemAt grp k)))
+                if (MdColumns.isCell(c)) {
+                    if ((strlen c.title) > 0) {
+                        this.lit(("<p class=\"container-title\"><strong>" + (MdToHtml.escape(c.title)) + "</strong></p>"))
+                        this.cr()
+                    }
+                    this.walkChildren(c)
+                } {
+                    this.walk(c)
+                }
+                k = (k + 1)
+            }
+            this.cr()
+            this.lit("</div>")
+            this.cr()
+            g = (g + 1)
+        }
+        this.lit("</div>")
+        this.cr()
+        tight = wasTight
     }
 
     ; The footnotes, after the document, in number order — markdown-it-

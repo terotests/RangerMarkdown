@@ -473,7 +473,7 @@ class MdToPptx {
         ; draw a rule the width of the COLUMN; H3 has no rule. The
         ; rectangle the layout gave the block is that column, and wrapping
         ; belongs inside it.
-        w = (this.stretchFlow(kind x w))
+        w = (this.stretchFlow(kind x w (this.columnRightOf(node page))))
         if (kind == "heading") {
             this.heading(slide node x y w h)
             return
@@ -556,11 +556,17 @@ class MdToPptx {
     ; A flowing block's box reaches the right of the column, not the right
     ; of its last glyph. Tables and drawings keep the size they were
     ; measured at — stretching those would be a different picture.
-    fn stretchFlow:double (kind:string x:double w:double) {
+    fn stretchFlow:double (kind:string x:double w:double colRight:double) {
         if (! (this.flows(kind))) {
             return w
         }
-        def room:double ((layout.contentX + layout.contentW) - x)
+        def right:double (layout.contentX + layout.contentW)
+        ; the column the layout set its lines in, when it said (columns,
+        ; text beside a picture)
+        if ((colRight > 0.0) && (colRight < right)) {
+            right = colRight
+        }
+        def room:double (right - x)
         if (room > w) {
             return room
         }
@@ -2115,6 +2121,21 @@ class MdToPptx {
         }
         if (best < 0.0) { return layout.style.margin }
         return best
+    }
+
+    ; The right edge of the column `node`'s lines were set in on `page`,
+    ; 0 when the layout did not say.
+    fn columnRightOf:double (node:MdNode page:int) {
+        def right:double 0.0
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if ((b.page == page) && (b.colRight > right)) {
+                if (MdToPptx.inSpan(node b.srcStart)) { right = b.colRight }
+            }
+            i = (i + 1)
+        }
+        return right
     }
 
     fn widthOf:double (node:MdNode page:int) {

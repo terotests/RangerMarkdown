@@ -288,6 +288,8 @@ class MdBox {
     ; set in a corner of the slide (`{float=top-right}`), out of the flow:
     ; a slide's content centred later does not move it
     def pinned:boolean false
+    ; a text box: the right edge of the column it was set in (0: not known)
+    def colRight:double 0.0
 
     Constructor () {
     }
@@ -338,6 +340,7 @@ class MdBox {
         b.tail = tail
         b.noteRef = noteRef
         b.pinned = pinned
+        b.colRight = colRight
         return b
     }
 
@@ -6596,6 +6599,17 @@ class MdLayout {
                 }
                 k = (k + 1)
             }
+        }
+        ; where the column its lines were set in ends (an export widens a
+        ; text box to there, not to the slide's edge: in columns, or beside
+        ; a picture, that would be over the next column)
+        def m:int firstBox
+        while (m < (array_length boxes)) {
+            def cb:MdBox (itemAt boxes m)
+            if (cb.kind == 0) {
+                cb.colRight = (x + w)
+            }
+            m = (m + 1)
         }
     }
 

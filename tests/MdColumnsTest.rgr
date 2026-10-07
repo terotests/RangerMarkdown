@@ -17,6 +17,8 @@ Import "../src/MdCss.rgr"
 Import "../src/MdDiagram.rgr"
 Import "../src/MdColumns.rgr"
 Import "../src/MdGallery.rgr"
+Import "../src/MdToHtml.rgr"
+Import "../src/MdToPptx.rgr"
 
 class ColCheck {
     def passed:int 0
@@ -76,6 +78,7 @@ class MdColumnsTest {
         MdColumnsTest.laidOut(c)
         MdColumnsTest.charts(c)
         MdColumnsTest.places(c)
+        MdColumnsTest.exports(c)
         print ""
         print (((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed)))
         if (c.failed == 0) {
@@ -420,5 +423,40 @@ class MdColumnsTest {
         def team:MdLayout (MdColumnsTest.deck("## Tiimi\n\n```gallery\n- media/tall.png: Anna\n- media/tall.png: Ben\n- media/tall.png: Cia\n- media/tall.png: Dan\n```\n{caption=below}\n" ""))
         def first:MdBox (MdColumnsTest.kindOn(team 4 0))
         c.ok("L20: the cells portrait-shaped" (first.h > first.w))
+    }
+
+    sfn exports:void (c:ColCheck) {
+        print "-- columns in the web page and the PowerPoint --"
+        def src:string "## V\n\n::: columns\n### Ennen\nVasen teksti\n\n### Jälkeen\nOikea teksti\n:::\n"
+        def html:string (MdToHtml.render((MdBlock.parseText(src))))
+        c.ok("HTML: a flex row" ((indexOf html "display:flex") >= 0))
+        c.ok("…a div per column" ((indexOf html "class=\"column\"") >= 0))
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        l.style.pageWidth = 960.0
+        l.style.pageHeight = 540.0
+        l.style.margin = 48.0
+        l.splitLevel = 2
+        l.applyMeta(doc)
+        l.applySlideMeta(doc)
+        l.setDocSource(src)
+        l.layoutSlides(doc)
+        def maker:MdToPptx (new MdToPptx())
+        def d:PptxDeck (maker.deck(doc l))
+        def sl:PptxSlideRef (d.slideAt(0))
+        def k:int 0
+        def leftW:double -1.0
+        def rightX:double -1.0
+        while (k < (sl.shapeCount())) {
+            def sh:PptxShapeRef (sl.shapeAt(k))
+            def m:PptxShape (sh.model())
+            def t:string (m.text.plainText())
+            if (t == "Vasen teksti") { leftW = (m.x + m.width) }
+            if (t == "Oikea teksti") { rightX = m.x }
+            k = (k + 1)
+        }
+        c.ok("PPTX: both columns' text there" ((leftW > 0.0) && (rightX > 0.0)))
+        c.ok("…the left one's box ends before the right one starts" (leftW <= rightX))
     }
 }
