@@ -54,6 +54,7 @@ class MdContainerTest {
         MdContainerTest.sheet(c)
         MdContainerTest.painting(c)
         MdContainerTest.headings(c)
+        MdContainerTest.shadows(c)
         print ""
         print ((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed))
         if (c.failed == 0) {
@@ -135,6 +136,25 @@ class MdContainerTest {
         l.setDocSource(src)
         l.layoutContinuous(doc 600.0)
         return l
+    }
+
+    ; `container { box-shadow }`: three fainter layers under the plate, in
+    ; the shadow's colour; none without it, none for `box-shadow: none`
+    sfn shadows:void (c:ContainerCheck) {
+        c.eqStr("box-shadow: its colour" (MdContainer.shadowColour("0 6pt 18pt rgba(46,58,99,0.12)")) "#2E3A63")
+        c.eqStr("…a hex one" (MdContainer.shadowColour("0 4pt 10pt #102030")) "#102030")
+        c.eqStr("…none" (MdContainer.shadowColour("none")) "")
+        c.eqStr("…no colour is black" (MdContainer.shadowColour("0 4pt 10pt")) "#000000")
+        def plain:MdLayout (MdContainerTest.laid("Inside\n{container=box}\n" "container { background-color: #ffffff }"))
+        def shad:MdLayout (MdContainerTest.laid("Inside\n{container=box}\n" "container { background-color: #ffffff; box-shadow: 0 6pt 18pt rgba(46,58,99,0.12) }"))
+        c.eqStr("a plate with a shadow has three more boxes" (to_string (array_length shad.boxes)) (to_string ((array_length plain.boxes) + 3)))
+        def first:MdBox (itemAt shad.boxes 0)
+        def plate:MdBox (itemAt shad.boxes 3)
+        c.ok("…drawn first, under the plate" (((first.kind == 1) && (first.y > plate.y)) && (first.w > plate.w)))
+        c.ok("…in the shadow's colour, faint" (((indexOf first.fill "#2E3A63") == 0) && ((strlen first.fill) == 9)))
+        c.eqStr("…and the plate is still white" plate.fill "#FFFFFF")
+        def cls:MdLayout (MdContainerTest.laid("Inside\n{.card container=box}\n" ".card { box-shadow: 0 2pt 6pt #000000 }"))
+        c.eqStr("a class's box-shadow" (to_string (array_length cls.boxes)) (to_string ((array_length plain.boxes) + 3)))
     }
 
     ; a slide's title on a plate, over its background picture

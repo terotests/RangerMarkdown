@@ -54,6 +54,8 @@ class MdContainer {
     def tail:double 0.0
     ; …and whether the plate hugs its text rather than filling the column
     def hug:boolean false
+    ; the colour of a soft shadow under the plate, "" for none
+    def shadow:string ""
 
     Constructor () {
     }
@@ -143,6 +145,33 @@ class MdContainer {
         p.fill = fill
         p.ink = (MdContainer.inkOnPaper(fill ink paper))
         return p
+    }
+
+    ; `box-shadow: 0 6pt 18pt rgba(46,58,99,0.12)` → the shadow's colour
+    ; (`#2e3a63`; its own alpha is left to the layers that draw it), ""
+    ; for `none` and for nothing; a shadow with no colour is black
+    sfn shadowColour:string (v:string) {
+        def t:string (MdContainer.lower((trim v)))
+        if (((strlen t) == 0) || (t == "none")) { return "" }
+        def at:int (indexOf t "rgb")
+        if (at < 0) { at = (indexOf t "#") }
+        if (at >= 0) {
+            def rest:string (substring t at (strlen t))
+            def end:int (strlen rest)
+            if ((charAt rest 0) == 35) {
+                def k:int 1
+                while ((k < (strlen rest)) && ((charAt rest k) != 32)) { k = (k + 1) }
+                end = k
+            } {
+                def close:int (indexOf rest ")")
+                if (close >= 0) { end = (close + 1) }
+            }
+            def c:EVGColor (EVGColor.parse((substring rest 0 end)))
+            if c.isSet {
+                return (MdContainer.hexOf((EVGColor.rgba((c.red()) (c.green()) (c.blue()) 1.0))))
+            }
+        }
+        return "#000000"
     }
 
     sfn defaultFill:string (paper:string ink:string) {

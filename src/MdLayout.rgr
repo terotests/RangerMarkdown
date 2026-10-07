@@ -3185,6 +3185,7 @@ class MdLayout {
         ; about its classes (`.warning { background-color }`)
         def own:string (MdContainer.fillOf(node))
         def radius:double style.containerRadius
+        def shadow:string style.containerShadow
         if (((strlen sheetText) > 0) && ((node.classCount()) > 0)) {
             def got:CssComputed (this.styleOf(node))
             if ((strlen own) == 0) {
@@ -3195,6 +3196,9 @@ class MdLayout {
             }
             if (got.has("border-radius")) {
                 radius = (CssValue.fontPoints((got.get("border-radius")) radius))
+            }
+            if (got.has("box-shadow")) {
+                shadow = (MdContainer.shadowColour((got.get("box-shadow"))))
             }
         }
         ; A `::: warning` is a callout on the page, not text lifted off a
@@ -3207,6 +3211,7 @@ class MdLayout {
             themeFill = style.codeBackground
         }
         def p:MdContainer (MdContainer.plan(kind own themeFill radius paper style.textColor style.bodySize))
+        p.shadow = shadow
         def savedInk:string style.textColor
         if ((strlen p.ink) > 0) {
             style.textColor = p.ink
@@ -3264,7 +3269,24 @@ class MdLayout {
                     pw = ((maxX + p.padX) - px)
                     if ((px + pw) > (x + w)) { pw = ((x + w) - px) }
                 }
-                def plate:MdBox (MdBox.rect(px pt pw ((maxY + p.padY) - pt) p.fill))
+                def ph:double ((maxY + p.padY) - pt)
+                ; a soft shadow (`box-shadow`): three layers under the plate,
+                ; each a little larger, lower and fainter
+                if ((strlen p.shadow) > 0) {
+                    def sc:EVGColor (EVGColor.parse(p.shadow))
+                    def li:int 3
+                    while (li >= 1) {
+                        def g:double (to_double li)
+                        def a:double (0.05 + (0.03 * (3.0 - g)))
+                        def layer:MdBox (MdBox.rect((px - g) (pt + (g * 1.5)) (pw + (g * 2.0)) (ph + g) (MdContainer.hexOf((EVGColor.rgba((sc.red()) (sc.green()) (sc.blue()) a))))))
+                        layer.radius = (p.radius + g)
+                        layer.page = pg
+                        layer.srcStart = currentSrc
+                        push out layer
+                        li = (li - 1)
+                    }
+                }
+                def plate:MdBox (MdBox.rect(px pt pw ph p.fill))
                 plate.radius = p.radius
                 plate.page = pg
                 plate.srcStart = currentSrc

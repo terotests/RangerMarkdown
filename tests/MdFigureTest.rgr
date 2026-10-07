@@ -444,6 +444,22 @@ class MdFigureTest {
         def kt:string (c.texts(ks))
         c.ok("stats: numbers and labels" (((indexOf kt "50 292|") >= 0) && ((indexOf kt "asiakasta|") >= 0)))
         c.inside("stats" ks)
+        ; white cards with a soft shadow (`cardFill`, `cardShadow`): the
+        ; cards take the fill, three fainter layers lie under each
+        def wst:MdFigureStyle (st.sized(st.size))
+        wst.cardFill = "#ffffff"
+        wst.cardShadow = "#2e3a63"
+        def wk:FlowScene (MdFigure.sceneOf("stats" "- 91: asiakasta\n- 21: maata\n- 69: kaupunkia" wst 960.0 10.0))
+        c.ok("stats: white cards" (c.hasFill(wk "#ffffff")))
+        def shadowLayers:int 0
+        for wk.items si:SceneItem sii {
+            if ((indexOf si.fill "rgba(46,58,99,") == 0) {
+                shadowLayers = (shadowLayers + 1)
+            }
+        }
+        c.ok(("stats: three shadow layers under each card, got " + shadowLayers) (shadowLayers == 9))
+        def wc:FlowScene (MdFigure.sceneOf("cards" "- Suojaa: 23 asiakasta\n- Kasvata: 49 asiakasta" wst 960.0 10.0))
+        c.ok("cards: white cards" (c.hasFill(wc "#ffffff")))
         ; five figures: three to a row, two rows
         def k5:FlowScene (MdFigure.sceneOf("stats" "- 1: a\n- 2: b\n- 3: c\n- 4: d\n- 5: e" st 960.0 10.0))
         c.ok("stats: five go on two rows" (k5.worldH > (ks.worldH * 1.6)))

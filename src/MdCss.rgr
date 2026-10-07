@@ -55,6 +55,7 @@
 ; is how a stylesheet ends up with two cascades.
 ; ============================================================================
 
+Import "MdContainer.rgr"
 Import "MdNode.rgr"
 Import "MdStyle.rgr"
 Import "../../css/CssCore.rgr"
@@ -381,7 +382,10 @@ class MdCss {
         style.containerBackground = (this.color(got "background" style.containerBackground))
         style.containerBackground = (this.color(got "background-color" style.containerBackground))
         style.containerRadius = (this.len(got "border-radius" style.containerRadius))
-        this.rest(got "background,background-color,border-radius")
+        if (got.has("box-shadow")) {
+            style.containerShadow = (MdContainer.shadowColour((this.raw(got "box-shadow"))))
+        }
+        this.rest(got "background,background-color,border-radius,box-shadow")
     }
 
     fn list:void (style:MdStyle got:CssComputed) {

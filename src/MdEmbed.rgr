@@ -96,6 +96,12 @@ class MdFigureStyle {
     ; text font, and the series' first colour)
     def titleFont:string ""
     def heading:string ""
+    ; the cards under a figure's text (```stats, ```cards, ```swot, a
+    ; timeline's): "" tints each from its colour, a colour sets them all
+    ; (white cards), and `cardShadow` ("": none) is the colour of a soft
+    ; shadow under each
+    def cardFill:string ""
+    def cardShadow:string ""
     ; the title size in layout units; descriptions are set smaller
     def size:double 18.0
     ; false: a host that keeps figures for some users (Sliqtly: PRO) leaves
@@ -138,6 +144,8 @@ class MdFigureStyle {
         o.font = font
         o.titleFont = titleFont
         o.heading = heading
+        o.cardFill = cardFill
+        o.cardShadow = cardShadow
         o.size = sz
         o.allowed = allowed
         o.lockedNote = lockedNote
@@ -149,7 +157,7 @@ class MdFigureStyle {
     }
 
     fn key:string () {
-        def k:string (ink + "|" + muted + "|" + paper + "|" + font + "|" + (to_string size) + "|" + (to_string allowed) + "|" + (to_string stack) + "|" + (to_string cols) + "|" + titleFont + "|" + heading)
+        def k:string (ink + "|" + muted + "|" + paper + "|" + font + "|" + (to_string size) + "|" + (to_string allowed) + "|" + (to_string stack) + "|" + (to_string cols) + "|" + titleFont + "|" + heading + "|" + cardFill + "|" + cardShadow)
         def i:int 0
         while (i < (array_length colors)) {
             k = (k + "|" + (itemAt colors i))
