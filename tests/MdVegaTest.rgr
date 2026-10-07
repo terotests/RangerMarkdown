@@ -218,6 +218,41 @@ class MdVegaTest {
         }
     }
 
+    ; A value label beside a horizontal bar (baseline middle) is drawn with
+    ; its digits' middle on the bar's middle: Vega's baseline, then the
+    ; painter's half leading and ascent under the item's top
+    fn valueLabels:void (c:VegaCheck) {
+        print "-- value labels on the middle of their bars --"
+        def spec:string "{\"width\": 420, \"height\": 220, \"data\": {\"values\": [{\"m\": \"A\", \"v\": 600}, {\"m\": \"B\", \"v\": 400}]}, \"encoding\": {\"y\": {\"field\": \"m\", \"type\": \"nominal\"}, \"x\": {\"field\": \"v\", \"type\": \"quantitative\"}}, \"layer\": [{\"mark\": \"bar\"}, {\"mark\": {\"type\": \"text\", \"align\": \"left\", \"dx\": 4, \"fontSize\": 20}, \"encoding\": {\"text\": {\"field\": \"v\"}}}]}"
+        def d:MdVegaDrawing (MdVegaRender.draw(spec 520.0 10.0))
+        ; the value, not the axis' tick label "600"
+        def label:SceneItem (new SceneItem())
+        for d.scene.items li:SceneItem lii {
+            if (((li.kind == 1) && (li.text == "600")) && (li.fontSize > 15.0)) {
+                label = li
+            }
+        }
+        c.ok("the value was drawn" ((strlen label.text) > 0))
+        ; the digits' middle: the baseline less half a digit's height (0.72)
+        def baseline:double (label.y + (MdVegaRender.baselineDrop(label.fontSize)))
+        def mid:double (baseline - (label.fontSize * 0.36))
+        def barMid:double -1.0
+        for d.scene.items it:SceneItem ii {
+            ; a bar, not the plot's background
+            if ((it.kind == 0) && ((it.w > 100.0) && ((barMid < 0.0) && ((it.h > 10.0) && (it.h < 150.0))))) {
+                if ((mid > it.y) && (mid < (it.y + it.h))) {
+                    barMid = (it.y + (it.h * 0.5))
+                }
+            }
+        }
+        c.ok("…beside a bar" (barMid >= 0.0))
+        def off:double (mid - barMid)
+        if (off < 0.0) { off = (0.0 - off) }
+        c.ok("…its digits centred on the bar (within a tenth of a size)" (off < (label.fontSize * 0.1)))
+        c.eqNum("alphabetic: the baseline at y" ((MdVegaRender.topOf(100.0 20.0 "alphabetic")) + (MdVegaRender.baselineDrop(20.0))) 100.0)
+        c.eqNum("top: the em box's top at y" ((MdVegaRender.topOf(100.0 20.0 "top")) + (MdVegaRender.baselineDrop(20.0))) 116.0)
+    }
+
     ; …and turned when they stop fitting, rather than printed over each other.
     fn turned:void (c:VegaCheck) {
         print "-- crowded labels, turned to fit --"
@@ -902,6 +937,7 @@ class MdVegaTest {
         this.marks(c)
         this.refused(c)
         this.centred(c)
+        this.valueLabels(c)
         this.turned(c)
         this.titles(c)
         this.fromTheSpec(c)

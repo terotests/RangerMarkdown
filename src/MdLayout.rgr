@@ -784,6 +784,11 @@ class MdLayout {
         return (sheet.resolveIn(node scopeCtx))
     }
 
+    ; …what its own classes and id say (`MdCss.resolveOwn`): the box it is on
+    fn ownStyleOf:CssComputed (node:MdNode) {
+        return (sheet.resolveOwn(node scopeCtx))
+    }
+
     ; ----------------------------------------------------------------------
     ; A slide's own rules
     ; ----------------------------------------------------------------------
@@ -3519,7 +3524,8 @@ class MdLayout {
                     blockFamily = fam
                 }
             }
-            boxed = (MdLayout.boxLook(got))
+            ; …its OWN rules only: `h2 { border-color }` is every h2's look
+            boxed = (MdLayout.boxLook((this.ownStyleOf(node))))
             if ((got.has("font-size")) && (scaled == false)) {
                 def r:double (this.safeRatio(node (this.sizeRatio(node (got.get("font-size"))))))
                 if ((r > 0.0) && ((fabs (r - 1.0)) > 0.001)) {
@@ -3605,7 +3611,7 @@ class MdLayout {
         def border:string style.containerBorder
         def borderW:double style.containerBorderWidth
         if (((strlen sheetText) > 0) && (((node.classCount()) > 0) || ((strlen node.nodeId) > 0))) {
-            def got:CssComputed (this.styleOf(node))
+            def got:CssComputed (this.ownStyleOf(node))
             if ((strlen own) == 0) {
                 own = (MdLayout.sheetColour(got "background-color"))
             }
@@ -4206,9 +4212,26 @@ class MdLayout {
         }
         if (node.kind != "paragraph") { return 1.0 }
         if (style.bodySize <= 0.0) { return 1.0 }
+        ; a short statement (a line or two, as the slide is for) at one and
+        ; a half times the title's size, as a statement that is only its
+        ; title is; a longer one at the title's size
         def r:double ((style.headingSize(slideTitleLevel)) / style.bodySize)
+        if ((MdLayout.wordCount((node.plainText()))) <= 12) {
+            r = (r * 1.5)
+        }
         if (r < 1.0) { return 1.0 }
         return (this.safeRatio(node r))
+    }
+
+    sfn wordCount:int (t:string) {
+        def n:int 0
+        def parts:[string] (strsplit (trim t) " ")
+        for parts w:string wi {
+            if ((strlen (trim w)) > 0) {
+                n = (n + 1)
+            }
+        }
+        return n
     }
 
     fn alignSlides:void () {
@@ -5826,6 +5849,14 @@ class MdLayout {
                 } {
                     if ((had > 0.0) && (avail > (had + 1.0))) {
                         embeds.askRoom(kind node.literal useW avail)
+                    } {
+                        ; a chart that grows to its room and says no height,
+                        ; drawn for the room a slide keeps on any slide
+                        ; (`chartRoomKept`) and shorter than the room this
+                        ; slide has under its title: drawn for this room
+                        if ((((notation == "vega") && (had <= 0.0)) && (embeds.chartGrow > 1.0)) && ((avail > (h + 8.0)) && ((indexOf node.literal "\"height\"") < 0))) {
+                            embeds.askRoom(kind node.literal useW avail)
+                        }
                     }
                 }
             }

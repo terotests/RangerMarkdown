@@ -174,10 +174,28 @@ class MdColumns {
     sfn wrapLayouts:void (node:MdNode) {
         def kept:[MdNode]
         def n:int (node.childCount())
+        ; a heading's `{widths="30 70"}` with no `layout=`: the widths of the
+        ; first columns in its section (a `::: columns` of its own, or
+        ; `::: col` blocks side by side) that say none of their own
+        def heldWidths:string ""
+        def heldLevel:int 0
         def i:int 0
         while (i < n) {
             def c:MdNode (node.childAt(i))
             push kept c
+            if ((c.kind == "heading") && ((strlen heldWidths) > 0) && (c.level <= heldLevel)) {
+                heldWidths = ""
+            }
+            if (((c.kind == "heading") && (c.hasAttr("widths"))) && ((strlen (MdColumns.columnLayout(c))) == 0)) {
+                heldWidths = (c.attrValue("widths"))
+                heldLevel = c.level
+            }
+            if (((strlen heldWidths) > 0) && (MdColumns.isRow(c))) {
+                if ((c.hasAttr("widths")) == false) {
+                    c.setAttr("widths" heldWidths)
+                }
+                heldWidths = ""
+            }
             def word:string (MdColumns.columnLayout(c))
             if ((strlen word) > 0) {
                 def j:int (i + 1)
@@ -206,7 +224,12 @@ class MdColumns {
                     }
                     if (k > (i + 1)) {
                         removeLast kept
-                        push kept (MdColumns.wrapper(i k node))
+                        def row:MdNode (MdColumns.wrapper(i k node))
+                        if ((strlen heldWidths) > 0) {
+                            row.setAttr("widths" heldWidths)
+                            heldWidths = ""
+                        }
+                        push kept row
                         i = (k - 1)
                     }
                 }

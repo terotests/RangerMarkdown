@@ -258,7 +258,13 @@ class MdDiagram {
         e.fitH = fitH
         ; the tallest a grown chart may be: the slide's room, or the box the
         ; layout had for it under the text around it
+        ; …the box once a slide's layout has given one (`askRoom`): that is
+        ; the room this slide has, where `chartMaxH` is a page's less what
+        ; any slide keeps for its title
         def chartH:double (MdDiagram.fitRoom(cache.chartMaxH fitH pad0))
+        if ((fitH > 0.0) && (notation == "vega")) {
+            chartH = (MdDiagram.fitRoom(0.0 fitH pad0))
+        }
         e.at = node.srcStart
 
         def pad:double (MdDiagram.padding())
@@ -377,7 +383,7 @@ class MdDiagram {
             return (DotRender.sceneWrappedStyled(text st width pad aspect))
         }
         if (notation == "plantuml") {
-            return (PlantUmlRender.sceneStyled(text st width pad))
+            return (PlantUmlRender.sceneWrappedStyled(text st width pad aspect))
         }
         if (notation == "d2") {
             return (D2Render.sceneStyled(text st width pad))

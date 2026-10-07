@@ -98,6 +98,12 @@ class MdCss {
     ; on the slides they are about (`applyLook`) and take them off after.
     def scopedSheet:CssSheet (new CssSheet())
     def hasScoped:boolean false
+    ; The rules about a block's OWN class or id (`.note`, `p.note`, `#intro`,
+    ; `#erikoisdia h2`'s subject is `h2`, so not that one): what may put a
+    ; block on a plate of its own. An element's rule (`h2 { border-color }`
+    ; in a theme) is that element's look everywhere, not a box round the
+    ; one heading that also has an id.
+    def ownSheet:CssSheet (new CssSheet())
     ; while `applyLook` runs: only colours, faces and typography are read,
     ; and every element is asked as being under `lookCtx`
     def looksOnly:boolean false
@@ -134,6 +140,7 @@ class MdCss {
         printSheet = (new CssSheet())
         scopedSheet = (new CssSheet())
         hasScoped = false
+        ownSheet = (new CssSheet())
         clear unsupported
         def noVars:[string]
         vars = noVars
@@ -167,12 +174,15 @@ class MdCss {
         printSheet.parse(printPart)
         sheet.parse(screenText)
         this.keepScoped(screenText)
+        this.keepOwn(screenText)
         if (media == "print") {
             sheet.parse(printPart)
             this.keepScoped(printPart)
+            this.keepOwn(printPart)
         } {
             sheet.parse(screenOnly)
             this.keepScoped(screenOnly)
+            this.keepOwn(screenOnly)
         }
         ; The deck rules are read here rather than in `applyTo`, because they
         ; are not about how a page LOOKS and a caller that only wants the
@@ -205,6 +215,42 @@ class MdCss {
                 hasScoped = true
             }
         }
+    }
+
+    ; The rules of `css` whose subject names a class or an id, into
+    ; `ownSheet` (in the order they are written).
+    fn keepOwn:void (css:string) {
+        if ((strlen (trim css)) == 0) {
+            return
+        }
+        def tmp:CssSheet (new CssSheet())
+        tmp.parse(css)
+        for tmp.rules r:CssRule ri {
+            def keep:[CssSelector]
+            for r.selectors sel:CssSelector si {
+                if (MdCss.ownSelector(sel)) {
+                    sel.order = ownSheet.counter
+                    ownSheet.counter = (ownSheet.counter + 1)
+                    push keep sel
+                }
+            }
+            if ((array_length keep) > 0) {
+                def nr:CssRule (new CssRule())
+                nr.selectors = keep
+                nr.decls = r.decls
+                push ownSheet.rules nr
+            }
+        }
+    }
+
+    ; whether the selector's subject (its last part) names a class or an id
+    sfn ownSelector:boolean (sel:CssSelector) {
+        def n:int (array_length sel.parts)
+        if (n == 0) { return false }
+        if sel.broken { return false }
+        def subj:CssSelectorPart (itemAt sel.parts (n - 1))
+        if ((strlen subj.id) > 0) { return true }
+        return ((array_length subj.classes) > 0)
     }
 
     ; more than one part, and the outer ones not a gallery's (`gallery
@@ -318,6 +364,21 @@ class MdCss {
         n.parent = ctx
         asked = (asked + 1)
         return (CssCascade.resolve(sheet n))
+    }
+
+    ; What only the block's own classes and id say about it (`ownSheet`):
+    ; whether it is a box, and that box's colour, border and padding.
+    fn resolveOwn:CssComputed (node:MdNode ctx@(optional):CssNode) {
+        def n (new CssNode())
+        n.tag = (MdCss.tagOf(node))
+        n.id = node.nodeId
+        def i:int 0
+        while (i < (node.classCount())) {
+            n.addClass((node.classAt(i)))
+            i = (i + 1)
+        }
+        n.parent = ctx
+        return (CssCascade.resolve(ownSheet n))
     }
 
     fn readDeck:void () {

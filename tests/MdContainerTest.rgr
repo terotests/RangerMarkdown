@@ -304,6 +304,28 @@ class MdContainerTest {
             k = (k + 1)
         }
         c.eqStr("#id list / #anchor ul: list-style under a heading" styles "process|swot||")
+        ; a theme's `h2 { border-color }` and `container { background }` do
+        ; not put a heading with an id or a class on a plate: only that
+        ; class's or id's own rules box a block
+        def bsrc:string "## Eka\n\nTeksti\n\n## Anker {#erikoisdia}\n\nTeksti B\n\n## Luokka {.tumma}\n\nTeksti C\n"
+        def bcss:string "deck { split-level: 2 }\npage { background-color: #101a2e }\nh2 { color: #7ee0ff; border-color: #ff3d7f; border-width: 3pt }\ncontainer { background-color: #ffffffdd; border-radius: 30pt }\n#erikoisdia h2 { color: #00ff9c }"
+        def bdoc:MdNode (MdBlock.parseText(bsrc))
+        def bl:MdLayout (new MdLayout())
+        bl.style = (new MdStyle())
+        def bmc:MdCss (new MdCss())
+        bmc.addStyleSheet(bcss)
+        bmc.applyTo(bl.style)
+        bl.setStyleSheet(bcss)
+        bl.setDocSource(bsrc)
+        bl.applySlideMeta(bdoc)
+        bl.layoutSlides(bdoc)
+        c.ok("h2's border does not plate a heading with an id or class" ((MdContainerTest.plateIndex(bl)) < 0))
+        def ba:MdBox (MdContainerTest.textBox(bl "Anker"))
+        def bk:MdBox (MdContainerTest.textBox(bl "Luokka"))
+        c.eqStr("…#erikoisdia h2 keeps its own colour" ba.color "#00FF9C")
+        c.eqStr("…a class heading keeps h2's" bk.color "#7EE0FF")
+        def own:MdLayout (MdContainerTest.laid("## Anker {#erikoisdia}\n" "h2 { border-color: #ff3d7f; border-width: 3pt }\n#erikoisdia { background-color: #2b3a67 }"))
+        c.ok("…its own id rule still plates it" ((MdContainerTest.plateIndex(own)) >= 0))
     }
 
     sfn textBox:MdBox (l:MdLayout t:string) {
