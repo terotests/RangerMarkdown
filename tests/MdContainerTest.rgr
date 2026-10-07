@@ -15,6 +15,7 @@ Import "../src/MdLayout.rgr"
 Import "../src/MdCss.rgr"
 Import "../src/MdContainer.rgr"
 Import "../src/MdToEvg.rgr"
+Import "../src/MdDiagram.rgr"
 
 class ContainerCheck {
     def passed:int 0
@@ -55,6 +56,7 @@ class MdContainerTest {
         MdContainerTest.painting(c)
         MdContainerTest.headings(c)
         MdContainerTest.shadows(c)
+        MdContainerTest.charts(c)
         print ""
         print ((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed))
         if (c.failed == 0) {
@@ -264,4 +266,35 @@ class MdContainerTest {
         c.ok("the tail is a filled path below it" ((tl.kind == 6) && ((array_length tl.pts) == 6)))
         c.ok("…in the plate's colour" ((tl.r == r.r) && (tl.a == r.a)))
     }
+    ; `{container=box}` under a chart's fence: a plate under the drawing, so
+    ; its axes read over a busy or bright slide picture. The chart keeps the
+    ; column it was drawn for (the cache is keyed by that width) and the
+    ; plate hugs it.
+    sfn charts:void (c:ContainerCheck) {
+        def spec:string "{\"width\": 200, \"height\": 120, \"data\": {\"values\": [{\"k\": \"A\", \"v\": 3}, {\"k\": \"B\", \"v\": 7}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"k\", \"type\": \"nominal\"}, \"y\": {\"field\": \"v\", \"type\": \"quantitative\"}}, \"usermeta\": {\"presAlign\": \"center\"}}"
+        def src:string ("Before\n\n```vega-lite\n" + spec + "\n```\n{container=box}\n\nAfter\n")
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        MdDiagram.prepare(doc l.embeds (600.0 - (l.style.margin * 2.0)) "default")
+        l.setDocSource(src)
+        l.layoutContinuous(doc 600.0)
+        def pi:int (MdContainerTest.plateIndex(l))
+        c.ok("a chart gets a plate" (pi >= 0))
+        def ei:int -1
+        for l.boxes b:MdBox i {
+            if ((b.kind == 3) && (ei < 0)) { ei = i }
+        }
+        c.ok("…laid before the chart" ((pi >= 0) && (pi < ei)))
+        if ((pi < 0) || (ei < 0)) { return }
+        def plate:MdBox (itemAt l.boxes pi)
+        def chart:MdBox (itemAt l.boxes ei)
+        c.ok("the chart is drawn, not a slot" ((strlen chart.stroke) == 0))
+        c.ok("the chart keeps its column" ((fabs (chart.w - l.contentW)) < 0.5))
+        c.ok("the plate is round the chart, top and bottom" ((plate.y < chart.y) && ((plate.y + plate.h) > (chart.y + chart.h))))
+        def e:MdEmbedEntry (l.embeds.entryAt((l.embeds.find("vega-lite" chart.embedSource chart.w))))
+        c.ok("…and hugs the narrower drawing" ((fabs (plate.w - e.width)) < 0.5))
+        c.ok("…where it is drawn" ((fabs (plate.x - (chart.x + (e.shiftIn(chart.w))))) < 0.5))
+    }
+
 }
