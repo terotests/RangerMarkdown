@@ -60,6 +60,7 @@ class MdBookTest {
     sfn main:void () {
         def t (new BookCheck())
         MdBookTest.reading(t)
+        MdBookTest.uncomment(t)
         MdBookTest.spreads(t)
         MdBookTest.startLeft(t)
         MdBookTest.slidesHaveNoSides(t)
@@ -90,6 +91,13 @@ class MdBookTest {
         t.near("1in in points" b.marginInside 72.0)
         t.near("0 is a margin" b.marginOutside 0.0)
         t.near("bottom not given" b.marginBottom -1.0)
+        ; comments after the values, as a YAML front matter has them
+        def noted:MdBook (MdBookTest.bookOf("mode: book          # slides | book\nrender: realistic   # flat | realistic\nbook-start: right   # kansi yksin oikealla\nmargin: 14mm        # tai margin-top\nmargin-inside: 20mm # sidonnan puoli"))
+        t.ok("mode with a comment" (noted.isBook()))
+        t.ok("render with a comment" (noted.isRealistic()))
+        t.ok("start with a comment" (noted.start == "right"))
+        t.near("margin with a comment" noted.margin 39.69)
+        t.near("inside with a comment" noted.marginInside 56.69)
         def odd:MdBook (MdBookTest.bookOf("mode: booklet\nrender: shiny"))
         t.ok("an unknown mode is slides" ((odd.isBook()) == false))
         t.ok("an unknown render is flat" (odd.render == "flat"))
@@ -99,6 +107,18 @@ class MdBookTest {
 
     ; 1 alone on the right, then 2|3, 4|5; an even count ends on a page
     ; alone on the left (the back cover)
+    ; A # that does not start a comment stays in the value.
+    sfn uncomment:void (t:BookCheck) {
+        t.ok("a colour" ((MdFrontMatter.uncomment("#ff8800")) == "#ff8800"))
+        t.ok("a number sign in a title" ((MdFrontMatter.uncomment("Osa #2")) == "Osa #2"))
+        t.ok("inside quotes" ((MdFrontMatter.uncomment("\"A # B\"")) == "\"A # B\""))
+        t.ok("after quotes" ((MdFrontMatter.uncomment("\"A # B\"  # note")) == "\"A # B\""))
+        t.ok("a comment" ((MdFrontMatter.uncomment("book  # slides | book")) == "book"))
+        t.ok("only a comment" ((MdFrontMatter.uncomment("# note")) == ""))
+        t.ok("a tab before it" ((MdFrontMatter.uncomment("book\t# x")) == "book"))
+        t.ok("a URL's fragment" ((MdFrontMatter.uncomment("https://a.b/c#d")) == "https://a.b/c#d"))
+    }
+
     sfn spreads:void (t:BookCheck) {
         def b:MdBook (MdBookTest.bookOf("mode: book"))
         t.ok("page 1 is a right-hand page" (b.isRecto(0)))

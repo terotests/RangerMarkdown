@@ -102,13 +102,52 @@ class MdFrontMatter {
                     def cut:int (MdFrontMatter.colonAt(line))
                     if (cut > 0) {
                         def key:string (trim (substring line 0 cut))
-                        def rest:string (trim (substring line (cut + 1) len))
+                        def rest:string (MdFrontMatter.uncomment((trim (substring line (cut + 1) len))))
                         meta.put(key (MdFrontMatter.unquote(rest)))
                     }
                 }
             }
             i = (i + 1)
         }
+    }
+
+    ; A value without its comment, as YAML has it: `mode: book  # slides |
+    ; book` is "book". A comment is a # with a space before it and a space
+    ; (or nothing) after it, outside quotes, so `color: #ff8800`, `title:
+    ; Osa #2` and `title: "A # B"` keep theirs; `key: # note` is empty.
+    sfn uncomment:string (v:string) {
+        def n:int (strlen v)
+        def quote:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt v i)
+            if (quote != 0) {
+                if (c == quote) {
+                    quote = 0
+                }
+            } {
+                if (((c == 34) || (c == 39)) && ((i == 0) || ((charAt v (i - 1)) == 32))) {
+                    quote = c
+                }
+                if (c == 35) {
+                    def spaceBefore:boolean (i == 0)
+                    if (i > 0) {
+                        def before:int (charAt v (i - 1))
+                        spaceBefore = ((before == 32) || (before == 9))
+                    }
+                    def spaceAfter:boolean ((i + 1) >= n)
+                    if ((i + 1) < n) {
+                        def after:int (charAt v (i + 1))
+                        spaceAfter = ((after == 32) || (after == 9))
+                    }
+                    if (spaceBefore && spaceAfter) {
+                        return (trim (substring v 0 i))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return v
     }
 
     sfn colonAt:int (line:string) {
