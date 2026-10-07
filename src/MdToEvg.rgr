@@ -96,8 +96,14 @@ class MdToEvg {
             def p:int 0
             while (p < layout.pageCount) {
                 def dy:double (gap + ((to_double p) * (ph + gap)))
-                this.rect(out 0.0 dy width ph paper)
-                this.paper(out layout 0.0 dy width ph)
+                ; a slide's own colour (`.dark page { background-color }`)
+                def own:string (layout.paperOf(p))
+                def sheetPaper:string paper
+                if ((strlen own) > 0) {
+                    sheetPaper = own
+                }
+                this.rect(out 0.0 dy width ph sheetPaper)
+                this.paperAt(out layout (layout.pictureOf(p)) 0.0 dy width ph)
                 p = (p + 1)
             }
         } {
@@ -122,7 +128,10 @@ class MdToEvg {
     ; it. Never a reason for a page to have nothing on it: a background the
     ; store does not have is simply not drawn, and the text is where it was.
     fn paper:void (out:EVGDisplayList layout:MdLayout x:double y:double w:double h:double) {
-        def name:string layout.style.pageBackgroundImage
+        this.paperAt(out layout layout.style.pageBackgroundImage x y w h)
+    }
+
+    fn paperAt:void (out:EVGDisplayList layout:MdLayout name:string x:double y:double w:double h:double) {
         if ((strlen name) == 0) { return }
         if (! layout.haveImages) { return }
         def path:string (layout.images.resolve(name layout.docDir))
@@ -209,6 +218,7 @@ class MdToEvg {
             t.text = box.text
             t.fontSize = box.size
             t.fontFamily = (layout.style.faceFor(box.family box.bold box.italic))
+            t.letterSpacing = box.spacing
             this.tint(t box.color)
             push out.cmds t
             return
@@ -679,6 +689,7 @@ class MdToEvg {
         ; its own box, which is both wasted work and a chance to disagree.
         t.whiteSpace = "nowrap"
         t.textContent = b.text
+        t.letterSpacing = b.spacing
         t.fontSize = (EVGUnit.px(b.size))
         t.inheritedFontSize = b.size
         t.lineHeight = 1.0

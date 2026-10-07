@@ -49,6 +49,9 @@ Import "MdCssLimits.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
 Import "../../math/src/MathLayout.rgr"
 Import "MdHtml.rgr"
+Import "MdHtmlMd.rgr"
+Import "MdSvg.rgr"
+Import "MdUrl.rgr"
 Import "MdBlock.rgr"
 Import "MdTableSplit.rgr"
 Import "MdContainer.rgr"
@@ -103,6 +106,10 @@ class MdRun {
     def kbd:boolean false
     def shift:int 0
     def shiftOf:double 0.0
+    ; `letter-spacing`, in points: added after every character
+    def spacing:double 0.0
+    ; a colour behind the text (`<span style="background-color">`), "" none
+    def fill:string ""
     ; A footnote reference: the number it draws. Not part of the style, so
     ; not copied with it.
     def noteRef:int 0
@@ -129,6 +136,8 @@ class MdRun {
         r.kbd = kbd
         r.shift = shift
         r.shiftOf = shiftOf
+        r.spacing = spacing
+        r.fill = fill
         return r
     }
 }
@@ -162,7 +171,9 @@ class MdSeg {
     def kbd:boolean false
     def shift:int 0
     def shiftOf:double 0.0
+    def fill:string ""
     def noteRef:int 0
+    def spacing:double 0.0
 
     Constructor () {
     }
@@ -209,6 +220,8 @@ class MdBox {
     def family:string "Open Sans"
     def size:double 11.0
     def bold:boolean false
+    ; `letter-spacing` in points, after every character
+    def spacing:double 0.0
     def italic:boolean false
     def color:string "#1f2328"
     def fill:string ""
@@ -218,6 +231,9 @@ class MdBox {
     ; the source of an embed, for whoever can draw it
     def embedKind:string ""
     def embedSource:string ""
+    ; why an embed is not drawn (a box with the reason written in it), ""
+    ; when it is drawn
+    def embedNote:string ""
     ; A PICTURE (kind 4): where its bytes are in the byte store, and how big
     ; they are in their own pixels. The layout names the picture and does not
     ; carry it, exactly as a display list does — whoever draws it asks the
@@ -642,6 +658,12 @@ class MdLayout {
     ; Pictures the document names and this layout could not find. Counted
     ; rather than hidden, like every other cost in this file.
     def missingImages:int 0
+    ; HTML the document has that is not drawn as written: a tag nobody
+    ; draws, a style property nothing reads, a script handler, a link that
+    ; would run script. Each said once, with where in the source it was
+    ; first met, for a report to name (the MCP server's warnings).
+    def htmlNotes:[string]
+    def htmlNoteSrc:[int]
 
     ; The height the document turned out to be, in continuous mode.
     def documentHeight:double 0.0
@@ -756,9 +778,158 @@ class MdLayout {
     }
 
     ; What the sheet says about one block. Empty when there is no sheet,
-    ; which is the common case and costs one selector match.
+    ; which is the common case and costs one selector match. Under a slide
+    ; or section, as being under it (`#intro .lead`).
     fn styleOf:CssComputed (node:MdNode) {
-        return (sheet.resolve(node))
+        return (sheet.resolveIn(node scopeCtx))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A slide's own rules
+    ; ----------------------------------------------------------------------
+
+    ; At the start of a layout: no heading yet, and the style's look as the
+    ; sheet and the front matter left it, to come back to.
+    fn startScopes:void () {
+        def none:[MdNode]
+        scopeHeads = none
+        def noCtx@(optional):CssNode
+        scopeCtx = noCtx
+        clear paperFrom
+        clear paperColour
+        clear paperPicture
+        paperPending = false
+        scoped = sheet.hasScoped
+        if scoped {
+            baseLook = (style.look())
+        }
+    }
+
+    ; …and at its end, the look put back: a host reads the style after a
+    ; layout and must not find the last slide's colours in it.
+    fn endScopes:void () {
+        if scoped {
+            style.setLook(baseLook)
+        }
+    }
+
+    ; A heading of the document begins: the blocks after it are under it
+    ; (and under the ones above it of a lower level).
+    fn enterHeading:void (h:MdNode) {
+        if ((h.level < 1) || (h.level > 6)) {
+            return
+        }
+        while ((array_length scopeHeads) < 7) {
+            push scopeHeads (new MdNode())
+        }
+        set_at scopeHeads h.level h
+        def d:int (h.level + 1)
+        while (d <= 6) {
+            set_at scopeHeads d (new MdNode())
+            d = (d + 1)
+        }
+        this.enterScope()
+    }
+
+    ; The headings block `i` of `doc` is under, found by walking back: for a
+    ; block laid out again on its own (a slide shrunk to fit).
+    fn scopeAtBlock:void (doc:MdNode i:int) {
+        def heads:[MdNode]
+        while ((array_length heads) < 7) {
+            push heads (new MdNode())
+        }
+        def limit:int 7
+        def j:int i
+        while ((j >= 0) && (limit > 1)) {
+            def c:MdNode (doc.childAt(j))
+            if ((c.kind == "heading") && (c.level < limit)) {
+                set_at heads c.level c
+                limit = c.level
+            }
+            j = (j - 1)
+        }
+        scopeHeads = heads
+        this.enterScope()
+    }
+
+    fn enterScope:void () {
+        scopeCtx = (MdCss.scopeOf(scopeHeads))
+        if (scoped == false) {
+            return
+        }
+        style.setLook(baseLook)
+        sheet.applyLook(style scopeCtx)
+        ; the page's own colour from here on, when it is not the sheet's
+        def n:int (array_length paperFrom)
+        def last:string (style.pageBackground + "|" + style.pageBackgroundImage)
+        def was:string ""
+        if (n > 0) {
+            was = ((itemAt paperColour (n - 1)) + "|" + (itemAt paperPicture (n - 1)))
+        } {
+            was = ((itemAt baseLook 22) + "|" + (itemAt baseLook 23))
+        }
+        if (last != was) {
+            if (paperPending && (n > 0)) {
+                set_at paperColour (n - 1) style.pageBackground
+                set_at paperPicture (n - 1) style.pageBackgroundImage
+            } {
+                push paperFrom page
+                push paperColour style.pageBackground
+                push paperPicture style.pageBackgroundImage
+            }
+            paperPending = true
+        }
+    }
+
+    ; The heading that began a scope is on page `p`: so is the scope's
+    ; colour, from there on.
+    fn settlePaper:void (p:int) {
+        if (paperPending == false) {
+            return
+        }
+        paperPending = false
+        def n:int (array_length paperFrom)
+        if (n == 0) {
+            return
+        }
+        set_at paperFrom (n - 1) p
+        ; one before it on the same page is overruled by it
+        if ((n > 1) && ((itemAt paperFrom (n - 2)) == p)) {
+            def keepC:string (itemAt paperColour (n - 1))
+            def keepP:string (itemAt paperPicture (n - 1))
+            remove_index paperFrom (n - 1)
+            remove_index paperColour (n - 1)
+            remove_index paperPicture (n - 1)
+            set_at paperColour (n - 2) keepC
+            set_at paperPicture (n - 2) keepP
+        }
+    }
+
+    ; The colour of page `p`: the sheet's, or the one a slide's own rules
+    ; gave it (`.dark page { background-color }`).
+    fn paperOf:string (p:int) {
+        def out:string style.pageBackground
+        def i:int 0
+        while (i < (array_length paperFrom)) {
+            if ((itemAt paperFrom i) <= p) {
+                out = (itemAt paperColour i)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; …and its picture
+    fn pictureOf:string (p:int) {
+        def out:string style.pageBackgroundImage
+        def i:int 0
+        while (i < (array_length paperFrom)) {
+            if ((itemAt paperFrom i) <= p) {
+                out = (itemAt paperPicture i)
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     ; Boxes measured with another style are boxes of another document — and
@@ -784,9 +955,12 @@ class MdLayout {
         }
         this.checkStyle()
         clear boxes
+        clear htmlNotes
+        clear htmlNoteSrc
         boxIndexReady = false
         pageIndexReady = false
         this.resetHeadings()
+        this.startScopes()
         paginate = false
         page = 0
         pageCount = 1
@@ -798,6 +972,7 @@ class MdLayout {
         this.startNotes(doc)
         this.layoutBody(doc)
         this.placeNotesAtEnd()
+        this.endScopes()
         documentHeight = (cursorY + style.margin)
     }
 
@@ -858,9 +1033,12 @@ class MdLayout {
         this.checkStyle()
         this.disarmCache()
         clear boxes
+        clear htmlNotes
+        clear htmlNoteSrc
         boxIndexReady = false
         pageIndexReady = false
         this.resetHeadings()
+        this.startScopes()
         paginate = true
         page = 0
         pageCount = 1
@@ -900,6 +1078,7 @@ class MdLayout {
         slideCenter = false
         slideStatement = false
         this.placeNotesPaged()
+        this.endScopes()
         this.emitFurniture()
         if slides {
             this.mirrorBook()
@@ -1546,6 +1725,8 @@ class MdLayout {
         boxIndexReady = false
         pageIndexReady = false
         this.resetHeadings()
+        this.endScopes()
+        this.startScopes()
         page = 0
         pageCount = 1
         cursorY = contentTop
@@ -1566,6 +1747,9 @@ class MdLayout {
     fn armCache:boolean (doc:MdNode) {
         cacheOn = false
         if paginate { return false }
+        ; a block's boxes depend on the slide it is under, which its own
+        ; source does not say
+        if sheet.hasScoped { return false }
         if style.wantToc { return false }
         if ((strlen docSource) == 0) { return false }
         if (doc.readingSig != cacheReading) {
@@ -1839,6 +2023,9 @@ class MdLayout {
                     }
                 }
             }
+            if (child.kind == "heading") {
+                this.enterHeading(child)
+            }
             ; Whether this block opens its slide: a heading that does is the
             ; slide's title, and what comes right under it is fitted to it
             ; (see `fitSlideTitle`) rather than spilled onto a slide of its own.
@@ -1914,6 +2101,35 @@ class MdLayout {
     def slideTitleOnly:boolean false
     ; inside a `{container=…}` plate: a block in it does not get one of its own
     def containerDepth:int 0
+    ; the plate the block being laid out stands on ("" for none) and the
+    ; page under it: a heading's own colour is judged on it, not only the
+    ; text's (`## Title {container=box}` kept its light theme colour on a
+    ; light plate)
+    def plateFill:string ""
+    def platePaper:string ""
+    ; The typography the block being laid out inherits and adds to
+    ; (`MdTypo`: weight, style, transform, spacing), and a face its class
+    ; names (`.serif { font-family }`), "" for the element's own
+    def typo:MdTypo (new MdTypo())
+    def typoDepth:int 0
+    def blockFamily:string ""
+
+    ; The headings the block being laid out is under, by level (1…6), as
+    ; the sheet sees them (`MdCss.scopeOf`): `#intro h2`, `.dark page`. The
+    ; style's look as the sheet left it is kept in `baseLook`, and a slide's
+    ; own rules are laid over it while that slide is laid out (`enterScope`).
+    def scopeHeads:[MdNode]
+    def scopeCtx@(optional):CssNode
+    def baseLook:[string]
+    def scoped:boolean false
+    ; the page's colour and picture from the page a scope began on, when a
+    ; slide's rules changed them (`paperOf`, `pictureOf`)
+    def paperFrom:[int]
+    def paperColour:[string]
+    def paperPicture:[string]
+    ; a mark whose page is the one its heading lands on, not yet known
+    ; (a slide break starts the new page at the heading's first line)
+    def paperPending:boolean false
 
     ; --- footnotes (see "Footnotes" below) --------------------------------
     ; the document whose `notes` are drawn; empty: none
@@ -3261,6 +3477,8 @@ class MdLayout {
         def saved:[double]
         def savedColor:string style.textColor
         def savedAlign:string align
+        def savedTypo:MdTypo typo
+        def savedFamily:string blockFamily
         def own:string (this.blockAlign(node))
         ; a section or statement slide centres its lines
         if ((((strlen own) == 0) && slideCenter) && ((node.kind == "paragraph") || (node.kind == "heading"))) {
@@ -3277,8 +3495,31 @@ class MdLayout {
             this.scaleStyle(saved placeR)
             scaled = true
         }
+        ; the typography it inherits (the document's at the top), then its
+        ; element's (`heading`, then `h2`), then its class's, below
+        def nt:MdTypo (typo.copy())
+        if (typoDepth == 0) {
+            nt = (style.typoOf("document")).copy()
+        }
+        def tag:string (MdCss.tagOf(node))
+        if (node.kind == "heading") {
+            nt.over((style.typoOf("heading")))
+        }
+        nt.over((style.typoOf(tag)))
+        ; a class's background, padding or border: the block on a plate of
+        ; its own, as `{container=box}` would put it (`.note { background-
+        ; color: #fff3cd; padding: 12pt }` needs no attribute)
+        def boxed:boolean false
         if (((strlen sheetText) > 0) && (((node.classCount()) > 0) || ((strlen node.nodeId) > 0))) {
             def got:CssComputed (this.styleOf(node))
+            nt.over((MdCss.typoOf(got)))
+            if (got.has("font-family")) {
+                def fam:string (CssValue.firstFamily((got.get("font-family"))))
+                if ((strlen fam) > 0) {
+                    blockFamily = fam
+                }
+            }
+            boxed = (MdLayout.boxLook(got))
             if ((got.has("font-size")) && (scaled == false)) {
                 def r:double (this.safeRatio(node (this.sizeRatio(node (got.get("font-size"))))))
                 if ((r > 0.0) && ((fabs (r - 1.0)) > 0.001)) {
@@ -3294,7 +3535,20 @@ class MdLayout {
                 }
             }
         }
+        typo = nt
+        typoDepth = (typoDepth + 1)
+        ; `p { color }` (a class's own colour, set above, wins)
+        if (((node.kind == "paragraph") && ((strlen style.paraColor) > 0)) && (style.textColor == savedColor)) {
+            if (quoteDepth == 0) {
+                style.textColor = style.paraColor
+            }
+        }
         def plate:string (MdContainer.kindOf(node))
+        if (((strlen plate) == 0) && boxed) {
+            if ((node.hasAttr("container")) == false) {
+                plate = "box"
+            }
+        }
         ; a `::: container` is a plate wherever it is — they nest, with more
         ; colons outside; a block INSIDE a `{container=…}` plate gets none
         if (((strlen plate) > 0) && ((containerDepth == 0) || (node.kind == "container"))) {
@@ -3302,6 +3556,9 @@ class MdLayout {
         } {
             this.blockInner(node x w)
         }
+        typoDepth = (typoDepth - 1)
+        typo = savedTypo
+        blockFamily = savedFamily
         if scaled {
             this.restoreStyle(saved)
         }
@@ -3312,6 +3569,19 @@ class MdLayout {
             align = savedAlign
         }
         currentSrc = outerSrc
+    }
+
+    ; Whether a rule gives its block a box: a solid background, a border or
+    ; padding (a gradient is no colour and gives none).
+    sfn boxLook:boolean (got:CssComputed) {
+        if ((strlen (MdLayout.sheetColour(got "background-color"))) > 0) { return true }
+        if ((strlen (MdLayout.sheetColour(got "background"))) > 0) { return true }
+        if ((strlen (MdCss.borderColour(got))) > 0) { return true }
+        def pads:[double] (MdCss.padding(got))
+        for pads pd:double pdi {
+            if (pd > 0.0) { return true }
+        }
+        return false
     }
 
     ; `{container=box}` / `{container=bubble}` under a block: the block laid
@@ -3326,7 +3596,10 @@ class MdLayout {
         def own:string (MdContainer.fillOf(node))
         def radius:double style.containerRadius
         def shadow:string style.containerShadow
-        if (((strlen sheetText) > 0) && ((node.classCount()) > 0)) {
+        def pads:[double] ([] _:double (style.containerPadY style.containerPadX style.containerPadY style.containerPadX))
+        def border:string style.containerBorder
+        def borderW:double style.containerBorderWidth
+        if (((strlen sheetText) > 0) && (((node.classCount()) > 0) || ((strlen node.nodeId) > 0))) {
             def got:CssComputed (this.styleOf(node))
             if ((strlen own) == 0) {
                 own = (MdLayout.sheetColour(got "background-color"))
@@ -3340,6 +3613,19 @@ class MdLayout {
             if (got.has("box-shadow")) {
                 shadow = (MdContainer.shadowColour((got.get("box-shadow"))))
             }
+            def gp:[double] (MdCss.padding(got))
+            def pi:int 0
+            while (pi < 4) {
+                if ((itemAt gp pi) >= 0.0) {
+                    set_at pads pi (itemAt gp pi)
+                }
+                pi = (pi + 1)
+            }
+            def bc:string (MdCss.borderColour(got))
+            if ((strlen bc) > 0) {
+                border = bc
+                borderW = (MdCss.borderWidth(got 1.0))
+            }
         }
         ; A `::: warning` is a callout on the page, not text lifted off a
         ; picture: on a page of its own colour the plate `{container=box}`
@@ -3352,6 +3638,33 @@ class MdLayout {
         }
         def p:MdContainer (MdContainer.plan(kind own themeFill radius paper style.textColor style.bodySize))
         p.shadow = shadow
+        if ((itemAt pads 0) >= 0.0) { p.padY = (itemAt pads 0) }
+        if ((itemAt pads 3) >= 0.0) { p.padX = (itemAt pads 3) }
+        if (((strlen border) > 0) && (borderW > 0.0)) {
+            p.border = border
+            p.borderWidth = borderW
+        }
+        ; `radius=12px` and `padding=20px` (or `padding="10px 24px"`, top and
+        ; bottom, then the sides) on the block, as the theme's lengths read
+        if (node.hasAttr("radius")) {
+            p.radius = (CssValue.fontPoints((node.attrValue("radius")) p.radius))
+        }
+        if (node.hasAttr("padding")) {
+            def apads:[string] (strsplit (trim (node.attrValue("padding"))) " ")
+            def pv:[string]
+            for apads pp:string pi {
+                if ((strlen pp) > 0) {
+                    push pv pp
+                }
+            }
+            if ((array_length pv) > 0) {
+                p.padY = (CssValue.fontPoints((itemAt pv 0) p.padY))
+                p.padX = p.padY
+                if ((array_length pv) > 1) {
+                    p.padX = (CssValue.fontPoints((itemAt pv 1) p.padX))
+                }
+            }
+        }
         ; A chart or diagram (`{container=box}` under its fence) keeps the
         ; column it was drawn for — the drawing is cached by that width, so a
         ; narrower column would find none — and the plate hugs the drawing,
@@ -3365,6 +3678,10 @@ class MdLayout {
         if ((strlen p.ink) > 0) {
             style.textColor = p.ink
         }
+        def savedPlate:string plateFill
+        def savedPlatePaper:string platePaper
+        plateFill = p.fill
+        platePaper = paper
         def before:int (array_length boxes)
         def startPage:int page
         def top:double cursorY
@@ -3373,6 +3690,8 @@ class MdLayout {
         this.blockInner(node (x + p.padX) (w - (p.padX * 2.0)))
         containerDepth = (containerDepth - 1)
         style.textColor = savedInk
+        plateFill = savedPlate
+        platePaper = savedPlatePaper
         def plates:[MdBox] (this.plates(p before startPage top x w))
         if ((array_length plates) == 0) { return }
         def last:MdBox (itemAt plates ((array_length plates) - 1))
@@ -3458,6 +3777,15 @@ class MdLayout {
                     plate.tail = p.tail
                 }
                 push out plate
+                ; `border: 2pt solid …`: a line round the plate, inside it
+                if ((strlen p.border) > 0) {
+                    def half:double (p.borderWidth * 0.5)
+                    def edge:MdBox (MdBox.outline((px + half) (pt + half) (pw - p.borderWidth) (ph - p.borderWidth) p.border p.borderWidth))
+                    edge.radius = p.radius
+                    edge.page = pg
+                    edge.srcStart = currentSrc
+                    push out edge
+                }
             }
             pg = (pg + 1)
         }
@@ -4270,6 +4598,9 @@ class MdLayout {
     ; it runs onto says the right ones.
     fn relayoutBlock:void (doc:MdNode i:int) {
         def child:MdNode (doc.childAt(i))
+        if scoped {
+            this.scopeAtBlock(doc i)
+        }
         if (child.kind == "heading") {
             this.clearSection()
             if (child.level <= splitLevel) {
@@ -4765,6 +5096,7 @@ class MdLayout {
         def kind:string node.kind
         if (kind == "paragraph") {
             if (this.pictureBlock(node x w)) { return }
+            if ((MdSvg.isWhole((MdSvg.paraText(node)))) && (this.svgPicture(node x w))) { return }
             def runs:[MdRun] (this.inlineRuns(node (this.baseRun())))
             this.paragraph(runs x w)
             def gap:double style.paraSpacing
@@ -4846,12 +5178,30 @@ class MdLayout {
     fn baseRun:MdRun () {
         def r:MdRun (new MdRun())
         r.family = style.bodyFamily
+        if ((strlen blockFamily) > 0) {
+            r.family = blockFamily
+        }
         r.size = style.bodySize
         r.color = style.textColor
         if (quoteDepth > 0) {
             r.color = style.quoteColor
         }
         return r
+    }
+
+    ; A heading's colour where it is: the theme's for its level, or, on a
+    ; plate that colour does not read on, the plate's own ink
+    ; (MdContainer.inkOnPaper, as the text in it gets).
+    fn headingInkHere:string (level:int) {
+        def ink:string (style.headingInk(level))
+        if ((strlen plateFill) == 0) {
+            return ink
+        }
+        def on:string (MdContainer.inkOnPaper(plateFill ink platePaper))
+        if ((strlen on) > 0) {
+            return on
+        }
+        return ink
     }
 
     fn heading:void (node:MdNode x:double w:double) {
@@ -4871,6 +5221,7 @@ class MdLayout {
             push headText (node.plainText())
             push headLevel node.level
             push headPage page
+            this.settlePaper(page)
             push headY cursorY
             this.readEdgesOff(node)
             this.noteHidden(node.srcStart page)
@@ -4880,9 +5231,12 @@ class MdLayout {
         def size:double (style.headingSize(node.level))
         def base:MdRun (new MdRun())
         base.family = style.headingFamily
+        if ((strlen blockFamily) > 0) {
+            base.family = blockFamily
+        }
         base.size = size
         base.bold = true
-        base.color = (style.headingInk(node.level))
+        base.color = (this.headingInkHere(node.level))
         def runs:[MdRun] (this.inlineRuns(node base))
         cursorY = (cursorY + style.headingSpaceBefore)
         ; Recorded BEFORE the lines are placed, so the page is the page the
@@ -4891,6 +5245,7 @@ class MdLayout {
         push headText (node.plainText())
         push headLevel node.level
         push headPage page
+        this.settlePaper(page)
         push headY at
         this.readEdgesOff(node)
         this.paragraph(runs x w)
@@ -5149,6 +5504,29 @@ class MdLayout {
             i = (i + 1)
         }
         def bottom:double (inkBottom + pad)
+        ; `blockquote { background-color }`: a band under the quote on its
+        ; last page, put before its boxes so it is painted first
+        if ((strlen style.quoteBackground) > 0) {
+            def bandTop:double top
+            if (page != startPage) {
+                bandTop = contentTop
+            }
+            def band:MdBox (MdBox.rect(x bandTop w (bottom - bandTop) style.quoteBackground))
+            band.page = page
+            band.srcStart = currentSrc
+            def firstHere:int (array_length boxes)
+            def fi:int ((array_length boxes) - 1)
+            while (fi >= before) {
+                def fb:MdBox (itemAt boxes fi)
+                if (fb.page == page) {
+                    firstHere = fi
+                }
+                fi = (fi - 1)
+            }
+            def one:[MdBox]
+            push one band
+            this.insertBoxes(firstHere one)
+        }
         ; The bar is drawn per page, so a quote that spans a break gets one on
         ; each sheet rather than a single stripe that goes off the bottom.
         if (page == startPage) {
@@ -5165,6 +5543,11 @@ class MdLayout {
         def number:int node.listStart
         listDepth = (listDepth + 1)
         def wasTight:boolean inTightItem
+        ; `li { text-transform … }`: what the items' text inherits
+        def listTypo:MdTypo typo
+        def lt:MdTypo (typo.copy())
+        lt.over((style.typoOf("li")))
+        typo = lt
         ; How far the text is indented, which is as far as the WIDEST marker
         ; needs and never less than the style's own step.
         ;
@@ -5249,6 +5632,7 @@ class MdLayout {
             }
             i = (i + 1)
         }
+        typo = listTypo
         listDepth = (listDepth - 1)
         ; The list's own separation from whatever follows it, which the items
         ; stopped providing when the list went tight. Only the OUTERMOST list
@@ -5457,11 +5841,14 @@ class MdLayout {
             def note:string (embeds.noteFor(kind node.literal useW))
             def nlen:int (strlen note)
             if (nlen == 0) { note = (kind + " — no handler prepared this one") }
+            b.embedNote = note
+            ; said as plainly as the text round it: a muted italic line was
+            ; read as decoration, not as the reason the chart is missing
+            if (nlen > 0) { note = ("⚠ " + kind + ": " + note) }
             def label:MdBox (MdBox.text(note (x + style.codePadding) (y + style.codePadding) (useW - (style.codePadding * 2.0)) (style.bodySize * style.lineHeight)))
             label.family = style.bodyFamily
             label.size = style.bodySize
-            label.italic = true
-            label.color = style.mutedColor
+            label.color = style.textColor
             this.emit(label)
         }
         cursorY = ((y + h) + style.embedSpacing)
@@ -5502,8 +5889,40 @@ class MdLayout {
     ; JavaScript suite passed and the Go suite laid out an empty page; there
     ; is no warning in between, so the rule here is that an array is a return
     ; value and never an out-parameter.
+    ; The runs of a block's inline content, in the typography it holds
+    ; (`typo`): bold or not, italic or not and the spacing on the base run
+    ; every other copies, then the letters changed as `text-transform` says
+    ; — not in code, which is what it is.
     fn inlineRuns:[MdRun] (node:MdNode base:MdRun) {
-        return (this.collectRuns(node base))
+        if (typo.isEmpty()) {
+            return (this.collectRuns(node base))
+        }
+        if (typo.weight == 1) { base.bold = true }
+        if (typo.weight == 0) { base.bold = false }
+        if (typo.italic == 1) { base.italic = true }
+        if (typo.italic == 0) { base.italic = false }
+        if typo.spacingSet {
+            base.spacing = (MdLayout.spacingFor(typo.spacing base.size))
+        }
+        def runs:[MdRun] (this.collectRuns(node base))
+        def t:string typo.transform
+        if (((strlen t) > 0) && (t != "none")) {
+            for runs r:MdRun ri {
+                if ((r.code == false) && ((strlen r.math) == 0)) {
+                    r.text = (MdTypo.apply(t r.text))
+                }
+            }
+        }
+        return runs
+    }
+
+    ; `letter-spacing` in points: as written, or (negative, from `em`) a
+    ; share of the size
+    sfn spacingFor:double (spacing:double size:double) {
+        if (spacing < 0.0) {
+            return ((0.0 - spacing) * size)
+        }
+        return spacing
     }
 
     fn collectRuns:[MdRun] (node:MdNode base:MdRun) {
@@ -5600,9 +6019,29 @@ class MdLayout {
                             push out qc
                         }
                     } {
-                        if (((strlen nm) > 0) && (tg.selfClose == false)) {
+                        if (MdLayout.isVoidTag(nm)) {
+                            ; nothing to close: it styles nothing after it
+                            if (nm == "img") {
+                                this.htmlNote("an <img> inside a sentence is not drawn: put it on a line of its own")
+                            } {
+                                this.htmlNote((("<" + nm) + "> is not drawn"))
+                            }
+                        }
+                        if ((((strlen nm) > 0) && (tg.selfClose == false)) && ((MdLayout.isVoidTag(nm)) == false)) {
                             push outer cur
                             cur = (this.htmlStyle(cur tg))
+                            ; a list in the middle of text (a table cell's
+                            ; `Points: <ul><li>…`): an item a line
+                            if (nm == "li") {
+                                if ((array_length out) > 0) {
+                                    def lb:MdRun (cur.copyStyle())
+                                    lb.hardBreak = true
+                                    push out lb
+                                }
+                                def bu:MdRun (cur.copyStyle())
+                                bu.text = ((strfromcode 8226) + " ")
+                                push out bu
+                            }
                             if (nm == "q") {
                                 def qo:MdRun (cur.copyStyle())
                                 qo.text = (strfromcode 8220)
@@ -5649,7 +6088,10 @@ class MdLayout {
             if (kind == "link") {
                 def lr:MdRun (cur.copyStyle())
                 lr.color = style.linkColor
-                lr.link = c.destination
+                lr.link = (MdUrl.safeLink(c.destination))
+                if ((strlen lr.link) == 0) {
+                    this.htmlNote("a link to a script address (javascript:, vbscript:, data:) keeps its text but not its address")
+                }
                 def nested:[MdRun] (this.collectRuns(c lr))
                 def ni:int 0
                 def nn:int (array_length nested)
@@ -5756,20 +6198,59 @@ class MdLayout {
             cursorY = (cursorY + (style.bodySize * style.lineHeight))
             return true
         }
+        this.noteHandlers(tg)
+        if (nm == "svg") {
+            return (this.svgPicture(node x w))
+        }
+        if ((nm == "ul") || (nm == "ol")) {
+            ; said again as a Markdown list, and laid out as one
+            def hl:MdHtmlList (MdHtmlMd.listItems(lit lead))
+            def ldoc:MdNode (MdBlock.parseText((MdHtmlMd.listMarkdown(hl))))
+            ; its text is not the source's, so all of it stands for the
+            ; list's markup: a click on an item finds the <ul>
+            MdLayout.pinSrc(ldoc (node.srcOfLiteral(lead)) (node.srcOfLiteral(hl.end)))
+            this.blocks(ldoc x w)
+            def tail:string (substring lit hl.end n)
+            if ((trim tail) != "") {
+                this.innerMarkdown(node tail hl.end x w)
+            }
+            return true
+        }
         if (nm == "img") {
             def src:string (tg.attr("src"))
             if ((strlen src) == 0) {
                 return true
             }
-            def md:string ("![" + (tg.attr("alt")) + "](" + src + ")")
+            ; the address in <…>, so a space or a bracket in it holds
+            def md:string ("![" + (tg.attr("alt")) + "](<" + src + ">)")
+            def size:string ""
             def wd:string (trim (tg.attr("width")))
             if ((strlen wd) > 0) {
-                md = (md + "\n{width=" + wd + "}")
+                size = ("width=" + wd)
+            }
+            def ht:string (trim (tg.attr("height")))
+            if ((strlen ht) > 0) {
+                if ((strlen size) > 0) {
+                    size = (size + " ")
+                }
+                size = (size + "height=" + ht)
+            }
+            if ((strlen size) > 0) {
+                md = (md + "\n{" + size + "}")
             }
             this.innerMarkdown(node md lead x w)
             return true
         }
+        if (MdLayout.isMediaTag(nm)) {
+            this.htmlNote((("<" + nm) + "> is not supported: a slide shows text and pictures, not video, sound or other pages; it is shown as its markup"))
+            return false
+        }
         if ((MdLayout.isWrapper(nm)) == false) {
+            if ((nm == "script") || (nm == "style")) {
+                this.htmlNote((("<" + nm) + "> is shown as text and never run; a deck's styles go in its theme CSS"))
+            } {
+                this.htmlNote((("<" + nm) + "> is not drawn as HTML: it is shown as its markup"))
+            }
             return false
         }
         def al:string (tg.align())
@@ -5809,11 +6290,104 @@ class MdLayout {
         if ((strlen al) > 0) {
             align = al
         }
-        this.innerMarkdown(node inner tg.end x w)
+        def wst:MdHtmlStyle (MdHtmlStyle.read((tg.attr("style")) "color background background-color padding border-radius text-align"))
+        for wst.ignored wi:string wk {
+            this.htmlNote((((("style " + wi) + " on <") + nm) + "> is not drawn: a block's style draws color, background-color, padding, border-radius and text-align"))
+        }
+        if ((strlen wst.fill) > 0) {
+            ; a background is a plate: `{container=box}` with its colour,
+            ; padding and rounding
+            this.htmlPlate(node inner tg.end wst x w)
+        } {
+            def savedInk:string style.textColor
+            if ((strlen wst.color) > 0) {
+                def ic:EVGColor (CssValue.color(wst.color))
+                if ic.isSet {
+                    style.textColor = (MdCss.hexOf(ic))
+                }
+            }
+            this.innerMarkdown(node inner tg.end x w)
+            style.textColor = savedInk
+        }
         align = save
         def after:string (substring lit closeTag.end n)
         if ((trim after) != "") {
             this.innerMarkdown(node after closeTag.end x w)
+        }
+        return true
+    }
+
+    ; `<div style="background:#123;padding:20px;border-radius:12px">`: its
+    ; content on a plate, as `{container=box background=#123 padding=20px
+    ; radius=12px}` under a block draws it
+    fn htmlPlate:void (outer:MdNode text:string base:int st:MdHtmlStyle x:double w:double) {
+        def doc:MdNode (MdBlock.parseText((MdLayout.dedent(text))))
+        MdLayout.remapSrc(doc outer base)
+        def box:MdNode (MdNode.create("container"))
+        box.srcStart = outer.srcStart
+        box.srcEnd = outer.srcEnd
+        ; the plate is part of the block its text is (the report's elements)
+        if ((doc.childCount()) > 0) {
+            def first:MdNode (doc.childAt(0))
+            box.srcStart = first.srcStart
+        }
+        box.setAttr("container" "box")
+        box.setAttr("background" st.fill)
+        if ((strlen st.padding) > 0) {
+            box.setAttr("padding" st.padding)
+        }
+        if ((strlen st.radius) > 0) {
+            box.setAttr("radius" st.radius)
+        }
+        def i:int 0
+        while (i < (doc.childCount())) {
+            box.add((doc.childAt(i)))
+            i = (i + 1)
+        }
+        def savedInk:string style.textColor
+        if ((strlen st.color) > 0) {
+            def ic:EVGColor (CssValue.color(st.color))
+            if ic.isSet {
+                style.textColor = (MdCss.hexOf(ic))
+            }
+        }
+        this.block(box x w)
+        style.textColor = savedInk
+    }
+
+    ; A block that is one <svg> element: drawn as the picture the host made
+    ; of it (`MdSvg`). Before the host has it, or with no host, nothing is
+    ; drawn and it is noted.
+    fn svgPicture:boolean (node:MdNode x:double w:double) {
+        def svg:string (MdSvg.ofBlock(node))
+        if ((strlen svg) == 0) {
+            this.htmlNote("an <svg> is drawn as a picture when the block is the <svg> element alone; this one is shown as its markup")
+            return false
+        }
+        def para:MdNode (MdNode.create("paragraph"))
+        para.srcStart = node.srcStart
+        para.srcEnd = node.srcEnd
+        para.takeAttrsFrom(node)
+        ; `<svg width="200">` is shown that wide, as `<img width>` is
+        if ((para.hasAttr("width")) == false) {
+            def root:MdHtmlTag (MdHtml.tagAt(svg 0))
+            def sw:string (trim (root.attr("width")))
+            if ((strlen sw) > 2) {
+                if ((substring sw ((strlen sw) - 2) (strlen sw)) == "px") {
+                    sw = (substring sw 0 ((strlen sw) - 2))
+                }
+            }
+            if (((strlen sw) > 0) && (!null? (str2double sw))) {
+                para.setAttr("width" sw)
+            }
+        }
+        def img:MdNode (MdNode.create("image"))
+        img.destination = (MdSvg.pathOf(svg))
+        img.srcStart = node.srcStart
+        img.srcEnd = node.srcEnd
+        para.add(img)
+        if ((this.pictureBlock(para x w)) == false) {
+            this.htmlNote("an inline <svg> was not drawn: the picture made of it is not there yet")
         }
         return true
     }
@@ -5883,6 +6457,17 @@ class MdLayout {
         return out
     }
 
+    ; every node of `n` placed at start..end of the source
+    sfn pinSrc:void (n:MdNode start:int end:int) {
+        n.srcStart = start
+        n.srcEnd = end
+        def i:int 0
+        while (i < (n.childCount())) {
+            MdLayout.pinSrc((n.childAt(i)) start end)
+            i = (i + 1)
+        }
+    }
+
     sfn remapSrc:void (n:MdNode outer:MdNode base:int) {
         if (n.srcStart >= 0) {
             n.srcStart = (outer.srcOfLiteral((base + n.srcStart)))
@@ -5912,6 +6497,7 @@ class MdLayout {
         if cell.header {
             base.bold = true
         }
+        this.cellStyle(outer cell base)
         def out:[MdRun]
         def src:string (trim (MdLayout.dedent(cell.inner)))
         if ((strlen src) == 0) {
@@ -5930,10 +6516,22 @@ class MdLayout {
             }
             def runs:[MdRun] (this.inlineRuns(b base))
             if (b.kind == "html_block") {
-                ; a lone tag in a cell (<br>, <b>…): its text, plainly
-                def tr:MdRun (base.copyStyle())
-                tr.text = (MdLayout.stripTags(b.literal))
-                push runs tr
+                def lit:string b.literal
+                def bl:int (MdInline.leadTrim(lit))
+                def btg:MdHtmlTag (MdHtml.tagAt(lit bl))
+                if ((btg.name == "ul") || (btg.name == "ol")) {
+                    ; a list in a cell: an item a line, with its marker
+                    runs = (this.cellListRuns((MdHtmlMd.listItems(lit bl)) base))
+                } {
+                    if (btg.name == "table") {
+                        runs = (this.cellTableRuns(lit base))
+                    } {
+                        ; a lone tag in a cell (<br>, <b>…): its text, plainly
+                        def tr:MdRun (base.copyStyle())
+                        tr.text = (MdLayout.stripTags(b.literal))
+                        push runs tr
+                    }
+                }
             }
             def k:int 0
             while (k < (array_length runs)) {
@@ -5941,6 +6539,101 @@ class MdLayout {
                 k = (k + 1)
             }
             i = (i + 1)
+        }
+        return out
+    }
+
+    ; What a cell's `style=""` / `bgcolor=` and the table's cell tones
+    ; (`{cells=…}`, `table { cell-tones }`) make of its text, and the colour
+    ; it is filled with (`cell.fill`, drawn by `htmlGroup`).
+    fn cellStyle:void (outer:MdNode cell:MdHtmlCell base:MdRun) {
+        def tones:MdCellTones (MdCellTones.forTable(outer style.tableCellTones))
+        def tone:string (tones.toneOf((MdLayout.stripTags(cell.inner))))
+        if ((strlen tone) > 0) {
+            base.bold = true
+            base.color = (MdCellTones.inkOf(tone (this.tablePaper())))
+            cell.fill = (MdCellTones.fillOf(tone (this.tablePaper())))
+        }
+        def st:MdHtmlStyle (MdHtmlStyle.read(cell.style "color background background-color font-weight font-style text-align vertical-align"))
+        def fill:string st.fill
+        if ((strlen fill) == 0) {
+            fill = cell.bgcolor
+        }
+        if ((strlen fill) > 0) {
+            def fc:EVGColor (CssValue.color(fill))
+            if fc.isSet {
+                cell.fill = (MdCss.hexOf(fc))
+            }
+        }
+        if ((strlen st.color) > 0) {
+            def ic:EVGColor (CssValue.color(st.color))
+            if ic.isSet {
+                base.color = (MdCss.hexOf(ic))
+            }
+        }
+        if (st.weight == "bold") {
+            base.bold = true
+        }
+        if (st.weight == "normal") {
+            base.bold = false
+        }
+        if (st.slant == "italic") {
+            base.italic = true
+        }
+        for st.ignored ig:string ii {
+            this.htmlNote((("style " + ig) + " on a table cell is not drawn: a cell's style draws color, background-color, font-weight, font-style and text-align"))
+        }
+    }
+
+    fn cellListRuns:[MdRun] (list:MdHtmlList base:MdRun) {
+        def out:[MdRun]
+        for list.items it:MdHtmlItem k {
+            if (k > 0) {
+                def brk:MdRun (base.copyStyle())
+                brk.hardBreak = true
+                push out brk
+            }
+            def mark:MdRun (base.copyStyle())
+            def ind:string ""
+            def d:int 0
+            while (d < it.depth) {
+                ind = (ind + "    ")
+                d = (d + 1)
+            }
+            if (it.marker == "-") {
+                mark.text = (ind + (strfromcode 8226) + " ")
+            } {
+                mark.text = ((ind + it.marker) + " ")
+            }
+            push out mark
+            def idoc:MdNode (MdBlock.parseText(it.text))
+            if ((idoc.childCount()) > 0) {
+                for (this.inlineRuns((idoc.childAt(0)) base)) ir:MdRun ik {
+                    push out ir
+                }
+            }
+        }
+        return out
+    }
+
+    ; A table inside a cell: a line a row, its cells' text between dots.
+    fn cellTableRuns:[MdRun] (lit:string base:MdRun) {
+        this.htmlNote("a table inside a table cell is drawn as lines of text, one a row")
+        def out:[MdRun]
+        def t:MdHtmlTable (MdHtml.table(lit))
+        for t.rows row:MdHtmlRow r {
+            if (r > 0) {
+                def brk:MdRun (base.copyStyle())
+                brk.hardBreak = true
+                push out brk
+            }
+            def parts:[string]
+            for row.cells c:MdHtmlCell ci {
+                push parts (MdLayout.stripTags(c.inner))
+            }
+            def tr:MdRun (base.copyStyle())
+            tr.text = (join parts "  ·  ")
+            push out tr
         }
         return out
     }
@@ -6254,6 +6947,9 @@ class MdLayout {
                 if cm.header {
                     this.emit((MdBox.rect(cxm cy cwm ch style.tableHeadBackground)))
                 }
+                if ((strlen cm.fill) > 0) {
+                    this.emit((MdBox.rect(cxm cy cwm ch cm.fill)))
+                }
                 this.emit((MdBox.outline(cxm cy cwm ch style.tableBorder 1.0)))
                 def lines2:[MdLine] (itemAt cellLines m)
                 def inner:double (cwm - (padX * 2.0))
@@ -6317,9 +7013,19 @@ class MdLayout {
 
     ; What an inline HTML tag makes of the style around it. Tags nobody draws
     ; (span, abbr's title, a link's target) leave the style as it was.
+    ; `style=""` gives the text its colour, a colour behind it, its size,
+    ; weight and slant and a line under or through it; what else it says,
+    ; and a script handler (`onclick`), is noted, not drawn.
     fn htmlStyle:MdRun (cur:MdRun tg:MdHtmlTag) {
         def nm:string tg.name
         def r:MdRun (this.tagStyle(cur nm))
+        if (MdLayout.isMediaTag(nm)) {
+            this.htmlNote((("<" + nm) + "> is not supported: a slide shows text and pictures, not video, sound or other pages"))
+        }
+        if (((MdLayout.isInlineTag(nm)) == false) && ((MdLayout.isMediaTag(nm)) == false)) {
+            this.htmlNote((("<" + nm) + "> is not drawn: Sliqtly draws the inline tags b, strong, i, em, u, s, del, ins, mark, code, kbd, sub, sup, small, q, abbr, a and span"))
+        }
+        this.noteHandlers(tg)
         if ((nm == "abbr") || (nm == "acronym")) {
             if (tg.has("title")) {
                 r.underline = true
@@ -6328,11 +7034,16 @@ class MdLayout {
         if (nm == "a") {
             def href:string (tg.attr("href"))
             if ((strlen href) > 0) {
-                r.link = href
-                r.color = style.linkColor
+                r.link = (MdUrl.safeLink(href))
+                if ((strlen r.link) > 0) {
+                    r.color = style.linkColor
+                } {
+                    this.htmlNote("a link to a script address (javascript:, vbscript:, data:) keeps its text but not its address")
+                }
             }
         }
-        def col:string (MdHtml.styleProp((tg.attr("style")) "color"))
+        def st:MdHtmlStyle (MdHtmlStyle.read((tg.attr("style")) "color background background-color font-size font-weight font-style text-decoration text-decoration-line"))
+        def col:string st.color
         if ((strlen col) == 0) {
             if (nm == "font") {
                 col = (tg.attr("color"))
@@ -6341,7 +7052,133 @@ class MdLayout {
         if ((strlen col) > 0) {
             r.color = col
         }
+        if ((strlen st.fill) > 0) {
+            def fc:EVGColor (CssValue.color(st.fill))
+            if fc.isSet {
+                r.fill = (MdCss.hexOf(fc))
+            } {
+                push st.ignored "background-color"
+            }
+        }
+        if ((strlen st.size) > 0) {
+            def sz:double (this.spanSize(cur st.size))
+            if (sz > 0.0) {
+                r.size = sz
+            } {
+                push st.ignored "font-size"
+            }
+        }
+        if (st.weight == "bold") {
+            r.bold = true
+        }
+        if (st.weight == "normal") {
+            r.bold = false
+        }
+        if (st.slant == "italic") {
+            r.italic = true
+        }
+        if (st.slant == "normal") {
+            r.italic = false
+        }
+        if (st.underline != 0) {
+            r.underline = (st.underline > 0)
+        }
+        if (st.strike != 0) {
+            r.strike = (st.strike > 0)
+        }
+        for st.ignored ig:string ii {
+            this.htmlNote((((("style " + ig) + " on <") + nm) + "> is not drawn: inline styles draw color, background-color, font-size, font-weight, font-style and text-decoration"))
+        }
         return r
+    }
+
+    ; the elements that have no closing tag
+    sfn isVoidTag:boolean (nm:string) {
+        return ((indexOf " img input hr source embed meta link area col param track base " ((" " + nm) + " ")) >= 0)
+    }
+
+    ; what a slide cannot show at all: moving pictures and other pages
+    sfn isMediaTag:boolean (nm:string) {
+        return ((indexOf " video audio iframe object embed canvas frame frameset applet " ((" " + nm) + " ")) >= 0)
+    }
+
+    sfn isInlineTag:boolean (nm:string) {
+        return ((indexOf " b strong i em cite var dfn u ins s strike del mark code tt samp kbd sub sup small big abbr acronym a span font q br wbr ul ol li " ((" " + nm) + " ")) >= 0)
+    }
+
+    ; `onclick` and its kin: nothing on a slide runs script, so a handler is
+    ; said to be left out rather than kept silently
+    fn noteHandlers:void (tg:MdHtmlTag) {
+        for tg.keys k:string i {
+            if (((strlen k) > 2) && ((indexOf k "on") == 0)) {
+                this.htmlNote((((k + " on <") + tg.name) + "> is left out: nothing in a slide runs script"))
+            }
+        }
+    }
+
+    ; A span's `font-size` in the layout's points: absolute sizes against the
+    ; document's own (`font-size: 32pt` where the body is 20pt is 1.6 times
+    ; the body), `em`, `%` and `larger`/`smaller` against the text around it,
+    ; the CSS words (`large`, `x-large`…) against the body, all kept within
+    ; the sizes a slide can show (`MdCssLimits`). -1 when it is not a size.
+    fn spanSize:double (cur:MdRun value:string) {
+        def t:string (MdChar.lower((trim value)))
+        def n:int (strlen t)
+        def words:[string] ([] _:string ("xx-small" "x-small" "small" "medium" "large" "x-large" "xx-large" "xxx-large"))
+        def scales:[double] ([] _:double (0.6 0.75 0.89 1.0 1.2 1.5 2.0 3.0))
+        def wi:int (indexOf words t)
+        def r:double -1.0
+        def against:double style.bodySize
+        if (wi >= 0) {
+            r = (itemAt scales wi)
+        }
+        if (t == "larger") {
+            r = 1.2
+            against = cur.size
+        }
+        if (t == "smaller") {
+            r = 0.83
+            against = cur.size
+        }
+        if ((r < 0.0) && ((n > 3) && ((substring t (n - 3) n) == "rem"))) {
+            r = (?? (str2double (trim (substring t 0 (n - 3)))) -1.0)
+        }
+        if ((r < 0.0) && ((n > 2) && ((substring t (n - 2) n) == "em"))) {
+            r = (?? (str2double (trim (substring t 0 (n - 2)))) -1.0)
+            against = cur.size
+        }
+        if ((r < 0.0) && ((n > 1) && ((substring t (n - 1) n) == "%"))) {
+            r = ((?? (str2double (trim (substring t 0 (n - 1)))) -100.0) / 100.0)
+            against = cur.size
+        }
+        if (r < 0.0) {
+            ; a length: against the size the document's sheet gives its body
+            def base:double style.bodySize
+            def b:CssComputed (sheet.forTag("document"))
+            if (b.has("font-size")) {
+                base = (CssValue.fontPoints((b.get("font-size")) style.bodySize))
+            }
+            def pts:double (CssValue.fontPoints(t -1.0))
+            if ((pts <= 0.0) || (base <= 0.0)) {
+                return -1.0
+            }
+            r = (pts / base)
+        }
+        if (r <= 0.0) {
+            return -1.0
+        }
+        def want:double (against * r)
+        def ratio:double (MdCssLimits.ratio((want / style.bodySize) style.bodySize style.pageWidth style.pageHeight))
+        return (style.bodySize * ratio)
+    }
+
+    ; Said once per layout, with where it was first met.
+    fn htmlNote:void (text:string) {
+        if ((indexOf htmlNotes text) >= 0) {
+            return
+        }
+        push htmlNotes text
+        push htmlNoteSrc currentSrc
     }
 
     ; What an element of this name does to the style around it, whether it
@@ -6439,11 +7276,14 @@ class MdLayout {
                 }
                 ty = (top + (want - own))
             }
-            if (seg.code || seg.mark) {
+            if ((seg.code || seg.mark) || ((strlen seg.fill) > 0)) {
                 def pad:double 2.0
                 def fill:string style.codeBackground
                 if seg.mark {
                     fill = style.markBackground
+                }
+                if ((strlen seg.fill) > 0) {
+                    fill = seg.fill
                 }
                 this.emit((MdBox.rect((sx - pad) (top + 1.0) (seg.w + (pad * 2.0)) (lh - 2.0) fill)))
             }
@@ -6473,6 +7313,7 @@ class MdLayout {
             b.strike = seg.strike
             b.quiet = seg.quiet
             b.noteRef = seg.noteRef
+            b.spacing = seg.spacing
             this.emit(b)
             if (seg.underline || seg.strike) {
                 def base:double (ty + (this.baselineAt(seg.family seg.bold seg.italic seg.size)))
@@ -6769,6 +7610,9 @@ class MdLayout {
         }
         def face:string (style.faceFor(r.family r.bold r.italic))
         def m:EVGTextMetrics (engine.measureRun(text face r.size))
+        if (r.spacing != 0.0) {
+            return (m.width + (EVGTextEngine.trackingWidth(text r.spacing)))
+        }
         return m.width
     }
 
@@ -7030,10 +7874,12 @@ class MdLayout {
         seg.strike = run.strike
         seg.quiet = run.quiet
         seg.mark = run.mark
+        seg.fill = run.fill
         seg.kbd = run.kbd
         seg.shift = run.shift
         seg.shiftOf = run.shiftOf
         seg.noteRef = run.noteRef
+        seg.spacing = run.spacing
         seg.x = usedWidth
         seg.w = (this.measureRun(openText run))
         push cur.segs seg
@@ -8194,7 +9040,12 @@ class MdLayout {
     ; measured in one face and drawn in another.
     fn tableCellRuns:[MdRun] (cell:MdNode tones:MdCellTones) {
         def base:MdRun (this.baseRun())
-        if cell.isHeader { base.bold = true }
+        if cell.isHeader {
+            base.bold = true
+            if ((strlen style.tableHeadColor) > 0) {
+                base.color = style.tableHeadColor
+            }
+        }
         def tone:string (tones.toneOfCell(cell))
         if ((strlen tone) > 0) {
             base.bold = true

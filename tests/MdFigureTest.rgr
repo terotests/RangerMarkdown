@@ -460,6 +460,24 @@ class MdFigureTest {
         c.ok(("stats: three shadow layers under each card, got " + shadowLayers) (shadowLayers == 9))
         def wc:FlowScene (MdFigure.sceneOf("cards" "- Suojaa: 23 asiakasta\n- Kasvata: 49 asiakasta" wst 960.0 10.0))
         c.ok("cards: white cards" (c.hasFill(wc "#ffffff")))
+        ; a dark theme's light text on white cards (`figure { card-background:
+        ; #fff }` under a page of #101a2e): every text on a card turns dark
+        ; rather than staying light on white
+        def dst:MdFigureStyle (st.sized(st.size))
+        dst.cardFill = "#ffffff"
+        dst.ink = "#f0f4ff"
+        dst.muted = "#f0f4ff"
+        dst.paper = "#101a2e"
+        dst.colors = ([] _:string ("#ff3d7f" "#ff9f43" "#7ee0ff"))
+        for ([] _:string ("cards" "stats" "swot" "timeline")) dk:string dki {
+            def dtext:string "- Yksi: valkoinen kortti\n- Kaksi: varjolla\n- Kolme: figure colors\n- Neljä: neljäs"
+            if (dk == "timeline") {
+                dtext = "2023: Founded\n2024: First\n2025: Abroad"
+            }
+            def dsc:FlowScene (MdFigure.sceneOf(dk dtext dst 960.0 10.0))
+            def dlow:double (c.lowestRatio(dsc dst.paper))
+            c.ok((dk + ": light ink on white cards turns dark, lowest " + (to_string dlow)) (dlow >= 4.4))
+        }
         ; five figures: three to a row, two rows
         def k5:FlowScene (MdFigure.sceneOf("stats" "- 1: a\n- 2: b\n- 3: c\n- 4: d\n- 5: e" st 960.0 10.0))
         c.ok("stats: five go on two rows" (k5.worldH > (ks.worldH * 1.6)))

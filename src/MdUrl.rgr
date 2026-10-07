@@ -1,0 +1,49 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdUrl.rgr — which addresses a link or a picture may keep
+; ============================================================================
+;
+; A slide is drawn, not run, but its links travel: into the PDF as link
+; annotations, into Word as hyperlinks, into the web page export as <a>.
+; A `javascript:` or `vbscript:` address (or a `data:` one that is not a
+; picture) runs script in whatever opens it, so every writer asks here and
+; keeps the text without the address.
+; ============================================================================
+
+Import "MdChar.rgr"
+
+class MdUrl {
+    ; Would following this address run script? `javascript:` and `vbscript:`
+    ; always; `data:` unless a picture is asked for and it is one. Browsers
+    ; ignore case and leading blanks and controls, so this does.
+    sfn runsScript:boolean (dest:string picture:boolean) {
+        def d:string ""
+        def i:int 0
+        def n:int (strlen dest)
+        while (i < n) {
+            def c:int (charAt dest i)
+            if (c > 32) {
+                d = (d + (substring dest i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        d = (MdChar.lower(d))
+        if (((indexOf d "javascript:") == 0) || ((indexOf d "vbscript:") == 0)) {
+            return true
+        }
+        if ((indexOf d "data:") == 0) {
+            ; a picture's own script does not run inside <img>
+            return ((picture && ((indexOf d "data:image/") == 0)) == false)
+        }
+        return false
+    }
+
+    ; A link's address as a writer may keep it: "" for one that runs script.
+    sfn safeLink:string (dest:string) {
+        if (MdUrl.runsScript(dest false)) {
+            return ""
+        }
+        return dest
+    }
+}

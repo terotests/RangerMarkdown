@@ -144,7 +144,7 @@ class MdDiagram {
 
     sfn walkAt:void (node:MdNode cache:MdEmbedCache width:double styleName:string taken:boolean) {
         if (node.kind == "heading") {
-            cache.underHeading(node.level (MdAnchor.slug((node.plainText()))))
+            cache.underHeadingNode(node)
         }
         ; A list whose list-style names a figure (`{list-style=swot}`) is
         ; that figure: a slot with the list's items as its source, the same
@@ -338,6 +338,7 @@ class MdDiagram {
         e.ok = true
         if (notation == "vega") {
             e.align = (MdVegaRender.alignOf(text))
+            e.warnings = (MdVegaRender.fieldWarnings(text))
         }
         cache.add(e)
     }
