@@ -323,6 +323,8 @@ class MdDiagram {
     sfn sceneForSlide:FlowScene (notation:string text:string styleName:string width:double pad:double aspect:double textFill:double) {
         def st:FlowStyle (FlowStyle.named(styleName))
         st.textFill = textFill
+        ; read from across a room: box labels in bold, measured bold
+        st.labelBold = true
         if (notation == "graphviz") {
             return (DotRender.sceneWrappedStyled(text st width pad aspect))
         }
