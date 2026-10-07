@@ -299,6 +299,7 @@ class MdDiagram {
         e.ok = true
         if (notation == "vega") {
             e.align = (MdVegaRender.alignOf(text))
+            e.warnings = (MdVegaRender.fieldWarnings(text))
         }
         cache.add(e)
     }

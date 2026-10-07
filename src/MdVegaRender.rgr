@@ -45,6 +45,7 @@ Import "../../vela/src/VlCompile.rgr"
 Import "../../vela/src/VlRuntime.rgr"
 Import "../../vela/src/VlCommand.rgr"
 Import "../../vela/src/VlText.rgr"
+Import "../../vela/src/VlFieldCheck.rgr"
 
 class MdVegaDrawing {
     def ok:boolean false
@@ -647,11 +648,90 @@ class MdVegaRender {
     ; width too the chart is drawn at its size; with no width it takes the
     ; room's width.
     sfn grown:string (text:string width:double pad:double most:double maxH:double) {
-        def out:string (MdVegaRender.narrowedTo((MdVegaRender.grownIn(text width pad most maxH)) width pad))
+        def one:string (MdVegaRender.radialRoom((MdVegaRender.repeatAsLayers(text)) maxH))
+        def out:string (MdVegaRender.narrowedTo((MdVegaRender.grownIn(one width pad most maxH)) width pad))
         if ((maxH > 1.0) && ((indexOf text "\"height\"") < 0)) {
             out = (MdVegaRender.filledTo(out maxH))
         }
-        return out
+        return (MdVegaRender.rowsFitted(out))
+    }
+
+    ; A category axis down the side with more rows than its labels have room
+    ; for (twenty cities in a slide's height) has its labels, and the value
+    ; labels written in the rows, set smaller to fit a row, to two thirds of
+    ; their size at most. Left as they were, Vela showed every second city
+    ; (`VlAxis.strideLabels`) and wrote each value over the next row's: a
+    ; dropped category is one the reader never learns about. Only past that
+    ; floor are labels thinned.
+    sfn rowsFitted:string (text:string) {
+        def p (new VlJsonParser())
+        def spec:VlJson (p.parse(text))
+        if ((p.ok == false) || ((spec.isObject()) == false)) {
+            return text
+        }
+        if (MdVegaRender.manyViews(spec)) {
+            return text
+        }
+        def config:VlJson (spec.get("config"))
+        def axis:VlJson (config.get("axis"))
+        def axisY:VlJson (config.get("axisY"))
+        def font:double 10.0
+        if (axis.isObject()) {
+            font = (axis.doubleOr("labelFontSize" font))
+        }
+        if (axisY.isObject()) {
+            font = (axisY.doubleOr("labelFontSize" font))
+        }
+        def compiler (new VlCompile())
+        compiler.autoLabelAngle = true
+        def rt (new VlRuntime())
+        rt.autoLabelAngle = true
+        rt.run((compiler.compileSpec(spec)))
+        if (! (has rt.scope.scales "y")) {
+            return text
+        }
+        def y:VlScale (unwrap (get rt.scope.scales "y"))
+        if ((y.isDiscrete()) == false) {
+            return text
+        }
+        def rows:int (y.domainCount())
+        if (rows < 2) {
+            return text
+        }
+        def step:double ((fabs (y.rangeMax - y.rangeMin)) / (to_double rows))
+        def fits:double (MdVegaRender.rowFont(step))
+        if (fits >= font) {
+            return text
+        }
+        def floor:double (font * (2.0 / 3.0))
+        if (fits < floor) {
+            fits = floor
+        }
+        fits = ((to_double (to_int (fits * 10.0))) / 10.0)
+        if (! (config.isObject())) {
+            config = (VlJson.objectValue())
+            spec.setMember("config" config)
+        }
+        if (! (axisY.isObject())) {
+            axisY = (VlJson.objectValue())
+            config.setMember("axisY" axisY)
+        }
+        axisY.setMember("labelFontSize" (VlJson.numberValue(fits)))
+        def tc:VlJson (config.get("text"))
+        if (! (tc.isObject())) {
+            tc = (VlJson.objectValue())
+            config.setMember("text" tc)
+        }
+        if ((tc.doubleOr("fontSize" 11.0)) > fits) {
+            tc.setMember("fontSize" (VlJson.numberValue(fits)))
+        }
+        def w (new VlJsonWriter())
+        return (w.write(spec))
+    }
+
+    ; the font a row `step` high holds a line of
+    sfn rowFont:double (step:double) {
+        return (step / 1.2)
     }
 
     ; A chart that states no height, measured again as it will be drawn
@@ -700,6 +780,107 @@ class MdVegaRender {
         spec.setMember("height" (VlJson.numberValue(want)))
         def w (new VlJsonWriter())
         return (w.write(spec))
+    }
+
+    ; A pie or a donut (arcs and no x or y anywhere) drawn on a slide keeps
+    ; some air over and under it: a round chart filled to its room looked
+    ; pressed against the heading above it, where a bar chart's square
+    ; frame does not (Tero 2026-10-07). Its views are drawn without the
+    ; plot frame a square chart has, which only boxed the circle in.
+    sfn radialRoom:string (text:string maxH:double) {
+        if (! (MdVegaRender.isRadial(text))) {
+            return text
+        }
+        def p (new VlJsonParser())
+        def spec:VlJson (p.parse(text))
+        if ((p.ok == false) || ((spec.isObject()) == false)) {
+            return text
+        }
+        def config:VlJson (spec.get("config"))
+        if (! (config.isObject())) {
+            config = (VlJson.objectValue())
+            spec.setMember("config" config)
+        }
+        def view:VlJson (config.get("view"))
+        if (! (view.isObject())) {
+            view = (VlJson.objectValue())
+            config.setMember("view" view)
+        }
+        if (! (view.has("stroke"))) {
+            view.setMember("stroke" (VlJson.nullValue()))
+        }
+        if (maxH > 1.0) {
+            def air:double (to_double (to_int (maxH * 0.06)))
+            def pad:VlJson (spec.get("padding"))
+            def base:double 0.0
+            if (pad.isNumber()) {
+                base = pad.num
+            }
+            if (! (pad.isObject())) {
+                pad = (VlJson.objectValue())
+                pad.setMember("left" (VlJson.numberValue(base)))
+                pad.setMember("right" (VlJson.numberValue(base)))
+                pad.setMember("top" (VlJson.numberValue(base)))
+                pad.setMember("bottom" (VlJson.numberValue(base)))
+                spec.setMember("padding" pad)
+            }
+            pad.setMember("top" (VlJson.numberValue(((pad.doubleOr("top" 0.0)) + air))))
+            pad.setMember("bottom" (VlJson.numberValue(((pad.doubleOr("bottom" 0.0)) + air))))
+        }
+        def w (new VlJsonWriter())
+        return (w.write(spec))
+    }
+
+    ; `"repeat": {"layer": […]}` is one plot with a layer per name, not
+    ; several views: written out as those layers it is grown to its room as
+    ; any chart is. Left a repeat, it kept Vega's 200-point plot, a narrow
+    ; column in the middle of the slide (Tero's chart test, slide 11).
+    sfn repeatAsLayers:string (text:string) {
+        if ((indexOf text "\"repeat\"") < 0) {
+            return text
+        }
+        def p (new VlJsonParser())
+        def spec:VlJson (p.parse(text))
+        if ((p.ok == false) || ((spec.isObject()) == false)) {
+            return text
+        }
+        def rep:VlJson (spec.get("repeat"))
+        if (((rep.isObject()) == false) || ((rep.has("layer")) == false)) {
+            return text
+        }
+        if ((rep.has("row")) || (rep.has("column"))) {
+            return text
+        }
+        def out:VlJson (VlCompile.expandRepeat(spec))
+        if (! (out.isObject())) {
+            return text
+        }
+        def w (new VlJsonWriter())
+        return (w.write(out))
+    }
+
+    sfn isRadial:boolean (text:string) {
+        if (((indexOf text "\"arc\"") < 0) || ((indexOf text "\"theta\"") < 0)) {
+            return false
+        }
+        return (((indexOf text "\"x\"") < 0) && ((indexOf text "\"y\"") < 0))
+    }
+
+    ; The fields the chart names that its data does not have
+    ; (`VlFieldCheck`), each as a sentence: "encoding y reads field
+    ; \"myyntii\", which the data does not have (did you mean \"myynti\"?)".
+    ; `text` has its files in it (`withFiles`).
+    sfn fieldWarnings:[string] (text:string) {
+        def out:[string]
+        def p (new VlJsonParser())
+        def spec:VlJson (p.parse(text))
+        if ((p.ok == false) || ((spec.isObject()) == false)) {
+            return out
+        }
+        for (VlFieldCheck.missing(spec)) m:VlMissingField mi {
+            push out (m.message())
+        }
+        return out
     }
 
     ; facets, concatenations, repeats: sizes are per view

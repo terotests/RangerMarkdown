@@ -767,6 +767,40 @@ class MdVegaTest {
         c.eqInt("no invisible label in the scene" hidden 0)
     }
 
+    ; Twenty bars in a room of 300: every name is kept, set smaller to fit
+    ; its row; a pie is given room over and under its labels; a field the
+    ; data does not have is named.
+    fn chartTestFindings:void (c:VegaCheck) {
+        print "-- chart test findings --"
+        def rows:string ""
+        def i:int 0
+        while (i < 20) {
+            if (i > 0) {
+                rows = (rows + ",")
+            }
+            rows = (rows + "{\"c\":\"kaupunki" + (to_string i) + "\",\"v\":" + (to_string (i + 1)) + "}")
+            i = (i + 1)
+        }
+        def bars:string ("{\"data\":{\"values\":[" + rows + "]},\"mark\":\"bar\",\"encoding\":{\"y\":{\"field\":\"c\",\"type\":\"nominal\"},\"x\":{\"field\":\"v\",\"type\":\"quantitative\"}},\"config\":{\"axis\":{\"labelFontSize\":15}}}")
+        def p (new VlJsonParser())
+        def g:VlJson (p.parse((MdVegaRender.grown(bars 900.0 10.0 2.5 300.0))))
+        def axisY:VlJson ((g.get("config")).get("axisY"))
+        def fs:double (axisY.doubleOr("labelFontSize" 0.0))
+        c.ok("twenty rows: names set smaller" ((fs > 0.0) && (fs < 15.0)))
+        c.ok("…but no smaller than two thirds" (fs >= 10.0))
+        def pie:string "{\"data\":{\"values\":[{\"k\":\"a\",\"v\":1},{\"k\":\"b\",\"v\":2}]},\"mark\":\"arc\",\"encoding\":{\"theta\":{\"field\":\"v\",\"type\":\"quantitative\"},\"color\":{\"field\":\"k\",\"type\":\"nominal\"}}}"
+        def p2 (new VlJsonParser())
+        def gp:VlJson (p2.parse((MdVegaRender.grown(pie 900.0 10.0 2.5 400.0))))
+        def pad:VlJson (gp.get("padding"))
+        c.ok("a pie gets room over and under" ((pad.isObject()) && ((pad.doubleOr("top" 0.0)) >= 20.0)))
+        def missing:string "{\"data\":{\"values\":[{\"alue\":\"a\",\"myynti\":1}]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"alueet\",\"type\":\"nominal\"},\"y\":{\"field\":\"myynti\",\"type\":\"quantitative\"}}}"
+        def ws:[string] (MdVegaRender.fieldWarnings(missing))
+        c.eqInt("one missing field" (array_length ws) 1)
+        if ((array_length ws) > 0) {
+            c.ok("…named with the nearest" ((indexOf (itemAt ws 0) "did you mean \"alue\"") >= 0))
+        }
+    }
+
     fn run:void () {
         def c (new VegaCheck())
         print "== MdVegaTest =="
@@ -781,6 +815,7 @@ class MdVegaTest {
         this.staggered(c)
         this.inView(c)
         this.hiddenLabels(c)
+        this.chartTestFindings(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {

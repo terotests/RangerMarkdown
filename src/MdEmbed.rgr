@@ -38,6 +38,9 @@ class MdEmbedEntry {
     ; "a gantt diagram — recognised, and nothing draws one here yet" than by
     ; an empty rectangle.
     def note:string ""
+    ; what is wrong with a drawing that was drawn (a chart's field its data
+    ; does not have), for a host's report
+    def warnings:[string]
     ; Which pass last wanted this entry. See `MdEmbedCache.endPass`.
     def gen:int 0
     ; drawn under defaults (a chart's config, a figure's style) that have
