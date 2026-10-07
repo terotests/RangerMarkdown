@@ -931,7 +931,8 @@ class MdFigure {
                     def it:MdFigureItem (itemAt its k)
                     def color:string (MdFigure.colorAt(st k))
                     def x:double (pad + ((to_double c) * (cw + gap)))
-                    def card:SceneItem (sc.rect(x y cw rh (MdFigure.mix(color st.paper 0.86))))
+                    MdFigure.shadowUnder(sc st x y cw rh 10.0)
+                    def card:SceneItem (sc.rect(x y cw rh (MdFigure.cardFill(st color 0.86))))
                     card.radius = 10.0
                     card.tag = "figure"
                     def bar:SceneItem (sc.rect(x y 6.0 rh color))
@@ -945,7 +946,7 @@ class MdFigure {
                     def ll:FlowTextLayout (v.layoutTextBold(letter (size * 1.4) disc 0.0 1 true))
                     MdFigure.put(sc st ll dx (dy + ((disc - ll.height) * 0.5)) disc (MdFigure.onColor(color)) true "center")
                     def tl:FlowTextLayout (itemAt titleLays k)
-                    def tcol:string (MdFigure.readableOn(color (MdFigure.mix(color st.paper 0.86)) st.ink 4.5))
+                    def tcol:string (MdFigure.readableOn(color (MdFigure.cardFill(st color 0.86)) st.ink 4.5))
                     MdFigure.put(sc st tl (x + textX) (y + inPad) textW tcol true "left")
                     if ((strlen (it.text())) > 0) {
                         def bl:FlowTextLayout (itemAt bodyLays k)
@@ -995,7 +996,7 @@ class MdFigure {
             textW = 20.0
         }
         def color:string (MdFigure.colorAt(st 0))
-        def fill:string (MdFigure.mix(color st.paper 0.88))
+        def fill:string (MdFigure.cardFill(st color 0.88))
         def ink:string (MdFigure.readableOn(color fill st.ink 4.5))
         def valueLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.titlesOf(its)) (size * 2.4) textW true 0.0 2))
         def labelLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.textsOf(its)) size textW false 0.0 99))
@@ -1038,6 +1039,7 @@ class MdFigure {
             while (c < inRow) {
                 def k:int ((row * cols) + c)
                 def x:double (x0 + ((to_double c) * (cw + gap)))
+                MdFigure.shadowUnder(sc st x y cw rh 10.0)
                 def card:SceneItem (sc.rect(x y cw rh fill))
                 card.radius = 10.0
                 card.tag = "figure"
@@ -1336,8 +1338,9 @@ class MdFigure {
             while (c < inRow) {
                 def k:int ((r * cols) + c)
                 def color:string (MdFigure.cycleAt(st k))
-                def fill:string (MdFigure.mix(color st.paper 0.86))
+                def fill:string (MdFigure.cardFill(st color 0.86))
                 def x:double (x0 + ((to_double c) * (cw + gap)))
+                MdFigure.shadowUnder(sc st x y cw rh 10.0)
                 def card:SceneItem (sc.rect(x y cw rh fill))
                 card.radius = 10.0
                 card.tag = "figure"
@@ -1493,9 +1496,10 @@ class MdFigure {
         i = 0
         while (i < n) {
             def color:string (MdFigure.cycleAt(st i))
-            def fill:string (MdFigure.mix(color st.paper 0.86))
+            def fill:string (MdFigure.cardFill(st color 0.86))
             def cx:double ((pad + (slot * (to_double i))) + (slot * 0.5))
             def x:double (cx - (cw * 0.5))
+            MdFigure.shadowUnder(sc st x cardTop cw ch 10.0)
             def card:SceneItem (sc.rect(x cardTop cw ch fill))
             card.radius = 10.0
             card.tag = "figure"
@@ -1643,6 +1647,33 @@ class MdFigure {
     sfn bez:double (p0:double p1:double p2:double p3:double t:double) {
         def u:double (1.0 - t)
         return (((((u * u) * u) * p0) + ((((3.0 * u) * u) * t) * p1)) + ((((3.0 * u) * t) * t) * p2)) + (((t * t) * t) * p3)
+    }
+
+    ; A card's fill: the style's own (`cardFill`, white cards) or a tint
+    ; of the card's colour on the page.
+    sfn cardFill:string (st:MdFigureStyle color:string tint:double) {
+        if ((strlen st.cardFill) > 0) {
+            return st.cardFill
+        }
+        return (MdFigure.mix(color st.paper tint))
+    }
+
+    ; A soft shadow under a card (`cardShadow`, "" none): three rounded
+    ; layers, each a little larger and lower and fainter, drawn before the
+    ; card so it sits on them. Plain shapes, so the PDF and the PowerPoint
+    ; keep it too.
+    sfn shadowUnder:void (sc:FlowScene st:MdFigureStyle x:double y:double w:double h:double radius:double) {
+        if ((strlen st.cardShadow) == 0) {
+            return
+        }
+        def i:int 3
+        while (i >= 1) {
+            def g:double (to_double i)
+            def layer:SceneItem (sc.rect((x - g) (y + (g * 1.5)) (w + (g * 2.0)) (h + g) (MdFigure.rgba(st.cardShadow (0.05 + (0.03 * (3.0 - g)))))))
+            layer.radius = (radius + g)
+            layer.tag = "figure"
+            i = (i - 1)
+        }
     }
 
     sfn rgba:string (hex:string a:double) {

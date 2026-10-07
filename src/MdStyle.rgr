@@ -108,6 +108,9 @@ class MdStyle {
     ; to `MdContainer.plan` (the page's colour, a radius from the text size).
     def containerBackground:string ""
     def containerRadius:double -1.0
+    ; `container { box-shadow: 0 6pt 18pt rgba(…) }`: the colour of a soft
+    ; shadow under the plate, "" for none
+    def containerShadow:string ""
 
     def listIndent:double 22.0
     def markerGap:double 8.0
@@ -253,6 +256,7 @@ class MdStyle {
         out = ((((out + "/") + (to_string quoteBarWidth)) + "/") + (to_string quoteIndent))
         out = ((out + "/") + (to_string quotePadY))
         out = ((((out + " container ") + containerBackground) + "/") + (to_string containerRadius))
+        out = ((out + "/") + containerShadow)
         out = ((((out + " list ") + (to_string listIndent)) + "/") + (to_string markerGap))
         out = ((out + "/") + (to_string listTightSpacing))
         out = ((out + "/") + markerColor)
