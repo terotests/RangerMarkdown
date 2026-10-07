@@ -25,7 +25,8 @@
 ;   dot, graphviz               graphviz
 ;   d2                          d2
 ;   vega, vega-lite, vegalite   vega
-;   process, swot, timeline     figure
+;   process, swot, timeline,    figure
+;   stats, cards
 ;
 ; The notation is what `MdDiagram` dispatches on, not the fence word: two
 ; spellings of the same reader should not be two branches downstream.
@@ -60,6 +61,7 @@ class MdEmbedKinds {
         if (word == "swot") { return "figure" }
         if (word == "stats") { return "figure" }
         if (word == "timeline") { return "figure" }
+        if (word == "cards") { return "figure" }
         return ""
     }
 

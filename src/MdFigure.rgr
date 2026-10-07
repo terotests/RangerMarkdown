@@ -6,11 +6,18 @@
 ;
 ; ````markdown
 ; ```process                 ```swot                    ```timeline
-; - Plan: goals, schedule    Strengths: strong brand    2023: Founded
-; - Build: code and tests    Weaknesses: small team     2024: First product
-; - Ship: in use             Opportunities: new markets 2026: Abroad
+; - Plan: goals, schedule    Strengths: strong brand    Q1 Kickoff: team named
+; - Build: code and tests    Weaknesses: small team     Q2 Growth: campaign
+; - Ship: in use             Opportunities: new markets Q3: Markets: partners
 ; ```                        Threats: competitors       ```
 ;                            ```
+;
+; ```cards                   ```stats
+; - Launch: a key-account    91: customers
+;   programme                50 292: transactions
+; - Grow: mid-size accounts  ```
+; - Focus: three markets
+; ```
 ; ````
 ;
 ; The layouts a template deck is bought for — chevron steps, a SWOT grid, a
@@ -79,7 +86,7 @@ class MdFigure {
     ; The fence words this file draws. `MdEmbedKinds` maps each to the
     ; notation "figure".
     sfn kinds:[string] () {
-        def k:[string] ([] _:string ("process" "swot" "timeline" "stats"))
+        def k:[string] ([] _:string ("process" "swot" "timeline" "stats" "cards"))
         return k
     }
 
@@ -349,6 +356,17 @@ class MdFigure {
         return (MdFigure.mix(base st.paper t))
     }
 
+    ; Colour i of the series taken in turn and never lightened: badges
+    ; and cards alternate (wine, gold, wine, gold), the look of a deck's
+    ; numbered cards and quarters.
+    sfn cycleAt:string (st:MdFigureStyle i:int) {
+        def n:int (array_length st.colors)
+        if (n == 0) {
+            return "#2f80ed"
+        }
+        return (itemAt st.colors (i % n))
+    }
+
     ; A ramp of the first colour for steps in order: deeper at the start,
     ; the colour itself at the end.
     sfn rampAt:string (st:MdFigureStyle i:int n:int) {
@@ -443,6 +461,11 @@ class MdFigure {
 
     ; The lines of `lay`, one nowrap text item each, from `top`.
     sfn put:void (sc:FlowScene st:MdFigureStyle lay:FlowTextLayout x:double top:double w:double color:string bold:boolean align:string) {
+        MdFigure.putIn(sc st.font lay x top w color bold align)
+    }
+
+    ; As `put`, in the font `font` ("": the renderer's).
+    sfn putIn:void (sc:FlowScene font:string lay:FlowTextLayout x:double top:double w:double color:string bold:boolean align:string) {
         def i:int 0
         while (i < (array_length lay.lines)) {
             def line:string (itemAt lay.lines i)
@@ -451,8 +474,8 @@ class MdFigure {
             s.bold = bold
             s.nowrap = true
             s.tag = "figure"
-            if ((strlen st.font) > 0) {
-                s.fontFamily = st.font
+            if ((strlen font) > 0) {
+                s.fontFamily = font
             }
             i = (i + 1)
         }
@@ -489,6 +512,9 @@ class MdFigure {
         }
         if (word == "stats") {
             MdFigure.stats(sc its st width pad)
+        }
+        if (word == "cards") {
+            MdFigure.cards(sc its st width pad)
         }
         return sc
     }
@@ -551,7 +577,7 @@ class MdFigure {
     ; text keeps up: it may not get smaller, nor fall under 0.7 of the size
     ; descriptions are asked at (a long word in a narrow column stays the
     ; size its column allows, and titles grown far over it stand off their
-    ; descriptions) — then a card grid (```swot) stretched
+    ; descriptions) — then a card grid (```swot, ```cards, the cards of a ```timeline across) stretched
     ; to the room, and a strip (```process, ```timeline) set in the middle of
     ; it, so neither is a band at the top of an empty slide. `maxH` 0: as
     ; the style says.
@@ -571,6 +597,12 @@ class MdFigure {
             mode = 2
         }
         base.stack = mode
+        ; and so is how many cards go to a row
+        def cols:int 0
+        if (word == "cards") {
+            cols = (MdFigure.cardCols((MdFigure.items(text)) base width pad))
+        }
+        base.cols = cols
         def best:FlowScene (MdFigure.sceneOf(word text base width pad))
         if ((maxH <= 0.0) || (best.worldW <= 0.0)) {
             return best
@@ -583,6 +615,7 @@ class MdFigure {
             def sz:double (st.size * (1.0 + (0.1 * (to_double k))))
             def big:MdFigureStyle (st.sized(sz))
             big.stack = mode
+            big.cols = cols
             def sc:FlowScene (MdFigure.sceneOf(word text big width pad))
             def lags:boolean ((big.leastText < (least * 0.97)) || (big.leastText < ((sz * 0.82) * 0.7)))
             if ((sc.worldH > room) || lags) {
@@ -599,7 +632,10 @@ class MdFigure {
         }
         def tall:MdFigureStyle (st.sized(bestSize))
         tall.stack = mode
-        if (word == "swot") {
+        tall.cols = cols
+        ; card grids stretch to the room: ```swot, ```cards, and the cards
+        ; under a ```timeline across
+        if (((word == "swot") || (word == "cards")) || ((word == "timeline") && (mode == 1))) {
             tall.fillH = room
         } {
             if (center == false) {
@@ -1021,91 +1057,464 @@ class MdFigure {
         sc.worldH = (((y - gap) + pad) + st.shiftY)
     }
 
+    ; ------------------------------------------------------- badges --
+    ;
+    ; The model under ```cards and ```timeline: what a badge says, what its
+    ; card's title and text are, the badge's fill and how many cards go to
+    ; a row. No geometry here; the layouts below only place it.
+
+    ; A short token a badge can carry: one word of at most six characters
+    ; with a digit in it — "Q1", "H2", "2027", "v2", "1.5".
+    sfn isToken:boolean (w:string) {
+        def n:int (strlen w)
+        if ((n == 0) || (n > 6)) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt w i)
+            if ((c >= 48) && (c <= 57)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; the first word of `t` (up to a space)
+    sfn firstWord:string (t:string) {
+        def n:int (strlen t)
+        def i:int 0
+        while (i < n) {
+            if ((charAt t i) == 32) {
+                return (substring t 0 i)
+            }
+            i = (i + 1)
+        }
+        return t
+    }
+
+    ; The label on item i's badge in a ```timeline: the title's first word
+    ; when it is a short token ("Q1 Kickoff" -> "Q1", "2027: Abroad" ->
+    ; "2027"), else the item's number from 1 ("Kickoff" -> "2" as the
+    ; second item). ```cards always number their badges.
+    sfn stepLabel:string (it:MdFigureItem i:int) {
+        def w:string (MdFigure.firstWord(it.title))
+        if (MdFigure.isToken(w)) {
+            return w
+        }
+        return (to_string (i + 1))
+    }
+
+    ; The title is the token alone ("Q1: Kickoff: team named", "2023:
+    ; Founded"): the card's title is then the description's own title
+    ; ("Kickoff"), or the whole description when it has none ("Founded").
+    sfn tokenOnly:boolean (it:MdFigureItem) {
+        def w:string (MdFigure.firstWord(it.title))
+        return ((MdFigure.isToken(w)) && ((strlen (trim (substring it.title (strlen w) (strlen it.title)))) == 0))
+    }
+
+    ; The bold title on item i's card in a ```timeline: the title without
+    ; its token ("Q1 Kickoff" -> "Kickoff"); see `tokenOnly`.
+    sfn stepTitle:string (it:MdFigureItem) {
+        def w:string (MdFigure.firstWord(it.title))
+        if ((MdFigure.isToken(w)) == false) {
+            return it.title
+        }
+        if ((MdFigure.tokenOnly(it)) == false) {
+            return (trim (substring it.title (strlen w) (strlen it.title)))
+        }
+        if ((indexOf it.body ": ") > 0) {
+            def sub:MdFigureItem (MdFigure.itemOf(it.body))
+            return sub.title
+        }
+        return it.body
+    }
+
+    ; The text under that title: the description and its points, less what
+    ; `stepTitle` took from it.
+    sfn stepText:string (it:MdFigureItem) {
+        if ((MdFigure.tokenOnly(it)) == false) {
+            return (it.text())
+        }
+        def rest (new MdFigureItem)
+        rest.bullets = it.bullets
+        if ((indexOf it.body ": ") > 0) {
+            def sub:MdFigureItem (MdFigure.itemOf(it.body))
+            rest.body = sub.body
+        }
+        return (rest.text())
+    }
+
+    ; A badge's fill: `color`, taken towards black (under white letters) or
+    ; white (under dark ones) until its letters stand 4.5 off it (WCAG) —
+    ; a mid-tone gold reaches only about 4.2 with either.
+    sfn discFill:string (color:string) {
+        def on:string (MdFigure.onColor(color))
+        def far:string "#000000"
+        if (on != "#ffffff") {
+            far = "#ffffff"
+        }
+        def out:string color
+        def t:double 0.0
+        while ((t < 1.0) && ((MdFigure.ratio(on out)) < 4.5)) {
+            t = (t + 0.05)
+            out = (MdFigure.mix(color far t))
+        }
+        return out
+    }
+
+    ; The cards a row of n holds when there is room: all of up to four,
+    ; five or six three to a row, more four.
+    sfn cardColsWanted:int (n:int) {
+        if (n <= 4) {
+            return n
+        }
+        if (n <= 6) {
+            return 3
+        }
+        return 4
+    }
+
+    ; Cards to a row: `st.cols` when set, one when the host stacks (`stack`
+    ; 2), else the most (up to `cardColsWanted`) at which every title and
+    ; description fits its card uncut and not set far under its size. A
+    ; portrait slide or a narrow column gets fewer and more rows, down to
+    ; one card a row with its badge beside the text.
+    sfn cardCols:int (its:[MdFigureItem] st:MdFigureStyle width:double pad:double) {
+        def n:int (array_length its)
+        if (st.cols > 0) {
+            if (st.cols > n) {
+                return n
+            }
+            return st.cols
+        }
+        if (st.stack == 2) {
+            return 1
+        }
+        def c:int (MdFigure.cardColsWanted(n))
+        while (c > 1) {
+            def probe:MdFigureStyle (st.sized(st.size))
+            probe.cols = c
+            probe.fillH = 0.0
+            def sc (new FlowScene)
+            MdFigure.cards(sc its probe width pad)
+            if (probe.cramped == false) {
+                return c
+            }
+            c = (c - 1)
+        }
+        return 1
+    }
+
+    ; the view titles are measured with (the headings' font)
+    sfn titleView:FlowView (st:MdFigureStyle) {
+        def v (new FlowView)
+        def f:string st.titleFont
+        if ((strlen f) == 0) {
+            f = st.font
+        }
+        if ((strlen f) > 0) {
+            v.theme.fontFamily = f
+        }
+        return v
+    }
+
+    sfn titleFontOf:string (st:MdFigureStyle) {
+        if ((strlen st.titleFont) > 0) {
+            return st.titleFont
+        }
+        return st.font
+    }
+
+    ; a filled circle `d` across centred on cx,cy with `label` in it
+    sfn badge:void (sc:FlowScene st:MdFigureStyle v:FlowView label:string cx:double cy:double d:double size:double color:string) {
+        def fill:string (MdFigure.discFill(color))
+        def disc:SceneItem (sc.rect((cx - (d * 0.5)) (cy - (d * 0.5)) d d fill))
+        disc.radius = (d * 0.5)
+        disc.tag = "figure"
+        def ll:FlowTextLayout (v.layoutTextBold(label size d 0.0 1 true))
+        MdFigure.putIn(sc (MdFigure.titleFontOf(st)) ll (cx - (d * 0.5)) (cy - (ll.height * 0.5)) d (MdFigure.onColor(fill)) true "center")
+    }
+
+    ; ------------------------------------------------------------ cards --
+    ;
+    ;   ╭──────────────╮ ╭──────────────╮ ╭──────────────╮
+    ;   │ (1)          │ │ (2)          │ │ (3)          │
+    ;   │ Launch       │ │ Grow         │ │ Focus        │
+    ;   │ a key-account│ │ mid-size     │ │ three markets│
+    ;   ╰──────────────╯ ╰──────────────╯ ╰──────────────╯
+    ;
+    ; Numbered recommendations: a tall tinted card per item, a filled disc
+    ; with its number at the top left, the title bold in the headings' font
+    ; and colour, the description under it. Badge and tint take the series
+    ; colours in turn (wine, gold, wine). As many to a row as fit
+    ; (`cardCols`); a short last row is centred. One to a row, the badge
+    ; goes beside the text. On a slide the rows stretch to the room (fillH).
+    sfn cards:void (sc:FlowScene its:[MdFigureItem] st:MdFigureStyle width:double pad:double) {
+        def v:FlowView (MdFigure.viewFor(st))
+        def tv:FlowView (MdFigure.titleView(st))
+        def n:int (array_length its)
+        def W:double (width - (pad * 2.0))
+        def gap:double 16.0
+        def cols:int (MdFigure.cardCols(its st width pad))
+        def side:boolean (cols == 1)
+        def cw:double ((W - ((to_double (cols - 1)) * gap)) / (to_double cols))
+        def size:double st.size
+        def small:double (size * 0.82)
+        def inPad:double (size * 1.0)
+        def disc:double (size * 2.6)
+        def textX:double inPad
+        if side {
+            textX = ((inPad + disc) + (size * 0.9))
+        }
+        def textW:double ((cw - textX) - inPad)
+        if (textW < 20.0) {
+            textW = 20.0
+        }
+        def titleLays:[FlowTextLayout] (MdFigure.sameSize(tv st (MdFigure.titlesOf(its)) (size * 1.15) textW true 0.0 99))
+        def bodyLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.textsOf(its)) small textW false 0.0 99))
+        MdFigure.markCramped(st titleLays textW bodyLays textW)
+        ; a title set under its size (a long word, "avainasiakasohjelma",
+        ; in a narrow card) is cramped too: fewer cards to a row read better
+        ; than titles smaller than their descriptions
+        def ti:int 0
+        while (ti < n) {
+            def tl:FlowTextLayout (itemAt titleLays ti)
+            if (tl.size < ((size * 1.15) - 0.01)) {
+                st.cramped = true
+            }
+            ti = (ti + 1)
+        }
+        def rows:int (idiv ((n + cols) - 1) cols)
+        ; per row: the tallest title (so the descriptions start on one line
+        ; across the row) and the tallest description
+        def titleHs:[double]
+        def bodyHs:[double]
+        def need:double ((pad * 2.0) + ((to_double (rows - 1)) * gap))
+        def r:int 0
+        while (r < rows) {
+            def th:double 0.0
+            def bh:double 0.0
+            def c:int 0
+            while (c < cols) {
+                def k:int ((r * cols) + c)
+                if (k < n) {
+                    def tl:FlowTextLayout (itemAt titleLays k)
+                    if (tl.height > th) {
+                        th = tl.height
+                    }
+                    if ((strlen ((itemAt its k).text())) > 0) {
+                        def bl:FlowTextLayout (itemAt bodyLays k)
+                        if (bl.height > bh) {
+                            bh = bl.height
+                        }
+                    }
+                }
+                c = (c + 1)
+            }
+            push titleHs th
+            push bodyHs bh
+            need = (need + (MdFigure.cardH(side th bh disc inPad size)))
+            r = (r + 1)
+        }
+        def extra:double 0.0
+        if (st.fillH > need) {
+            extra = ((st.fillH - need) / (to_double rows))
+        }
+        def y:double pad
+        r = 0
+        while (r < rows) {
+            def th:double (itemAt titleHs r)
+            def rh:double ((MdFigure.cardH(side th (itemAt bodyHs r) disc inPad size)) + extra)
+            def inRow:int (n - (r * cols))
+            if (inRow > cols) {
+                inRow = cols
+            }
+            def x0:double (pad + (((to_double (cols - inRow)) * (cw + gap)) * 0.5))
+            def c:int 0
+            while (c < inRow) {
+                def k:int ((r * cols) + c)
+                def color:string (MdFigure.cycleAt(st k))
+                def fill:string (MdFigure.mix(color st.paper 0.86))
+                def x:double (x0 + ((to_double c) * (cw + gap)))
+                def card:SceneItem (sc.rect(x y cw rh fill))
+                card.radius = 10.0
+                card.tag = "figure"
+                MdFigure.badge(sc st tv (to_string (k + 1)) ((x + inPad) + (disc * 0.5)) ((y + inPad) + (disc * 0.5)) disc (size * 1.25) color)
+                ; the title under the badge, or beside it (one to a row)
+                def ty:double (((y + inPad) + disc) + (size * 0.8))
+                if side {
+                    ty = (y + inPad)
+                }
+                def head:string st.heading
+                if ((strlen head) == 0) {
+                    head = (MdFigure.colorAt(st 0))
+                }
+                def tcol:string (MdFigure.readableOn(head fill st.ink 4.5))
+                def tl:FlowTextLayout (itemAt titleLays k)
+                MdFigure.putIn(sc (MdFigure.titleFontOf(st)) tl (x + textX) ty textW tcol true "left")
+                if ((strlen ((itemAt its k).text())) > 0) {
+                    def by:double ((ty + th) + (size * 0.5))
+                    if side {
+                        by = ((ty + tl.height) + (size * 0.4))
+                    }
+                    MdFigure.put(sc st (itemAt bodyLays k) (x + textX) by textW (MdFigure.readableOn(st.ink fill st.ink 4.5)) false "left")
+                }
+                c = (c + 1)
+            }
+            y = ((y + rh) + gap)
+            r = (r + 1)
+        }
+        sc.worldX = 0.0
+        sc.worldY = 0.0
+        sc.worldW = width
+        sc.worldH = ((y - gap) + pad)
+    }
+
+    ; a card's height from its row's tallest title `th` and description `bh`
+    sfn cardH:double (side:boolean th:double bh:double disc:double inPad:double size:double) {
+        def textH:double th
+        if (bh > 0.0) {
+            textH = ((textH + (size * 0.5)) + bh)
+        }
+        if side {
+            if (textH < disc) {
+                textH = disc
+            }
+            return (textH + (inPad * 2.0))
+        }
+        return (((inPad * 2.0) + disc) + (size * 0.8)) + textH
+    }
+
     ; --------------------------------------------------------- timeline --
     ;
-    ;      2023        2024        2026
-    ;   ────(●)─────────(●)─────────(●)────▶
-    ;    Founded    First product   Abroad
+    ;   ────(Q1)──────────(Q2)──────────(Q3)──────────(Q4)────
+    ;   ╭──────────╮  ╭──────────╮  ╭──────────╮  ╭──────────╮
+    ;   │ Kickoff  │  │ Growth   │  │ Markets  │  │ Portfolio│
+    ;   │ team …   │  │ campaign │  │ partners │  │ budget   │
+    ;   ╰──────────╯  ╰──────────╯  ╰──────────╯  ╰──────────╯
     ;
-    ; The dates above a line, a ringed dot on it per item, the descriptions
-    ; under, each centred in its own slot.
+    ; A line across the top with a filled badge per item on it, evenly
+    ; spaced; under each badge a tinted card with the title bold and the
+    ; description. Badge and tint take the series colours in turn. The
+    ; badge says the item's short token, its card the rest (`stepLabel`,
+    ; `stepTitle`, `stepText`): "Q1 Kickoff: …" and "Q1: Kickoff: …" are
+    ; both badge "Q1", title "Kickoff"; "2023: Founded" is badge "2023",
+    ; title "Founded"; a title with no token is numbered. On a slide the
+    ; cards stretch to the room (fillH).
     sfn timeline:void (sc:FlowScene its:[MdFigureItem] st:MdFigureStyle width:double pad:double) {
         def v:FlowView (MdFigure.viewFor(st))
+        def tv:FlowView (MdFigure.titleView(st))
         def n:int (array_length its)
         def W:double (width - (pad * 2.0))
         def size:double st.size
         def small:double (st.size * 0.82)
         def slot:double (W / (to_double n))
-        def textW:double (slot - 12.0)
-        def titleLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.titlesOf(its)) (size * 1.1) textW true 0.0 99))
-        def bodyLays:[FlowTextLayout] (MdFigure.sameSize(v st (MdFigure.textsOf(its)) small textW false 0.0 99))
-        MdFigure.markCramped(st titleLays textW bodyLays textW)
-        def titleH:double 0.0
-        def bodyH:double 0.0
+        def gap:double (size * 0.8)
+        if (gap > (slot * 0.12)) {
+            gap = (slot * 0.12)
+        }
+        def cw:double (slot - gap)
+        def inPad:double (size * 0.9)
+        def textW:double (cw - (inPad * 2.0))
+        if (textW < 20.0) {
+            textW = 20.0
+        }
+        def labels:[string]
+        def titles:[string]
+        def texts:[string]
         def i:int 0
         while (i < n) {
             def it:MdFigureItem (itemAt its i)
-            def tl:FlowTextLayout (itemAt titleLays i)
-            def bl:FlowTextLayout (itemAt bodyLays i)
-            if (tl.height > titleH) {
-                titleH = tl.height
+            push labels (MdFigure.stepLabel(it i))
+            push titles (MdFigure.stepTitle(it))
+            push texts (MdFigure.stepText(it))
+            i = (i + 1)
+        }
+        ; one badge size for all: round, and wide enough for the longest label
+        def labelSize:double (size * 0.95)
+        def disc:double (size * 2.4)
+        i = 0
+        while (i < n) {
+            def lw:double ((tv.textWidthBold((itemAt labels i) labelSize true)) + size)
+            if (lw > disc) {
+                disc = lw
             }
-            if ((strlen (it.text())) > 0) {
+            i = (i + 1)
+        }
+        if (disc > (slot - 4.0)) {
+            st.cramped = true
+        }
+        def titleLays:[FlowTextLayout] (MdFigure.sameSize(tv st titles (size * 1.05) textW true 0.0 99))
+        def bodyLays:[FlowTextLayout] (MdFigure.sameSize(v st texts small textW false 0.0 99))
+        MdFigure.markCramped(st titleLays textW bodyLays textW)
+        def titleH:double 0.0
+        def bodyH:double 0.0
+        i = 0
+        while (i < n) {
+            if ((strlen (itemAt titles i)) > 0) {
+                def tl:FlowTextLayout (itemAt titleLays i)
+                if (tl.height > titleH) {
+                    titleH = tl.height
+                }
+            }
+            if ((strlen (itemAt texts i)) > 0) {
+                def bl:FlowTextLayout (itemAt bodyLays i)
                 if (bl.height > bodyH) {
                     bodyH = bl.height
                 }
             }
             i = (i + 1)
         }
-        def dot:double (size * 1.3)
         def top:double (pad + st.shiftY)
-        def lineY:double (((top + titleH) + (size * 0.6)) + (dot * 0.5))
-        def lineCol:string (MdFigure.mix(st.muted st.paper 0.35))
+        def lineY:double (top + (disc * 0.5))
+        def cardTop:double ((lineY + (disc * 0.5)) + (size * 0.9))
+        def textH:double titleH
+        if (bodyH > 0.0) {
+            if (titleH > 0.0) {
+                textH = (textH + (size * 0.6))
+            }
+            textH = (textH + bodyH)
+        }
+        def ch:double ((inPad * 2.0) + textH)
+        if ((st.fillH > 0.0) && (((cardTop + ch) + pad) < st.fillH)) {
+            ch = ((st.fillH - pad) - cardTop)
+        }
+        def lineCol:string (MdFigure.mix(st.muted st.paper 0.65))
         def axis:[double]
         push axis pad
         push axis lineY
-        push axis ((pad + W) - 10.0)
+        push axis (pad + W)
         push axis lineY
-        def ln:SceneItem (sc.path(axis "" lineCol 3.0))
+        def ln:SceneItem (sc.path(axis "" lineCol (size * 0.3)))
         ln.d = (FlowScene.polygonPath(ln.pts false))
         ln.tag = "figure"
-        def head:[double]
-        push head ((pad + W) - 14.0)
-        push head (lineY - 8.0)
-        push head (pad + W)
-        push head lineY
-        push head ((pad + W) - 14.0)
-        push head (lineY + 8.0)
-        def hd:SceneItem (sc.polygon(head lineCol))
-        hd.tag = "figure"
         i = 0
         while (i < n) {
-            def color:string (MdFigure.colorAt(st i))
+            def color:string (MdFigure.cycleAt(st i))
+            def fill:string (MdFigure.mix(color st.paper 0.86))
             def cx:double ((pad + (slot * (to_double i))) + (slot * 0.5))
-            def tl:FlowTextLayout (itemAt titleLays i)
-            def tcol:string (MdFigure.readableOn(color st.paper st.ink 4.5))
-            MdFigure.put(sc st tl (cx - (textW * 0.5)) ((top + titleH) - tl.height) textW tcol true "center")
-            def ring:SceneItem (sc.rect((cx - (dot * 0.5)) (lineY - (dot * 0.5)) dot dot color))
-            ring.radius = (dot * 0.5)
-            ring.tag = "figure"
-            def core:double (dot * 0.42)
-            def hole:SceneItem (sc.rect((cx - (core * 0.5)) (lineY - (core * 0.5)) core core st.paper))
-            hole.radius = (core * 0.5)
-            hole.tag = "figure"
-            if ((strlen ((itemAt its i).text())) > 0) {
-                def bl:FlowTextLayout (itemAt bodyLays i)
-                MdFigure.put(sc st bl (cx - (textW * 0.5)) ((lineY + (dot * 0.5)) + (size * 0.6)) textW st.ink false "center")
+            def x:double (cx - (cw * 0.5))
+            def card:SceneItem (sc.rect(x cardTop cw ch fill))
+            card.radius = 10.0
+            card.tag = "figure"
+            MdFigure.badge(sc st tv (itemAt labels i) cx lineY disc labelSize color)
+            def ink:string (MdFigure.readableOn(st.ink fill st.ink 4.5))
+            def ty:double (cardTop + inPad)
+            if ((strlen (itemAt titles i)) > 0) {
+                MdFigure.putIn(sc (MdFigure.titleFontOf(st)) (itemAt titleLays i) (x + inPad) ty textW ink true "left")
+                ty = ((ty + titleH) + (size * 0.6))
+            }
+            if ((strlen (itemAt texts i)) > 0) {
+                MdFigure.put(sc st (itemAt bodyLays i) (x + inPad) ty textW ink false "left")
             }
             i = (i + 1)
         }
         sc.worldX = 0.0
         sc.worldY = 0.0
         sc.worldW = width
-        def hh:double (lineY + (dot * 0.5))
-        if (bodyH > 0.0) {
-            hh = ((hh + (size * 0.6)) + bodyH)
-        }
-        sc.worldH = ((hh + pad) + st.shiftY)
+        sc.worldH = (((cardTop + ch) + pad) + st.shiftY)
     }
 
     ; The same timeline down the room, for a room too narrow for it across:

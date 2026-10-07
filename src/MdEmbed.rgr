@@ -82,7 +82,7 @@ class MdEmbedEntry {
     }
 }
 
-; How the figures (```process, ```swot, ```timeline — MdFigure) are coloured
+; How the figures (```process, ```swot, ```timeline, ```cards — MdFigure) are coloured
 ; and set: the host fills this from its theme. A change draws them again.
 class MdFigureStyle {
     ; the series, in order; more items than colours come round lighter
@@ -92,6 +92,10 @@ class MdFigureStyle {
     def muted:string "#6b7280"
     def paper:string "#ffffff"
     def font:string ""
+    ; the headings' font and colour, for the titles of ```cards ("": the
+    ; text font, and the series' first colour)
+    def titleFont:string ""
+    def heading:string ""
     ; the title size in layout units; descriptions are set smaller
     def size:double 18.0
     ; false: a host that keeps figures for some users (Sliqtly: PRO) leaves
@@ -106,6 +110,9 @@ class MdFigureStyle {
     ; how ```process and ```timeline go: 0 decide from the room (across
     ; while every text fits its slot, else down), 1 across, 2 down
     def stack:int 0
+    ; cards to a row in ```cards: 0 decide from the room (as many as fit,
+    ; MdFigure.cardCols), else this many
+    def cols:int 0
     ; set by the drawing: some text was set smaller than asked to fit its
     ; box (a word longer than its column), and the smallest size any text
     ; came out at (0: none drawn yet)
@@ -129,17 +136,20 @@ class MdFigureStyle {
         o.muted = muted
         o.paper = paper
         o.font = font
+        o.titleFont = titleFont
+        o.heading = heading
         o.size = sz
         o.allowed = allowed
         o.lockedNote = lockedNote
         o.fillH = fillH
         o.shiftY = shiftY
         o.stack = stack
+        o.cols = cols
         return o
     }
 
     fn key:string () {
-        def k:string (ink + "|" + muted + "|" + paper + "|" + font + "|" + (to_string size) + "|" + (to_string allowed) + "|" + (to_string stack))
+        def k:string (ink + "|" + muted + "|" + paper + "|" + font + "|" + (to_string size) + "|" + (to_string allowed) + "|" + (to_string stack) + "|" + (to_string cols) + "|" + titleFont + "|" + heading)
         def i:int 0
         while (i < (array_length colors)) {
             k = (k + "|" + (itemAt colors i))
