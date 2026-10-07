@@ -3881,7 +3881,8 @@ class MdLayout {
     }
 
     ; A table's own size (`tableSize`, else the body's) and its cells'
-    ; padding scaled by `s`; everything else as saved in `v`.
+    ; padding scaled by `s` (the padding over and under by `s`²);
+    ; everything else as saved in `v`.
     fn scaleTable:void (v:[double] s:double) {
         this.scaleStyle(v 1.0)
         def size:double (itemAt v 21)
@@ -3890,7 +3891,8 @@ class MdLayout {
         }
         style.tableSize = (size * s)
         style.cellPadX = ((itemAt v 18) * s)
-        style.cellPadY = ((itemAt v 19) * s)
+        ; the air between rows gives way faster than the text
+        style.cellPadY = (((itemAt v 19) * s) * s)
     }
 
     fn restoreStyle:void (v:[double]) {
