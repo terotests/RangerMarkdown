@@ -1723,6 +1723,19 @@ class MdVegaRender {
             s.tag = "chart"
             return
         }
+        if (c.op == "image") {
+            ; An `image` mark: the picture its `url` names, in the box the
+            ; runtime placed. The scene names the picture and does not carry
+            ; it; the layout resolves the name against the document's pictures
+            ; (MdLayout.chartPictures), as it does a `![](media/…)`.
+            if (((strlen c.url) == 0) || ((c.width <= 0.0) || (c.height <= 0.0))) {
+                return
+            }
+            def im:SceneItem (sc.image((padX + (c.x * scale)) (padY + (c.y * scale)) (c.width * scale) (c.height * scale) c.url))
+            im.opacity = c.opacity
+            im.tag = "chart"
+            return
+        }
         if (c.op == "arc") {
             ; A pie's or a donut's slice: the outer edge from the start angle
             ; to the end, back along the inner edge (or through the centre),

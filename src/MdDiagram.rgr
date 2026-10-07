@@ -331,6 +331,9 @@ class MdDiagram {
         st.spacing = 0.6
         ; a line's name sits in a gap measured for it: it grows less
         st.labelFill = 1.8
+        ; a chain of four may be two rows of larger boxes (the slide picks
+        ; whichever draws larger)
+        st.wrapFrom = 4
         if (notation == "graphviz") {
             return (DotRender.sceneWrappedStyled(text st width pad aspect))
         }
@@ -364,9 +367,9 @@ class MdDiagram {
 
     ; Why nothing was drawn. Recognised or not, say which: "a gantt diagram —
     ; read, but nothing drew it" is a different fact from "that is not
-    ; Mermaid", and a reader can act on the difference. DOT can say more than
-    ; either, because its reader refuses a file with the line it went wrong on
-    ; rather than reading it as an empty graph.
+    ; Mermaid", and a reader can act on the difference. DOT and a Mermaid
+    ; flowchart can say more than either, because their readers refuse a text
+    ; with the line it went wrong on rather than reading it as an empty graph.
     sfn refusal:string (notation:string text:string) {
         if (notation == "graphviz") {
             def st (new FlowStyle)
@@ -405,6 +408,11 @@ class MdDiagram {
                 return (("a PlantUML " + pk) + " diagram — read, but nothing drew it")
             }
             return "not a PlantUML diagram this reader knows"
+        }
+        ; a flowchart Mermaid would refuse: what and on which line
+        def wrong:string (MermaidRender.errorOf(text))
+        if ((strlen wrong) > 0) {
+            return wrong
         }
         def kind:string (MermaidRender.kindOf(text))
         def klen:int (strlen kind)

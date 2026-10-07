@@ -833,6 +833,14 @@ class MarkdownTest {
         def bad:MdEmbedEntry (bl.embeds.entryAt(0))
         this.ok("a DOT file the reader refuses is not drawn" (! bad.ok))
         this.ok("and the refusal says something" ((strlen bad.note) > 0))
+        ; …and a Mermaid flowchart Mermaid itself would refuse is not drawn
+        ; half-read: its note names what is wrong and on which line
+        def brokenM:MdNode (MdBlock.parseText("```mermaid\nflowchart LR\n  A[Open --> B\n```\n"))
+        def bm:MdLayout (new MdLayout())
+        MdDiagram.prepare(brokenM bm.embeds contentW "default")
+        def badM:MdEmbedEntry (bm.embeds.entryAt(0))
+        this.ok("a flowchart with an unclosed [ is not drawn" (! badM.ok))
+        this.ok(("its note says where: " + badM.note) ((badM.note.indexOf("line 2")) >= 0))
     }
 
     sfn marksIn:int (dl:EVGDisplayList box:MdBox) {
