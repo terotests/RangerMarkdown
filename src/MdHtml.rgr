@@ -19,6 +19,9 @@ class MdHtmlTag {
     def selfClose:boolean false
     def keys:[string]
     def vals:[string]
+    ; the name and keys as written: SVG tells `viewBox` from `viewbox`
+    def rawName:string ""
+    def rawKeys:[string]
     ; one past the `>` in the text it was read from
     def end:int 0
 
@@ -71,6 +74,11 @@ class MdHtmlCell {
     def rowspan:int 1
     def colspan:int 1
     def align:string ""
+    ; its `style=""` and `bgcolor=`, as written
+    def style:string ""
+    def bgcolor:string ""
+    ; the colour behind it once the layout has read those, "" for none
+    def fill:string ""
     ; where it lands in the grid
     def row:int 0
     def col:int 0
@@ -144,7 +152,8 @@ class MdHtml {
         while ((i < n) && (MdHtml.isNameChar((charAt s i)))) {
             i = (i + 1)
         }
-        t.name = (MdHtml.lower((substring s ns i)))
+        t.rawName = (substring s ns i)
+        t.name = (MdHtml.lower(t.rawName))
         ; attributes, until `>`
         while (i < n) {
             def c:int (charAt s i)
@@ -161,7 +170,8 @@ class MdHtml {
                     while ((i < n) && (MdHtml.isNameChar((charAt s i)))) {
                         i = (i + 1)
                     }
-                    def key:string (MdHtml.lower((substring s ks i)))
+                    def rawKey:string (substring s ks i)
+                    def key:string (MdHtml.lower(rawKey))
                     def val:string ""
                     while ((i < n) && ((charAt s i) == 32)) {
                         i = (i + 1)
@@ -189,6 +199,7 @@ class MdHtml {
                         }
                     }
                     push t.keys key
+                    push t.rawKeys rawKey
                     push t.vals val
                 } {
                     i = (i + 1)
@@ -256,10 +267,26 @@ class MdHtml {
         def inHead:boolean false
         def row@(optional):MdHtmlRow
         def cell@(optional):MdHtmlCell
+        def seenTable:boolean false
         def i:int (MdHtml.nextTag(s 0))
         while (i >= 0) {
             def tg:MdHtmlTag (MdHtml.tagAt(s i))
             def nm:string tg.name
+            ; a table inside a cell is that cell's content: its rows are
+            ; not this table's
+            if (((nm == "table") && (tg.close == false)) && seenTable) {
+                def inner:int (MdHtml.closingOf(s "table" tg.end))
+                if (inner < 0) {
+                    i = -1
+                } {
+                    def itg:MdHtmlTag (MdHtml.tagAt(s inner))
+                    i = (MdHtml.nextTag(s itg.end))
+                }
+                continue
+            }
+            if ((nm == "table") && (tg.close == false)) {
+                seenTable = true
+            }
             def closesCell:boolean false
             if ((nm == "td") || (nm == "th")) {
                 closesCell = true
@@ -299,6 +326,8 @@ class MdHtml {
                 if (c.rowspan > 64) { c.rowspan = 64 }
                 if (c.colspan > 64) { c.colspan = 64 }
                 c.align = (tg.align())
+                c.style = (tg.attr("style"))
+                c.bgcolor = (tg.attr("bgcolor"))
                 def rr:MdHtmlRow (unwrap row)
                 push rr.cells c
                 cell = c

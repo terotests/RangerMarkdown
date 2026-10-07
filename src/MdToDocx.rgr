@@ -28,6 +28,7 @@
 ; ============================================================================
 
 Import "MdNode.rgr"
+Import "MdUrl.rgr"
 Import "MdGallery.rgr"
 Import "MdStyle.rgr"
 Import "MdCellTones.rgr"
@@ -553,7 +554,11 @@ class MdToDocx {
             if ((((kind == "sub") || (kind == "sup")) || (kind == "mark")) || (kind == "abbr")) {
                 this.inline(c p base)
             }
-            if (kind == "link") {
+            ; a link that would run script keeps its text, not its address
+            if ((kind == "link") && ((strlen (MdUrl.safeLink(c.destination))) == 0)) {
+                this.inline(c p base)
+            }
+            if ((kind == "link") && ((strlen (MdUrl.safeLink(c.destination))) > 0)) {
                 def ls:TextSpan (base.copy())
                 ls.hyperlink = c.destination
                 ls.underline = true
@@ -722,7 +727,7 @@ class MdToDocx {
             s.fontSizePt = style.codeSize
         }
         s.colorHex = (MdToDocx.hexOf(style.textColor))
-        if ((strlen link) > 0) {
+        if ((strlen (MdUrl.safeLink(link))) > 0) {
             s.hyperlink = link
             s.underline = true
         }

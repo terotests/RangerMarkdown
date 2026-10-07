@@ -9,6 +9,10 @@ Import "../src/MdLayout.rgr"
 Import "../src/MdHtml.rgr"
 Import "../src/MdCss.rgr"
 Import "../src/MdToPptx.rgr"
+Import "../src/MdHtmlMd.rgr"
+Import "../src/MdSvg.rgr"
+Import "../src/MdUrl.rgr"
+Import "../src/MdToDocx.rgr"
 
 class MdHtmlTest {
     def passed:int 0
@@ -75,6 +79,13 @@ class MdHtmlTest {
         this.testTable()
         this.testPptx()
         this.testMarkdownIt()
+        this.testSpanStyles()
+        this.testHtmlLists()
+        this.testCells()
+        this.testDivPlate()
+        this.testSvg()
+        this.testScripts()
+        this.testNotes()
         print ("passed=" + (to_string passed) + " failed=" + (to_string failed))
         if (failed == 0) {
             print "ALL PASS"
@@ -327,4 +338,186 @@ class MdHtmlTest {
         this.check("==lit== is a highlighted run in the deck" lit)
         this.check("…and the words around it are not" plain)
     }
+
+    sfn hasNote:boolean (l:MdLayout part:string) {
+        for l.htmlNotes n:string i {
+            if ((indexOf n part) >= 0) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; the first text box whose text has `part` in it
+    sfn boxWith:MdBox (l:MdLayout part:string) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 0) && ((indexOf b.text part) >= 0)) {
+                return b
+            }
+            i = (i + 1)
+        }
+        def none:MdBox (new MdBox())
+        none.kind = -1
+        return none
+    }
+
+    sfn rectFilled:boolean (l:MdLayout fill:string) {
+        for l.boxes b:MdBox i {
+            if ((b.kind == 1) && ((MdChar.lower(b.fill)) == fill)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn testSpanStyles:void () {
+        def l:MdLayout (MdHtmlTest.laidOut("Plain <span style=\"background-color:#ffd54a;color:#111\">behind</span> <span style=\"font-size:32pt\">big</span> <span style=\"font-size:0.5em\">half</span> <span style=\"font-weight:bold;font-style:italic\">bi</span> <span style=\"text-decoration:underline wavy red\">wave</span> <span style=\"font-size:x-large\">xl</span>"))
+        def plain:MdBox (MdHtmlTest.box(l "Plain "))
+        def lb:MdLayout (MdHtmlTest.laidOut("Plain <span style=\"background-color:#ffd54a;color:#111\">behind</span> text"))
+        def bg:MdBox (MdHtmlTest.box(lb "behind"))
+        this.check("span background-color: a box of that colour behind the text" ((MdHtmlTest.rectsUnder(lb bg "#FFD54A")) == 1))
+        this.check("…and its own colour" (bg.color == "#111"))
+        def big:MdBox (MdHtmlTest.box(l "big"))
+        this.check("span font-size 32pt is larger than the body" (big.size > (plain.size * 1.2)))
+        def half:MdBox (MdHtmlTest.box(l "half"))
+        this.check("span font-size 0.5em is half the text around it" ((fabs (half.size - (plain.size * 0.5))) < 0.6))
+        def bi:MdBox (MdHtmlTest.box(l "bi"))
+        this.check("span font-weight bold and font-style italic" (bi.bold && bi.italic))
+        def wave:MdBox (MdHtmlTest.box(l "wave"))
+        this.check("span text-decoration underline draws a line under it" ((MdHtmlTest.rectsUnder(l wave "")) >= 1))
+        def xl:MdBox (MdHtmlTest.box(l "xl"))
+        this.check("span font-size x-large is 1.5 times the body" ((fabs (xl.size - (plain.size * 1.5))) < 0.6))
+        def st:MdHtmlStyle (MdHtmlStyle.read("background: #1d2a6b url(x.png); font-weight: 300; letter-spacing: 2px" "background font-weight"))
+        this.check("background shorthand: its colour" (st.fill == "#1d2a6b"))
+        this.check("a light weight is normal" (st.weight == "normal"))
+        this.check("a property not read is listed" ((join st.ignored ",") == "letter-spacing"))
+    }
+
+    fn testHtmlLists:void () {
+        def hl:MdHtmlList (MdHtmlMd.listItems("<ol start=\"3\">\n<li>three <b>b</b></li>\n<li>four<ul><li>inner</li></ul></li>\n</ol>after" 0))
+        this.check("ol start: the items are numbered from it" ((MdHtmlMd.listMarkdown(hl)) == "3. three <b>b</b>\n4. four\n   - inner"))
+        this.check("…and the list ends at its closing tag" (hl.end == 81))
+        def l:MdLayout (MdHtmlTest.laidOut("<ul>\n<li>first</li>\n<li>second <b>bold</b></li>\n</ul>\n\n<ol start=\"3\">\n<li>third</li>\n</ol>\n"))
+        this.check("an HTML list is not shown as markup" ((MdHtmlTest.boxWith(l "<li>")).kind < 0))
+        def a:MdBox (MdHtmlTest.boxWith(l "first"))
+        def b:MdBox (MdHtmlTest.boxWith(l "second"))
+        this.check("each <li> is an item of its own" (((a.kind == 0) && (b.kind == 0)) && (b.y > a.y)))
+        def bb:MdBox (MdHtmlTest.boxWith(l "bold"))
+        this.check("inline tags in an item are drawn" bb.bold)
+        this.check("ol start=3 numbers its first item 3" ((MdHtmlTest.boxWith(l "3.")).kind == 0))
+    }
+
+    fn testCells:void () {
+        def src:string "<table>\n<tr><th>Cell</th><th style=\"background:#3fb68b\">Content</th></tr>\n<tr><td>List</td><td><ul><li>yksi</li><li>kaksi</li></ul></td></tr>\n<tr><td>Nested</td><td><table><tr><td>a</td><td>b</td></tr></table></td></tr>\n<tr><td style=\"color:#ff6b6b;text-align:right\">972</td><td bgcolor=\"#123456\">x</td></tr>\n</table>\n"
+        def t:MdHtmlTable (MdHtml.table(src))
+        this.check("a table inside a cell adds no rows to the outer one" ((t.rowCount()) == 4))
+        def l:MdLayout (MdHtmlTest.laidOut(src))
+        def one:MdBox (MdHtmlTest.boxWith(l "yksi"))
+        def two:MdBox (MdHtmlTest.boxWith(l "kaksi"))
+        this.check("a list in a cell: an item a line" (((one.kind == 0) && (two.kind == 0)) && (two.y > one.y)))
+        def bul:MdBox (MdHtmlTest.boxWith(l (strfromcode 8226)))
+        this.check("…each with its bullet" (bul.kind == 0))
+        this.check("a nested table is its rows as lines" ((MdHtmlTest.boxWith(l "a  ·  b")).kind == 0))
+        this.check("cell style background is drawn" (MdHtmlTest.rectFilled(l "#3fb68b")))
+        this.check("cell bgcolor is drawn" (MdHtmlTest.rectFilled(l "#123456")))
+        def red:MdBox (MdHtmlTest.boxWith(l "972"))
+        this.check("cell style color is the text's" ((MdChar.lower(red.color)) == "#ff6b6b"))
+        def toned:string "<table>\n<tr><td>Done</td><td>Late</td></tr>\n</table>\n{cells=\"Done=green Late=red\"}\n"
+        def tl:MdLayout (MdHtmlTest.laidOut(toned))
+        def done:MdBox (MdHtmlTest.boxWith(tl "Done"))
+        this.check("{cells=} tones an HTML table's cells" done.bold)
+    }
+
+    fn testDivPlate:void () {
+        def l:MdLayout (MdHtmlTest.laidOut("<div style=\"background:#1d2a6b;padding:20px;border-radius:12px;color:#fff\">\nOn a **plate**\n</div>\n"))
+        def plate:MdBox (new MdBox())
+        for l.boxes b:MdBox i {
+            if ((b.kind == 1) && ((MdChar.lower(b.fill)) == "#1d2a6b")) {
+                plate = b
+            }
+        }
+        this.check("div style background: a plate of that colour" ((MdChar.lower(plate.fill)) == "#1d2a6b"))
+        this.check("…rounded as border-radius says (12px = 9pt)" ((fabs (plate.radius - 9.0)) < 0.01))
+        def tx:MdBox (MdHtmlTest.boxWith(l "On a"))
+        this.check("…padded as padding says (20px = 15pt)" ((fabs ((tx.x - plate.x) - 15.0)) < 0.5))
+        this.check("…and its text in its colour" ((MdChar.lower(tx.color)) == "#ffffff"))
+        def pb:MdBox (MdHtmlTest.boxWith(l "plate"))
+        this.check("markdown inside it is read" pb.bold)
+    }
+
+    fn testSvg:void () {
+        def raw:string "<svg width=\"200\" height=\"100\" onload=\"alert(1)\"><script>alert(1)</script><circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"#5ce1ff\" onclick=\"x()\"/><a href=\"javascript:x\"><rect/></a><image href=\"https://x/y.png\"/><use href=\"#c\"/><foreignObject><div>x</div></foreignObject></svg>"
+        def c:string (MdSvg.clean(raw))
+        this.check("svg: script, handlers, links out and foreignObject are dropped" ((((indexOf c "script") < 0) && ((indexOf c "onload") < 0)) && (((indexOf c "onclick") < 0) && (((indexOf c "image") < 0) && ((indexOf c "foreignObject") < 0)))))
+        this.check("…the drawing is kept" ((indexOf c "<circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"#5ce1ff\"/>") > 0))
+        this.check("…an inside link is kept" ((indexOf c "<use href=\"#c\"/>") > 0))
+        this.check("…and it names its namespace" ((indexOf c "xmlns=\"http://www.w3.org/2000/svg\"") > 0))
+        this.check("viewBox keeps its case" ((indexOf (MdSvg.clean("<svg viewBox=\"0 0 1 1\"></svg>")) "viewBox=") > 0))
+        this.check("a style with an outside url() is dropped" ((indexOf (MdSvg.clean("<svg><rect style=\"fill:url(http://x)\"/></svg>")) "style") < 0))
+        this.check("svg with text after it is not one picture" ((MdSvg.clean("<svg></svg> and more")) == ""))
+        this.check("the same drawing has the same name" ((MdSvg.pathOf(c)) == (MdSvg.pathOf((MdSvg.clean(raw))))))
+        def doc:MdNode (MdBlock.parseText("# T\n\n<svg width=\"20\" height=\"10\"><rect width=\"20\" height=\"10\"/></svg>\n\n<svg width=\"30\">\n<circle r=\"3\"/>\n</svg>\n\n- <svg><rect/></svg>\n"))
+        def uses:[MdSvgUse] (MdSvg.inDoc(doc))
+        this.check("svg on its own line, as a block and in a list item are found" ((array_length uses) == 3))
+        ; a picture store that has the drawn picture: the slide shows it
+        def l:MdLayout (new MdLayout())
+        def u0:MdSvgUse (itemAt uses 0)
+        def vfs (new Vfs())
+        def mem (new VfsMemory())
+        def blob (new VfsBlob())
+        blob.bytes = (buffer_alloc 8)
+        blob.contentType = "image/png"
+        blob.pixelW = 200
+        blob.pixelH = 100
+        mem.put(("/" + u0.path) blob)
+        vfs.mount("/" mem)
+        l.images = vfs
+        l.haveImages = true
+        l.layoutContinuous(doc 600.0)
+        def pic:boolean false
+        for l.boxes b:MdBox i {
+            if ((b.kind == 4) && (b.imagePath == ("/" + u0.path))) {
+                pic = true
+            }
+        }
+        this.check("an <svg> paragraph is drawn as its picture" pic)
+        this.check("no svg markup is drawn as text" ((MdHtmlTest.boxWith(l "<svg")).kind < 0))
+    }
+
+    fn testScripts:void () {
+        this.check("javascript: runs script" (MdUrl.runsScript(" JavaScript:alert(1)" false)))
+        this.check("a data: picture does not, as a picture" ((MdUrl.runsScript("data:image/png;base64,xx" true)) == false))
+        this.check("https does not" ((MdUrl.runsScript("https://sliqtly.com" false)) == false))
+        def l:MdLayout (MdHtmlTest.laidOut("<a href=\"javascript:alert(1)\">js link</a> and [md](javascript:alert(2)) and <a href=\"https://sliqtly.com\">ok</a>"))
+        this.check("an HTML javascript: link keeps no address" ((MdHtmlTest.boxWith(l "js link")).link == ""))
+        this.check("a Markdown javascript: link keeps no address" ((MdHtmlTest.boxWith(l "md")).link == ""))
+        this.check("an https link keeps it" ((MdHtmlTest.boxWith(l "ok")).link == "https://sliqtly.com"))
+        this.check("the dropped address is noted" (MdHtmlTest.hasNote(l "script address")))
+        def dx:MdToDocx (new MdToDocx())
+        def dst (new MdStyle())
+        def ddoc:RichDocument (dx.build((MdBlock.parseText("[md](javascript:alert(2)) [ok](https://a.b)")) dst))
+        def links:[string]
+        for ddoc.paragraphs dp:Paragraph bi {
+            for dp.spans sp:TextSpan si {
+                if ((strlen sp.hyperlink) > 0) {
+                    push links sp.hyperlink
+                }
+            }
+        }
+        this.check("Word export keeps only the safe link" ((join links ",") == "https://a.b"))
+    }
+
+    fn testNotes:void () {
+        def l:MdLayout (MdHtmlTest.laidOut("<span onclick=\"alert(1)\" style=\"letter-spacing:2px\">x</span> <video src=\"v.mp4\"></video> <blink>b</blink>\n\n<iframe src=\"https://example.com\"></iframe>\n\n<script>alert(1)</script>\n"))
+        this.check("a handler is noted" (MdHtmlTest.hasNote(l "onclick on <span>")))
+        this.check("a style property nothing reads is noted" (MdHtmlTest.hasNote(l "style letter-spacing on <span>")))
+        this.check("<video> is noted" (MdHtmlTest.hasNote(l "<video> is not supported")))
+        this.check("an unknown tag is noted" (MdHtmlTest.hasNote(l "<blink> is not drawn")))
+        this.check("<iframe> is noted" (MdHtmlTest.hasNote(l "<iframe> is not supported")))
+        this.check("<script> is noted as shown, not run" (MdHtmlTest.hasNote(l "<script> is shown as text")))
+        this.check("each note once, with a place" ((array_length l.htmlNotes) == (array_length l.htmlNoteSrc)))
+    }
+}
 }
