@@ -1,0 +1,424 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdColumnsTest.rgr — blocks side by side (`::: columns`, `{layout=…}`),
+; and the slide layouts that place a slide's content (MdSlideLayout).
+; ============================================================================
+;
+;   npm run markdown:columns:test
+;
+; The plan (which block goes in which column) is checked on the tree; the
+; layout by WHERE the text landed: same top, different columns, one slide.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdLayout.rgr"
+Import "../src/MdCss.rgr"
+Import "../src/MdDiagram.rgr"
+Import "../src/MdColumns.rgr"
+Import "../src/MdGallery.rgr"
+
+class ColCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print (("    got  " + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+
+    fn near:void (name:string got:double want:double tol:double) {
+        def d:double (got - want)
+        if (d < 0.0) { d = (0.0 - d) }
+        if (d <= tol) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print (("    got  " + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+}
+
+class MdColumnsTest {
+    sfn main:void () {
+        def c:ColCheck (new ColCheck())
+        MdColumnsTest.plans(c)
+        MdColumnsTest.wrapping(c)
+        MdColumnsTest.laidOut(c)
+        MdColumnsTest.charts(c)
+        MdColumnsTest.places(c)
+        print ""
+        print (((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        }
+    }
+
+    ; ---------------------------------------------------------------------
+    ; fixtures
+    ; ---------------------------------------------------------------------
+
+    sfn png:VfsBlob (w:int h:int) {
+        def blob (new VfsBlob())
+        ; bytes of its own: the store keeps one copy of the same bytes
+        def raw:string ((("PNGBYTES" + (to_string w)) + "x") + (to_string h))
+        def buf:buffer (buffer_alloc (strlen raw))
+        def bi:int 0
+        while (bi < (strlen raw)) {
+            buffer_set buf bi (charAt raw bi)
+            bi = (bi + 1)
+        }
+        blob.bytes = buf
+        blob.contentType = "image/png"
+        blob.pixelW = w
+        blob.pixelH = h
+        return blob
+    }
+
+    sfn pictures:Vfs () {
+        def v (new Vfs())
+        def mem (new VfsMemory())
+        mem.put("/media/wide.png" (MdColumnsTest.png(1600 900)))
+        mem.put("/media/tall.png" (MdColumnsTest.png(900 1200)))
+        mem.put("/media/logo.png" (MdColumnsTest.png(200 200)))
+        v.mount("/" mem)
+        return v
+    }
+
+    ; a 960×540 deck, as Sliqtly lays one out
+    sfn deck:MdLayout (src:string css:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        def c:MdCss (new MdCss())
+        c.addStyleSheet(css)
+        c.applyTo(l.style)
+        l.style.pageWidth = 960.0
+        l.style.pageHeight = 540.0
+        l.style.margin = 48.0
+        l.style.bodySize = 20.0
+        l.style.h1Size = 36.0
+        l.style.h2Size = 30.0
+        l.style.h3Size = 24.0
+        l.setStyleSheet(css)
+        l.applyMeta(doc)
+        l.splitLevel = 2
+        l.slideGrow = 1.6
+        l.applySlideMeta(doc)
+        l.setDocSource(src)
+        l.setImages((MdColumnsTest.pictures()) "/")
+        MdDiagram.prepare(doc l.embeds 864.0 "default")
+        l.layoutSlides(doc)
+        return l
+    }
+
+    sfn boxOf:MdBox (l:MdLayout want:string) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 0) && (b.text == want)) { return b }
+            i = (i + 1)
+        }
+        def none:MdBox (new MdBox())
+        none.kind = -1
+        none.page = -1
+        return none
+    }
+
+    sfn kindOn:MdBox (l:MdLayout kind:int page:int) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == kind) && (b.page == page)) { return b }
+            i = (i + 1)
+        }
+        def none:MdBox (new MdBox())
+        none.kind = -1
+        none.page = -1
+        return none
+    }
+
+    ; the code block's background: a rect with text over it, not a rule
+    sfn codeBox:MdBox (l:MdLayout) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 1) && (b.h > 8.0)) { return b }
+            i = (i + 1)
+        }
+        def none:MdBox (new MdBox())
+        none.kind = -1
+        return none
+    }
+
+    sfn plates:int (l:MdLayout) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 1) && (b.radius > 0.0)) { n = (n + 1) }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn kids:string (n:MdNode) {
+        def out:string ""
+        def i:int 0
+        while (i < (n.childCount())) {
+            def c:MdNode (n.childAt(i))
+            if (i > 0) { out = (out + " ") }
+            out = (out + c.kind)
+            if (c.kind == "container") { out = ((out + ":") + c.info) }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn groups:string (p:MdColumnsPlan) {
+        def out:string ""
+        def g:int 0
+        while (g < (p.count())) {
+            def grp:[int] (itemAt p.groups g)
+            if (g > 0) { out = (out + " | ") }
+            def k:int 0
+            while (k < (array_length grp)) {
+                if (k > 0) { out = (out + ",") }
+                out = (out + (to_string (itemAt grp k)))
+                k = (k + 1)
+            }
+            g = (g + 1)
+        }
+        return out
+    }
+
+    ; ---------------------------------------------------------------------
+    ; the plan
+    ; ---------------------------------------------------------------------
+
+    sfn plans:void (c:ColCheck) {
+        print "-- which block goes in which column --"
+        def byHead:MdNode ((MdBlock.parseText("::: columns\nIntro.\n\n### Ennen\n- a\n\n### Jälkeen\n- b\n:::\n")).childAt(0))
+        c.ok("::: columns is a row" (MdColumns.isRow(byHead)))
+        def p1:MdColumnsPlan (MdColumns.plan(byHead))
+        c.eqStr("a column starts at each heading" (MdColumnsTest.groups(p1)) "1,2 | 3,4")
+        c.eqInt("…what is before the first goes across" (array_length p1.lead) 1)
+        def byBreak:MdNode ((MdBlock.parseText("::: columns\nA\n\nB\n\n---\n\nC\n:::\n")).childAt(0))
+        c.eqStr("a thematic break cuts" (MdColumnsTest.groups((MdColumns.plan(byBreak)))) "0,1 | 3")
+        def byBlock:MdNode ((MdBlock.parseText("::: columns\n- a\n- b\n\n```ts\nx\n```\n:::\n")).childAt(0))
+        c.eqStr("else a block a column" (MdColumnsTest.groups((MdColumns.plan(byBlock)))) "0 | 1")
+        def cells:MdNode ((MdBlock.parseText(":::: columns\n::: col\nA\n:::\n::: col\nB\n\nC\n:::\n::::\n")).childAt(0))
+        c.eqStr("::: col cells, nested with more colons" (MdColumnsTest.groups((MdColumns.plan(cells)))) "0 | 1")
+        def media:MdNode ((MdBlock.parseText("## T {layout=image-left}\n\n- a\n- b\n\n![p](media/wide.png)\n")).childAt(1))
+        c.eqStr("image-left: pictures first" (MdColumnsTest.groups((MdColumns.plan(media)))) "1 | 0")
+        def right:MdNode ((MdBlock.parseText("## T {layout=image-right}\n\n![p](media/wide.png)\n\nText\n")).childAt(1))
+        c.eqStr("image-right: pictures last" (MdColumnsTest.groups((MdColumns.plan(right)))) "1 | 0")
+
+        def wide:MdNode ((MdBlock.parseText("::: columns\n![p](media/wide.png)\n{width=60%}\n\nText\n:::\n")).childAt(0))
+        def pw:MdColumnsPlan (MdColumns.plan(wide))
+        c.near("a block's width= is its column's" (itemAt pw.fracs 0) 0.6 0.001)
+        c.near("…the others share the rest" (itemAt pw.fracs 1) 0.4 0.001)
+        c.ok("…and it fills its column" (pw.isTaken(0)))
+        def said:MdNode ((MdBlock.parseText("::: columns\nA\n\nB\n:::\n{widths=\"70 30\"}\n")).childAt(0))
+        def ps:MdColumnsPlan (MdColumns.plan(said))
+        c.near("widths= says them" (itemAt ps.fracs 0) 0.7 0.001)
+        def ws:[double] (pw.widths(500.0))
+        c.near("widths and the gap add up to the whole" (((itemAt ws 0) + (itemAt ws 1)) + (MdColumns.gapFor(500.0))) 500.0 0.01)
+    }
+
+    sfn wrapping:void (c:ColCheck) {
+        print "-- {layout=…} and ::: col read as columns --"
+        def d:MdNode (MdBlock.parseText("## Vertailu {layout=comparison}\n\n### A\nx\n\n### B\ny\n\n## Seuraava\n\nz\n"))
+        c.eqStr("the section under the heading is wrapped" (MdColumnsTest.kids(d)) "heading container:columns heading paragraph")
+        def box:MdNode (d.childAt(1))
+        c.eqStr("…the layout word kept on it" (box.attrValue("layout")) "comparison")
+        def first:MdNode (box.childAt(0))
+        c.eqInt("…its source from its first block" box.srcStart first.srcStart)
+        def bare:MdNode (MdBlock.parseText("::: col\nA\n:::\n::: col\nB\n:::\n\nAfter\n"))
+        c.eqStr("side-by-side ::: col blocks are a row" (MdColumnsTest.kids(bare)) "container:columns paragraph")
+        def plain:MdNode (MdBlock.parseText("## T\n\nA\n"))
+        c.eqStr("a heading without a layout is left alone" (MdColumnsTest.kids(plain)) "heading paragraph")
+    }
+
+    ; ---------------------------------------------------------------------
+    ; laid out
+    ; ---------------------------------------------------------------------
+
+    sfn laidOut:void (c:ColCheck) {
+        print "-- side by side on a slide --"
+        def l3:MdLayout (MdColumnsTest.deck("## L03\n\n::: columns\n### Ennen\n- Käsin\n\n### Jälkeen\n- Markdown\n:::\n" ""))
+        def a:MdBox (MdColumnsTest.boxOf(l3 "Ennen"))
+        def b:MdBox (MdColumnsTest.boxOf(l3 "Jälkeen"))
+        c.near("L03: the two headings on one line" a.y b.y 0.5)
+        c.ok("…the second to the right of the first" (b.x > (a.x + 300.0)))
+        c.eqInt("…one slide" l3.pageCount 1)
+        def ka:MdBox (MdColumnsTest.boxOf(l3 "Käsin"))
+        def kb:MdBox (MdColumnsTest.boxOf(l3 "Markdown"))
+        c.near("…each list under its heading" ka.y kb.y 0.5)
+
+        def l22:MdLayout (MdColumnsTest.deck("## L22 {layout=columns}\n\n### Yksi\nTeksti yksi\n\n### Kaksi\nTeksti kaksi\n\n### Kolme\nTeksti kolme\n" ""))
+        def y1:MdBox (MdColumnsTest.boxOf(l22 "Yksi"))
+        def y3:MdBox (MdColumnsTest.boxOf(l22 "Kolme"))
+        c.near("L22: three headed columns from the heading's layout" y1.y y3.y 0.5)
+        c.ok("…in three columns" (y3.x > (y1.x + 500.0)))
+
+        def l7:MdLayout (MdColumnsTest.deck("## L07 {layout=image-right}\n\n- Teksti ensin\n- Kuva toisena\n\n![Maisema](media/wide.png)\n" ""))
+        def t7:MdBox (MdColumnsTest.boxOf(l7 "Teksti ensin"))
+        def p7:MdBox (MdColumnsTest.kindOn(l7 4 0))
+        c.ok("L07: the picture on the slide" (p7.kind == 4))
+        c.ok("…right of the text" (p7.x > (t7.x + 200.0)))
+        c.ok("…beside it, not under" (p7.y < (t7.y + 40.0)))
+        c.eqInt("…one slide" l7.pageCount 1)
+
+        def l18:MdLayout (MdColumnsTest.deck("## L18\n\n::: columns\n```ts\nfunction sum(a) {\n  return 1;\n}\n```\n{width=55%}\n\n- Rivi 2: reduce\n- Alkuarvo 0\n:::\n" ""))
+        def code:MdBox (MdColumnsTest.codeBox(l18))
+        def r18:MdBox (MdColumnsTest.boxOf(l18 "Alkuarvo 0"))
+        c.ok("L18: the explanation beside the code" (r18.x > (code.x + 300.0)))
+        c.near("…the code 55% of the room" code.w (0.55 * (864.0 - (MdColumns.gapFor(864.0)))) 1.0)
+
+        def cells:MdLayout (MdColumnsTest.deck("## T\n\n::: col Ennen\n- a\n:::\n::: col Jälkeen\n- b\n:::\n" ""))
+        def ce:MdBox (MdColumnsTest.boxOf(cells "Ennen"))
+        def cj:MdBox (MdColumnsTest.boxOf(cells "Jälkeen"))
+        c.near("::: col titles side by side" ce.y cj.y 0.5)
+        c.eqInt("…no plate under a column" (MdColumnsTest.plates(cells)) 0)
+
+        ; a long first slide: the columns go to the next slide whole
+        def long:string "## Pitkä\n\nRivi yksi.\n\nRivi kaksi.\n\nRivi kolme.\n\nRivi neljä.\n\nRivi viisi.\n\nRivi kuusi.\n\nRivi seitsemän.\n\n::: columns\n- a\n- b\n- c\n- d\n\nVäli\n\n- e\n- f\n- g\n- h\n:::\n"
+        def ll:MdLayout (MdColumnsTest.deck(long ""))
+        def la:MdBox (MdColumnsTest.boxOf(ll "a"))
+        def le:MdBox (MdColumnsTest.boxOf(ll "e"))
+        c.eqInt("columns that do not fit move on whole" la.page le.page)
+        c.near("…side by side there" la.y le.y 0.5)
+    }
+
+    sfn charts:void (c:ColCheck) {
+        print "-- a chart in a column is drawn for the column --"
+        def chart:string "{\"data\":{\"values\":[{\"k\":\"A\",\"v\":3},{\"k\":\"B\",\"v\":5}]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"k\",\"type\":\"nominal\"},\"y\":{\"field\":\"v\",\"type\":\"quantitative\"}}}"
+        def src:string ("## L23\n\n::: columns\n![Maisema](media/wide.png)\n{width=50%}\n\n```vega-lite\n" + (chart + "\n```\n:::\n"))
+        def l:MdLayout (MdColumnsTest.deck(src ""))
+        def pic:MdBox (MdColumnsTest.kindOn(l 4 0))
+        def ch:MdBox (MdColumnsTest.kindOn(l 3 0))
+        c.ok("L23: the chart on the first slide" (ch.kind == 3))
+        c.ok("…right of the picture" (ch.x >= ((pic.x + pic.w) - 0.5)))
+        c.eqInt("…one slide" l.pageCount 1)
+        c.ok("…drawn, not a slot with a note" ((l.embeds.heightFor("vega-lite" ch.embedSource ch.w)) > 0.0))
+    }
+
+    sfn places:void (c:ColCheck) {
+        print "-- valign, section, statement --"
+        def top:MdLayout (MdColumnsTest.deck("## L24\n\nYksi lause.\n" ""))
+        def mid:MdLayout (MdColumnsTest.deck("## L24 {valign=center}\n\nYksi lause.\n" ""))
+        def t0:MdBox (MdColumnsTest.boxOf(top "Yksi lause."))
+        def t1:MdBox (MdColumnsTest.boxOf(mid "Yksi lause."))
+        def h1:MdBox (MdColumnsTest.boxOf(mid "L24"))
+        def h0:MdBox (MdColumnsTest.boxOf(top "L24"))
+        c.ok("valign=center moves the text down" (t1.y > (t0.y + 100.0)))
+        c.near("…the title stays" h1.y h0.y 0.01)
+        def room:double (492.0 - (h1.y + h1.h))
+        def under:double ((t1.y + t1.h) - (h1.y + h1.h))
+        c.ok("…to the middle of the room under the title" (under > (room * 0.45)))
+        def bot:MdLayout (MdColumnsTest.deck("## T {valign=bottom}\n\nAlhaalla.\n" ""))
+        def tb:MdBox (MdColumnsTest.boxOf(bot "Alhaalla."))
+        c.ok("valign=bottom: at the foot" ((tb.y + tb.h) > 470.0))
+        def deckWide:MdLayout (MdColumnsTest.deck("---\nvalign: center\n---\n## A\n\nTeksti.\n\n## B {valign=top}\n\nYlhäällä.\n" ""))
+        def da:MdBox (MdColumnsTest.boxOf(deckWide "Teksti."))
+        def db:MdBox (MdColumnsTest.boxOf(deckWide "Ylhäällä."))
+        c.ok("front matter valign: for every slide" (da.y > (db.y + 100.0)))
+
+        def sec:MdLayout (MdColumnsTest.deck("## Osa 2: tulokset {layout=section}\n\nAlaotsikko\n" ""))
+        def st:MdBox (MdColumnsTest.boxOf(sec "Osa 2: tulokset"))
+        def ss:MdBox (MdColumnsTest.boxOf(sec "Alaotsikko"))
+        def mid2:double ((st.y + (ss.y + ss.h)) * 0.5)
+        c.near("section: title and text together in the middle" mid2 270.0 20.0)
+        c.near("…the title centred across" (st.x + (st.w * 0.5)) 480.0 2.0)
+        c.near("…and the text" (ss.x + (ss.w * 0.5)) 480.0 2.0)
+
+        def stm:MdLayout (MdColumnsTest.deck("## L05 {layout=statement}\n\nIso viesti\n" ""))
+        def sv:MdBox (MdColumnsTest.boxOf(stm "Iso viesti"))
+        def sh:MdBox (MdColumnsTest.boxOf(stm "L05"))
+        c.eqInt("statement with text: its title hidden" sh.kind -1)
+        c.ok("…the text at least the title's size" (sv.size >= 29.9))
+        c.near("…in the middle" (sv.y + (sv.h * 0.5)) 270.0 20.0)
+        c.eqInt("…one slide" stm.pageCount 1)
+        def alone:MdLayout (MdColumnsTest.deck("## Kiitos {layout=statement}\n" ""))
+        def ka:MdBox (MdColumnsTest.boxOf(alone "Kiitos"))
+        c.ok("statement alone: its title, larger" (ka.size > 40.0))
+        c.near("…in the middle" (ka.y + (ka.h * 0.5)) 270.0 20.0)
+
+        print "-- code given a width: the text beside it --"
+        def l18:MdLayout (MdColumnsTest.deck("## L18\n\n```ts\nfunction sum(a) {\n  return 1;\n}\n```\n{width=55%}\n\n- Rivi 2: reduce\n- Alkuarvo 0\n" ""))
+        def code:MdBox (MdColumnsTest.codeBox(l18))
+        def r18:MdBox (MdColumnsTest.boxOf(l18 "Alkuarvo 0"))
+        c.near("code width=55%" code.w (864.0 * 0.55) 1.0)
+        c.ok("…the list beside it" (r18.x > (code.x + code.w)))
+        c.ok("…not under it" (r18.y < (code.y + code.h)))
+    
+        print "-- a picture in a corner --"
+        def lg:MdLayout (MdColumnsTest.deck("## L21 Logo nurkassa ja pitkähkö otsikko\n\n![Logo](media/logo.png)\n{float=top-right width=10%}\n\n- Sisältöä logon vieressä\n- Toinen kohta\n" ""))
+        def logo:MdBox (MdColumnsTest.kindOn(lg 4 0))
+        c.ok("pinned" logo.pinned)
+        c.near("…at the right edge" (logo.x + logo.w) 912.0 0.5)
+        c.near("…at the top" logo.y 48.0 0.5)
+        c.near("…10% of the width" logo.w 86.4 0.5)
+        def lt:MdBox (MdColumnsTest.boxOf(lg "Sisältöä logon vieressä"))
+        c.ok("…the text beside it, not under" (lt.y < (logo.y + logo.h)))
+        c.ok("…and not over it" ((lt.x + lt.w) < logo.x))
+        def lh:MdBox (MdColumnsTest.boxOf(lg "L21"))
+        c.ok("…the title clear of it" ((lh.x + lh.w) < logo.x))
+        def lc:MdLayout (MdColumnsTest.deck("## T {layout=section}\n\n![Logo](media/logo.png)\n{float=bottom-left}\n\nKeskellä\n" ""))
+        def lo:MdBox (MdColumnsTest.kindOn(lc 4 0))
+        c.near("bottom-left stays put on a centred slide" (lo.y + lo.h) 492.0 0.5)
+        c.near("…at the left" lo.x 48.0 0.5)
+    
+        print "-- text beside a picture grows as text alone does --"
+        def g6:MdLayout (MdColumnsTest.deck("## L06\n\n![Maisema](media/wide.png)\n{width=50%}\n\n- Kuva vie puolet\n- Teksti oikealla\n" ""))
+        def gt:MdBox (MdColumnsTest.boxOf(g6 "Kuva vie puolet"))
+        def gp:MdBox (MdColumnsTest.kindOn(g6 4 0))
+        c.ok("L06: the text larger than the body size" (gt.size > 25.0))
+        c.near("…the picture as asked" gp.w (864.0 * 0.5) 1.0)
+        c.ok("…the text beside it" (gt.x > (gp.x + gp.w)))
+        def g16:MdLayout (MdColumnsTest.deck("## L16 {layout=columns}\n\n![Maisema](media/wide.png)\n{width=60%}\n\n**Q4 ennätys**\n\nKasvu jatkui.\n" ""))
+        def gk:MdBox (MdColumnsTest.boxOf(g16 "Kasvu jatkui."))
+        c.ok("…in columns too" (gk.size > 25.0))
+    
+        print "-- a gallery of portraits --"
+        def gp4:MdGallery (MdGallery.parse("- a.png: A\n- b.png: B\n- c.png: C\n- d.png: D\n"))
+        def look:MdGalleryLook (new MdGalleryLook())
+        def tall:[double] ([] _:double (0.75 0.75 0.75 0.75))
+        def wide:[double] ([] _:double (1.78 1.78 1.78 1.78))
+        c.eqInt("four portraits: four across" (gp4.columnsForRoom(look tall 864.0 380.0 8.0 30.0 140.0)) 4)
+        c.eqInt("four landscapes: two by two" (gp4.columnsForRoom(look wide 864.0 380.0 8.0 30.0 140.0)) 2)
+        def team:MdLayout (MdColumnsTest.deck("## Tiimi\n\n```gallery\n- media/tall.png: Anna\n- media/tall.png: Ben\n- media/tall.png: Cia\n- media/tall.png: Dan\n```\n{caption=below}\n" ""))
+        def first:MdBox (MdColumnsTest.kindOn(team 4 0))
+        c.ok("L20: the cells portrait-shaped" (first.h > first.w))
+    }
+}

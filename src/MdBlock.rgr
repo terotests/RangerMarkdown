@@ -37,6 +37,8 @@ Import "MdInline.rgr"
 Import "MdEmbedKinds.rgr"
 Import "MdAttrs.rgr"
 Import "MdFrontMatter.rgr"
+Import "MdColumns.rgr"
+Import "MdSlideLayout.rgr"
 
 class MdBlock {
     def doc:MdNode (MdNode.create("document"))
@@ -148,6 +150,9 @@ class MdBlock {
         MdBlock.splitMath(doc)
         inline.notes = notes
         this.processInlines(doc doc 0)
+        ; `{layout=columns}` sections and side-by-side `::: col` blocks
+        MdColumns.wrapLayouts(doc)
+        MdSlideLayout.hideStatementTitles(doc)
         doc.notes = notes.list
         doc.readingSig = (inline.opts.signature())
         return doc

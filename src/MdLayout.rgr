@@ -52,6 +52,8 @@ Import "MdHtml.rgr"
 Import "MdBlock.rgr"
 Import "MdTableSplit.rgr"
 Import "MdContainer.rgr"
+Import "MdColumns.rgr"
+Import "MdSlideLayout.rgr"
 Import "MdCellTones.rgr"
 
 ; ----------------------------------------------------------------------------
@@ -283,6 +285,9 @@ class MdBox {
     ; a footnote reference's number drawn here (the superscript), 0 for none.
     ; The footnotes themselves are drawn as page furniture (`furniture` 3).
     def noteRef:int 0
+    ; set in a corner of the slide (`{float=top-right}`), out of the flow:
+    ; a slide's content centred later does not move it
+    def pinned:boolean false
 
     Constructor () {
     }
@@ -332,6 +337,7 @@ class MdBox {
         b.bleeds = bleeds
         b.tail = tail
         b.noteRef = noteRef
+        b.pinned = pinned
         return b
     }
 
@@ -521,6 +527,8 @@ class MdLayout {
     def book:MdBook (new MdBook())
     ; How full a grown slide may get, of the room under the margins.
     def slideGrowFill:double 0.82
+    ; a grown slide being tried: a chart asks for no other room meanwhile
+    def growTrial:boolean false
     ; Per top-level block: the slide it starts on and the one it ends on.
     def blockFirstPage:[int]
     def blockLastPage:[int]
@@ -820,6 +828,11 @@ class MdLayout {
             def lvl:int (?? n 1)
             if (lvl > 0) { splitLevel = lvl }
         }
+        ; `valign: center` / `bottom`: every slide's content under its title
+        ; (MdSlideLayout), unless the slide says otherwise
+        if (meta.has("valign")) {
+            deckPlace = (MdSlideLayout.valignOf((meta.get("valign" ""))))
+        }
         if (meta.has("slide-overflow")) {
             slideOverflow = (MdChar.lower((trim (meta.get("slide-overflow" "split")))))
         }
@@ -861,6 +874,10 @@ class MdLayout {
         cursorY = contentTop
         clear blockFirstPage
         clear blockLastPage
+        clear placeSrc
+        clear placeWord
+        slideCenter = false
+        slideStatement = false
         slidesGrown = 0
         slidesShrunk = 0
         slideTitleOnly = false
@@ -874,6 +891,11 @@ class MdLayout {
         if ((slides && (slideGrow > 1.01)) && (tocLines == 0)) {
             this.growSlides(doc)
         }
+        if slides {
+            this.alignSlides()
+        }
+        slideCenter = false
+        slideStatement = false
         this.placeNotesPaged()
         this.emitFurniture()
         if slides {
@@ -1810,6 +1832,7 @@ class MdLayout {
                         slideTitle = (child.plainText())
                         slideTitleLevel = child.level
                         slideTitleHidden = (MdLayout.hiddenHeading(child))
+                        this.notePlace(child (MdLayout.bodyFollows(doc i splitLevel)))
                     }
                 }
             }
@@ -1933,6 +1956,23 @@ class MdLayout {
                 this.endFloat()
             }
         }
+        ; a slide's title leaves the top corner its picture is pinned in
+        if ((slides && (child.kind == "heading")) && (child.level <= splitLevel)) {
+            def inset:double (this.cornerInset(doc i))
+            if (inset > 0.0) {
+                bw = (contentW - (inset * contentW))
+                def cn:MdNode (this.cornerNode(doc i))
+                if ((MdSlideLayout.cornerOf((cn.attrValue("float")))) == "top-left") {
+                    bx = (contentX + (inset * contentW))
+                }
+                def gap:double (style.bodySize * 1.2)
+                bw = (bw - gap)
+                if (bx > contentX) { bx = (bx + gap) }
+                this.block(child bx bw)
+                followH = 0.0
+                return
+            }
+        }
         followH = 0.0
         followBeside = false
         if (slides && (child.kind == "paragraph")) {
@@ -1976,6 +2016,8 @@ class MdLayout {
     }
 
     fn startFloat:void (doc:MdNode i:int fromBox:int) {
+        ; a corner picture opened its own (pinPicture)
+        if floatOn { return }
         if ((i + 1) >= (doc.childCount())) { return }
         if (! (MdLayout.bodyFollows(doc i splitLevel))) { return }
         def child:MdNode (doc.childAt(i))
@@ -1989,7 +2031,7 @@ class MdLayout {
             if ((c.kind == 3) || (c.kind == 4)) { at = k }
             k = (k - 1)
         }
-        if ((at < 0) && (child.kind == "table")) {
+        if ((at < 0) && ((child.kind == "table") || (child.kind == "code_block"))) {
             this.startFloatAt(child (this.extentOn(fromBox page)))
             return
         }
@@ -2608,7 +2650,17 @@ class MdLayout {
                 ; the second half of.
                 if slides {
                     slideOverflows = (slideOverflows + 1)
-                    this.emitSlideTitle()
+                    ; a later column running onto the slide an earlier one
+                    ; already ran onto: under the title said there, once
+                    if ((columnsOn > 0) && (page == colSpillPage)) {
+                        cursorY = colSpillTop
+                    } {
+                        this.emitSlideTitle()
+                        if (columnsOn > 0) {
+                            colSpillPage = page
+                            colSpillTop = cursorY
+                        }
+                    }
                 }
             }
         }
@@ -3158,6 +3210,10 @@ class MdLayout {
     ; plate around them is `containerBlock`'s, the one `{container=box}`
     ; draws.
     fn customContainer:void (node:MdNode x:double w:double) {
+        if (MdColumns.isRow(node)) {
+            this.columnsBlock(node x w)
+            return
+        }
         if ((strlen node.title) > 0) {
             def tr:MdRun (this.baseRun())
             tr.bold = true
@@ -3201,12 +3257,24 @@ class MdLayout {
         def savedColor:string style.textColor
         def savedAlign:string align
         def own:string (this.blockAlign(node))
+        ; a section or statement slide centres its lines
+        if ((((strlen own) == 0) && slideCenter) && ((node.kind == "paragraph") || (node.kind == "heading"))) {
+            own = "center"
+        }
         if ((strlen own) > 0) {
             align = own
         }
+        ; a statement's text at its title's size; a statement that is only
+        ; its title, larger than a title
+        def placeR:double (this.statementRatio(node))
+        if (placeR > 1.001) {
+            saved = (this.styleNumbers())
+            this.scaleStyle(saved placeR)
+            scaled = true
+        }
         if (((strlen sheetText) > 0) && (((node.classCount()) > 0) || ((strlen node.nodeId) > 0))) {
             def got:CssComputed (this.styleOf(node))
-            if (got.has("font-size")) {
+            if ((got.has("font-size")) && (scaled == false)) {
                 def r:double (this.safeRatio(node (this.sizeRatio(node (got.get("font-size"))))))
                 if ((r > 0.0) && ((fabs (r - 1.0)) > 0.001)) {
                     saved = (this.styleNumbers())
@@ -3572,6 +3640,378 @@ class MdLayout {
     }
 
     ; ----------------------------------------------------------------------
+    ; Blocks side by side (`::: columns`, `{layout=columns}`; MdColumns)
+    ; ----------------------------------------------------------------------
+    ;
+    ; Which block goes in which column and how wide each is is MdColumns'
+    ; plan; here the columns are laid out one after the other from the same
+    ; top, and the block ends under the longest. A picture or chart in a
+    ; column is given the column's room less what is under it in the same
+    ; column, as on a slide of its own. On a slide where the columns do not
+    ; fit under what is above them, they start the next slide when they fit
+    ; there whole.
+    ;
+    ; while > 0: inside columns (a column that runs onto the next slide puts
+    ; the next column's spill under the title said there, not a second one)
+    def columnsOn:int 0
+    def colSpillPage:int -1
+    def colSpillTop:double 0.0
+    ; the srcStart of a block whose `width=` made its column's width: it
+    ; fills the column (its own `width=` is read as done)
+    def takenSrc:int -2
+
+    ; a block's `width=`, or "" when its column took it
+    fn widthAttr:string (node:MdNode) {
+        if (node.srcStart == takenSrc) { return "" }
+        return (node.attrValue("width"))
+    }
+
+    fn columnsBlock:void (node:MdNode x:double w:double) {
+        def plan:MdColumnsPlan (MdColumns.plan(node))
+        def li:int 0
+        while (li < (array_length plan.lead)) {
+            this.block((node.childAt((itemAt plan.lead li))) x w)
+            li = (li + 1)
+        }
+        if ((plan.count()) == 0) { return }
+        def from:int (array_length boxes)
+        def startPage:int page
+        def top:double cursorY
+        def overflows:int slideOverflows
+        this.columnsPass(node plan x w top)
+        if ((paginate && (page > startPage)) && ((top - contentTop) > 0.5)) {
+            ; does it fit at the top of a slide of its own?
+            def endPage:int page
+            def endY:double cursorY
+            this.truncate(from)
+            page = startPage
+            pageCount = (page + 1)
+            slideOverflows = overflows
+            cursorY = contentTop
+            this.nextSlide()
+            if slides {
+                this.emitSlideTitle()
+            }
+            def freshPage:int page
+            this.columnsPass(node plan x w cursorY)
+            if (page != freshPage) {
+                ; no: as it was
+                this.truncate(from)
+                page = startPage
+                pageCount = (page + 1)
+                slideOverflows = overflows
+                cursorY = top
+                this.columnsPass(node plan x w top)
+            }
+        }
+    }
+
+    fn columnsPass:void (node:MdNode plan:MdColumnsPlan x:double w:double top:double) {
+        def xs:[double] (plan.lefts(x w))
+        def ws:[double] (plan.widths(w))
+        def startPage:int page
+        def endPage:int page
+        def endY:double top
+        def savedTaken:int takenSrc
+        def savedSpill:int colSpillPage
+        def savedSpillTop:double colSpillTop
+        columnsOn = (columnsOn + 1)
+        colSpillPage = -1
+        def g:int 0
+        while (g < (plan.count())) {
+            def grp:[int] (itemAt plan.groups g)
+            def cx:double (itemAt xs g)
+            def cw:double (itemAt ws g)
+            page = startPage
+            cursorY = top
+            def k:int 0
+            while (k < (array_length grp)) {
+                def ci:int (itemAt grp k)
+                def child:MdNode (node.childAt(ci))
+                takenSrc = -2
+                if (plan.isTaken(ci)) {
+                    takenSrc = child.srcStart
+                }
+                ; a picture or chart leaves room for what is under it in
+                ; its column
+                followH = 0.0
+                followBeside = false
+                if (slides && ((k + 1) < (array_length grp))) {
+                    if (MdColumns.isMedia(child)) {
+                        followH = (this.measureNodes(node grp (k + 1) cw))
+                    }
+                }
+                this.block(child cx cw)
+                followH = 0.0
+                k = (k + 1)
+            }
+            if ((page > endPage) || ((page == endPage) && (cursorY > endY))) {
+                endPage = page
+                endY = cursorY
+            }
+            g = (g + 1)
+        }
+        takenSrc = savedTaken
+        columnsOn = (columnsOn - 1)
+        colSpillPage = savedSpill
+        colSpillTop = savedSpillTop
+        page = endPage
+        if ((page + 1) > pageCount) {
+            pageCount = (page + 1)
+        }
+        cursorY = endY
+    }
+
+    ; How tall children `idx[from…]` of `parent` are at width `w`, laid out
+    ; from the top and taken back (as `measureBlocks`).
+    fn measureNodes:double (parent:MdNode idx:[int] from:int w:double) {
+        def savedBoxes:int (array_length boxes)
+        def savedY:double cursorY
+        def savedPage:int page
+        def savedPageCount:int pageCount
+        def savedOverflows:int slideOverflows
+        def savedHeads:int (array_length headText)
+        def savedHiddenOn:int hiddenOnPage
+        def savedTaken:int takenSrc
+        def wasPaginate:boolean paginate
+        paginate = false
+        cursorY = 0.0
+        def j:int from
+        while (j < (array_length idx)) {
+            takenSrc = -2
+            this.block((parent.childAt((itemAt idx j))) contentX w)
+            j = (j + 1)
+        }
+        def h:double cursorY
+        paginate = wasPaginate
+        this.truncate(savedBoxes)
+        while ((array_length headText) > savedHeads) {
+            removeLast headText
+            removeLast headLevel
+            removeLast headPage
+            removeLast headY
+        }
+        hiddenOnPage = savedHiddenOn
+        takenSrc = savedTaken
+        cursorY = savedY
+        page = savedPage
+        pageCount = savedPageCount
+        slideOverflows = savedOverflows
+        return h
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Where a slide's content sits (`valign=`, `layout=section|statement`;
+    ; MdSlideLayout)
+    ; ----------------------------------------------------------------------
+    ;
+    ; Each slide is laid out from the top as before; once it has been
+    ; shrunk or grown, `alignSlides` moves its content down to where its
+    ; title said. The slides are found by their titles' source (the pages
+    ; renumber when a slide is shrunk into the one before it).
+    def deckPlace:string ""
+    def placeSrc:[int]
+    def placeWord:[string]
+    ; laying out a section or statement slide: lines centred
+    def slideCenter:boolean false
+    ; …a statement: its text at the title's size
+    def slideStatement:boolean false
+    ; …a statement that is only its title
+    def slideStatementAlone:boolean false
+
+    fn notePlace:void (title:MdNode hasBody:boolean) {
+        def word:string (MdSlideLayout.wordOf(title deckPlace))
+        slideCenter = (MdSlideLayout.whole(word))
+        slideStatement = (word == "statement")
+        slideStatementAlone = (slideStatement && (hasBody == false))
+        if ((strlen word) == 0) { return }
+        def i:int (indexOf placeSrc title.srcStart)
+        if (i >= 0) {
+            set_at placeWord i word
+            return
+        }
+        push placeSrc title.srcStart
+        push placeWord word
+    }
+
+    ; how much larger block `node` is set on a statement slide
+    fn statementRatio:double (node:MdNode) {
+        if (! slideStatement) { return 1.0 }
+        if (containerDepth > 0) { return 1.0 }
+        if (node.kind == "heading") {
+            if (slideStatementAlone && (node.level <= splitLevel)) { return 1.5 }
+            return 1.0
+        }
+        if (node.kind != "paragraph") { return 1.0 }
+        if (style.bodySize <= 0.0) { return 1.0 }
+        def r:double ((style.headingSize(slideTitleLevel)) / style.bodySize)
+        if (r < 1.0) { return 1.0 }
+        return (this.safeRatio(node r))
+    }
+
+    fn alignSlides:void () {
+        if ((array_length placeSrc) == 0) { return }
+        ; the word for each page, from the title on it
+        def word:[string]
+        def tsrc:[int]
+        def p0:int 0
+        while (p0 < pageCount) {
+            push word ""
+            push tsrc -1
+            p0 = (p0 + 1)
+        }
+        def i:int 0
+        while (i < (array_length boxes)) {
+            def b:MdBox (itemAt boxes i)
+            if (((b.retold == false) && (b.furniture == 0)) && ((b.page >= 0) && (b.page < pageCount))) {
+                def k:int (indexOf placeSrc b.srcStart)
+                if ((k >= 0) && ((strlen (itemAt word b.page)) == 0)) {
+                    set_at word b.page (itemAt placeWord k)
+                    set_at tsrc b.page b.srcStart
+                }
+            }
+            i = (i + 1)
+        }
+        ; a hidden title draws nothing: its page is where it was noted
+        def h:int 0
+        while (h < (array_length placeSrc)) {
+            def hp:int (this.pageOfHidden((itemAt placeSrc h)))
+            if (((hp >= 0) && (hp < pageCount)) && ((strlen (itemAt word hp)) == 0)) {
+                set_at word hp (itemAt placeWord h)
+                set_at tsrc hp (itemAt placeSrc h)
+            }
+            h = (h + 1)
+        }
+        def p:int 0
+        while (p < pageCount) {
+            def w:string (itemAt word p)
+            if ((strlen w) > 0) {
+                this.alignPage(p w (itemAt tsrc p))
+            }
+            p = (p + 1)
+        }
+        pageIndexReady = false
+    }
+
+    fn movable:boolean (b:MdBox p:int) {
+        if (b.page != p) { return false }
+        if (b.pinned || (b.furniture != 0)) { return false }
+        return true
+    }
+
+    fn alignPage:void (p:int w:string title:int) {
+        def whole:boolean (MdSlideLayout.whole(w))
+        def top:double 0.0
+        def bottom:double 0.0
+        def any:boolean false
+        def i:int 0
+        while (i < (array_length boxes)) {
+            def b:MdBox (itemAt boxes i)
+            if (this.movable(b p)) {
+                if (whole || (b.srcStart != title)) {
+                    if ((! any) || (b.y < top)) { top = b.y }
+                    if ((! any) || ((b.y + b.h) > bottom)) { bottom = (b.y + b.h) }
+                    any = true
+                }
+            }
+            i = (i + 1)
+        }
+        if (! any) { return }
+        def foot:double (contentBottom - (this.noteRoomOn(p)))
+        def d:double (MdSlideLayout.shift(w top bottom contentTop foot))
+        if (d < 0.5) { return }
+        def k:int 0
+        while (k < (array_length boxes)) {
+            def c:MdBox (itemAt boxes k)
+            if (this.movable(c p)) {
+                if (whole || (c.srcStart != title)) {
+                    c.y = (c.y + d)
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A picture in a corner of the slide (`{float=top-right width=8%}`)
+    ; ----------------------------------------------------------------------
+    ;
+    ; Out of the flow: drawn in the corner of the content area, `pinned`
+    ; (a centred slide does not move it), and nothing goes under it — the
+    ; slide's title is set narrower (`cornerInset`) and the text after it
+    ; beside it, down to its foot, as beside any narrow picture (FLOAT).
+    fn pinPicture:void (node:MdNode corner:string path:string img:MdNode st:VfsStat) {
+        def fw:double ((MdSlideLayout.topCornerShare(node)) * contentW)
+        if ((indexOf corner "bottom") == 0) {
+            def v:string (trim (node.attrValue("width")))
+            fw = (MdEmbedKinds.widthOf(v contentW))
+            if ((strlen v) == 0) { fw = (contentW * 0.12) }
+        }
+        def fh:double (fw * 0.5)
+        if ((st.pixelW > 0) && (st.pixelH > 0)) {
+            fh = (fw * ((to_double st.pixelH) / (to_double st.pixelW)))
+        }
+        def most:double ((contentBottom - contentTop) * 0.3)
+        if (fh > most) {
+            fw = (fw * (most / fh))
+            fh = most
+        }
+        def px:double contentX
+        if ((indexOf corner "right") > 0) {
+            px = ((contentX + contentW) - fw)
+        }
+        def py:double contentTop
+        if ((indexOf corner "bottom") == 0) {
+            py = (contentBottom - fh)
+        }
+        def b:MdBox (new MdBox())
+        b.kind = 4
+        b.x = px
+        b.y = py
+        b.w = fw
+        b.h = fh
+        b.imagePath = path
+        b.imageAlt = (img.plainText())
+        b.imageNaturalW = st.pixelW
+        b.imageNaturalH = st.pixelH
+        b.pinned = true
+        this.emit(b)
+        ; the text after it, beside it while it is above its foot
+        if (((indexOf corner "top") == 0) && (cursorY < (py + fh))) {
+            def gap:double (style.bodySize * 1.2)
+            floatOn = true
+            floatPage = page
+            floatBottom = (py + fh)
+            floatW = ((contentW - fw) - gap)
+            floatX = contentX
+            if ((indexOf corner "left") > 0) {
+                floatX = ((contentX + fw) + gap)
+            }
+        }
+    }
+
+    ; The block of slide-title `i`'s slide that is pinned in a top corner,
+    ; or an empty node.
+    fn cornerNode:MdNode (doc:MdNode i:int) {
+        def j:int i
+        while (MdLayout.bodyFollows(doc j splitLevel)) {
+            def c:MdNode (doc.childAt((j + 1)))
+            if ((c.kind == "paragraph") && ((MdSlideLayout.topCornerShare(c)) > 0.0)) {
+                if ((MdLayout.loneImage(c)).kind == "image") { return c }
+            }
+            j = (j + 1)
+        }
+        return (new MdNode())
+    }
+
+    ; how much of the width (0..1) that corner block takes, 0 for none
+    fn cornerInset:double (doc:MdNode i:int) {
+        def c:MdNode (this.cornerNode(doc i))
+        if (c.kind != "paragraph") { return 0.0 }
+        return (MdSlideLayout.topCornerShare(c))
+    }
+
+    ; ----------------------------------------------------------------------
     ; Growing a slide that has room
     ; ----------------------------------------------------------------------
     ; ----------------------------------------------------------------------
@@ -3807,6 +4247,7 @@ class MdLayout {
                 slideTitle = (child.plainText())
                 slideTitleLevel = child.level
                 slideTitleHidden = (MdLayout.hiddenHeading(child))
+                this.notePlace(child (MdLayout.bodyFollows(doc i splitLevel)))
             }
         }
         this.placeBlock(doc i false)
@@ -3831,6 +4272,8 @@ class MdLayout {
 
     fn growSlide:void (doc:MdNode p:int) {
         def n:int (doc.childCount())
+        def mediaW:[double]
+        def mediaH:[double]
         ; the blocks of this slide, none spilling into or out of it
         def members:[int]
         def i:int 0
@@ -3862,8 +4305,12 @@ class MdLayout {
             if (b.page == p) {
                 if (b0 < 0) { b0 = k }
                 b1 = (k + 1)
-                if ((b.kind == 3) || ((strlen b.imagePath) > 0)) {
-                    return
+                ; a picture or chart may stay as it is while the text grows
+                ; (beside it, or in a column of its own): the slide grows
+                ; only when every one of them keeps its size
+                if (((b.kind == 3) || ((strlen b.imagePath) > 0)) && (b.pinned == false)) {
+                    push mediaW b.w
+                    push mediaH b.h
                 }
                 if ((b.y + b.h) > bottom) { bottom = (b.y + b.h) }
             }
@@ -3880,6 +4327,9 @@ class MdLayout {
         ; the first guess from the height; text wraps more as it grows, so
         ; each try is laid out and checked, a step smaller when it does not fit
         def s:double ((room * slideGrowFill) / used)
+        ; with a picture or chart the room the text has is not the slide's
+        ; height: each size from the largest down is tried
+        if ((array_length mediaW) > 0) { s = slideGrow }
         if (s > slideGrow) { s = slideGrow }
         def kept:[MdBox]
         def m:int b0
@@ -3906,16 +4356,21 @@ class MdLayout {
             cursorY = contentTop
             this.resumeContinuation(p)
             floatOn = false
+            growTrial = true
             def j:int 0
             while (j < (array_length members)) {
                 this.relayoutBlock(doc (itemAt members j))
                 j = (j + 1)
             }
             this.endFloat()
+            growTrial = false
             ; …and a heading that was one line stays one line: a title
             ; broken in two to be larger is not larger, it is worse
             def headsNow:int (MdLayout.headingLines(boxes b0 (array_length boxes) ((itemAt saved 0) * s * 1.15)))
             def fits:boolean (((page == p) && (cursorY <= (contentTop + (room * (slideGrowFill + 0.1))))) && (headsNow <= headsBefore))
+            if (fits && ((array_length mediaW) > 0)) {
+                fits = (this.mediaKept(b0 p mediaW mediaH))
+            }
             this.restoreStyle(saved)
             page = savedPage
             pageCount = savedPageCount
@@ -3944,6 +4399,24 @@ class MdLayout {
             push boxes (itemAt tail r)
             r = (r + 1)
         }
+    }
+
+    ; Whether the pictures and charts from box `from` on page `p` are the
+    ; sizes `ws`×`hs` they were, in the same order.
+    fn mediaKept:boolean (from:int p:int ws:[double] hs:[double]) {
+        def m:int 0
+        def k:int from
+        while (k < (array_length boxes)) {
+            def b:MdBox (itemAt boxes k)
+            if ((b.page == p) && (((b.kind == 3) || ((strlen b.imagePath) > 0)) && (b.pinned == false))) {
+                if (m >= (array_length ws)) { return false }
+                if ((fabs (b.w - (itemAt ws m))) > 1.0) { return false }
+                if ((fabs (b.h - (itemAt hs m))) > 1.0) { return false }
+                m = (m + 1)
+            }
+            k = (k + 1)
+        }
+        return (m == (array_length ws))
     }
 
     ; How many lines of heading-sized text boxes from..to hold: distinct
@@ -4380,7 +4853,10 @@ class MdLayout {
     ; bands, line numbers in a gutter (`.numbers`), highlighted lines
     ; (`lines=`) on a band with a bar at the left — what each line is comes
     ; from MdCodeLines.
-    fn codeBlock:void (node:MdNode x:double w:double) {
+    fn codeBlock:void (node:MdNode x:double w0:double) {
+        ; `{width=55%}` under it: that share of the column, and the text
+        ; after it beside it (startFloat)
+        def w:double (MdEmbedKinds.widthOf((this.widthAttr(node)) w0))
         def numbers:string ""
         if (node.hasClass("numbers")) {
             numbers = "1"
@@ -4788,7 +5264,7 @@ class MdLayout {
         ; begins, and it has to be the same number: the cache is keyed by the
         ; width the diagram was prepared at, so one point of disagreement is a
         ; slot with an apology in it instead of a drawing.
-        def want:string (node.attrValue("width"))
+        def want:string (this.widthAttr(node))
         def useW:double (MdEmbedKinds.widthOf(want w))
         def known:double (embeds.heightFor(kind node.literal useW))
         def drawn:boolean (known > 0.0)
@@ -4835,7 +5311,7 @@ class MdLayout {
             ; the box (MdDiagram.refit); one held smaller before and with
             ; more room now is drawn for that.
             def notation:string (MdEmbedKinds.notationOf(kind))
-            if (drawn && ((notation == "vega") || (notation == "figure"))) {
+            if ((drawn && (growTrial == false)) && ((notation == "vega") || (notation == "figure"))) {
                 def had:double (embeds.fitFor(kind node.literal useW))
                 if held {
                     embeds.askRoom(kind node.literal useW h)
@@ -6547,7 +7023,7 @@ class MdLayout {
         if (cols == 0) { return }
         ; `{width=60%}` under it: that share of the column, and the text
         ; after it beside it (startFloat)
-        def tw:double (MdEmbedKinds.widthOf((node.attrValue("width")) w))
+        def tw:double (MdEmbedKinds.widthOf((this.widthAttr(node)) w))
         def was:double (this.tableTextOn())
         def widths:[double] (this.gridWidths(node tw))
         ; cells coloured by their text (`{cells=…}`, `table { cell-tones }`)
@@ -6766,7 +7242,7 @@ class MdLayout {
             useW = w
             useH = (w * 0.5)
         }
-        def wantAttr:string (node.attrValue("width"))
+        def wantAttr:string (this.widthAttr(node))
         def asked:double (MdEmbedKinds.widthOf(wantAttr w))
         ; On a slide a `width` is the width it is shown at, larger than its
         ; pixels too (the handles on the slide set it); a document page
@@ -6853,6 +7329,14 @@ class MdLayout {
                 useH = fullH
             }
         }
+        ; `{float=top-right}`: in that corner of the slide, out of the flow
+        def corner:string (MdSlideLayout.cornerOf((node.attrValue("float"))))
+        if (((strlen corner) > 0) && slides) {
+            if paginate {
+                this.pinPicture(node corner path img st)
+            }
+            return true
+        }
         ; where it sits in the column: `{align=center}`, else the theme's
         ; `img { justify-content }`, else centred on a slide
         def align:string (MdCss.alignWord((node.attrValue("align"))))
@@ -6927,11 +7411,39 @@ class MdLayout {
 
     fn galleryGrid:void (g:MdGallery look:MdGalleryLook x:double w:double) {
         def cols:int (g.columnsFor(look))
-        def rows:[[int]] (g.rows(cols))
         def gap:double look.gap
         if (gap > (w * 0.2)) {
             gap = (w * 0.2)
         }
+        ; on a slide, as many across as show the most of the pictures in
+        ; the room there is (portraits side by side, not cropped wide)
+        if (slides && paginate) {
+            def aspects:[double]
+            def anyCap:boolean false
+            def ai:int 0
+            while (ai < (array_length g.items)) {
+                def it:MdGalleryItem (itemAt g.items ai)
+                def a:double 0.0
+                if (it.isText == false) {
+                    def pic:MdBox (this.galleryPicture(it))
+                    if ((pic.imageNaturalW > 0) && (pic.imageNaturalH > 0)) {
+                        a = ((to_double pic.imageNaturalW) / (to_double pic.imageNaturalH))
+                    }
+                    if ((strlen it.caption) > 0) { anyCap = true }
+                }
+                push aspects a
+                ai = (ai + 1)
+            }
+            def capH:double 0.0
+            if (anyCap && (g.caption == "below")) {
+                capH = (style.bodySize * style.lineHeight)
+            }
+            def fullR:double (contentBottom - contentTop)
+            def roomR:double (contentBottom - cursorY)
+            if (roomR < (fullR * 0.35)) { roomR = fullR }
+            cols = (g.columnsForRoom(look aspects w roomR gap capH galleryMinRow))
+        }
+        def rows:[[int]] (g.rows(cols))
         def nRows:int (array_length rows)
         def rowH:double (((w - (gap * (to_double (cols - 1)))) / (to_double cols)) * 0.66)
         if (slides && paginate) {

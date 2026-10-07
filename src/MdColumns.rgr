@@ -1,0 +1,566 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdColumns.rgr — blocks side by side: which block goes in which column, and
+; how wide each column is.
+; ============================================================================
+;
+; ````markdown
+; ::: columns
+; ### Ennen
+; - Käsin tehdyt kalvot
+;
+; ### Jälkeen
+; - Markdown + tekoäly
+; :::
+;
+; ## Tulokset {layout=image-right}
+;
+; - Kasvu jatkui
+;
+; ![Kaavio](media/kasvu.png)
+; ````
+;
+; A `::: columns` container (or `::: cols`) puts what is in it side by side.
+; Where one column ends and the next begins is read off what is there, the
+; first rule that applies:
+;
+;   1. `::: col` / `::: column` containers inside it: one column each (a
+;      `{width=40%}` after a column's closing line is its width). Written
+;      without a `columns` around them, side by side `::: col` blocks are a
+;      row of columns too.
+;   2. thematic breaks (`---`) inside it: the breaks are where it is cut.
+;   3. headings: a column starts at each heading of the highest level there;
+;      what comes before the first of them goes across, above the columns.
+;   4. pictures, charts and galleries with other blocks: the pictures in
+;      one column and the rest in the other, on the side the first block
+;      is on;
+;   5. otherwise each block is a column of its own (up to four; more blocks
+;      than that are halved into two columns).
+;
+; A heading's `{layout=…}` puts its SECTION (the blocks under it, up to the
+; next heading of its level or above) in columns the same way: `columns`,
+; `comparison`, `two-column`, and `image-right` / `image-left`, which put
+; the pictures, charts, diagrams and galleries in one column at that side
+; and everything else in the other. `MdColumns.wrapLayouts` wraps such a
+; section in a `columns` container when the document is read, so every
+; reader of the tree sees the same thing.
+;
+; WIDTHS. `{widths="60 40"}` on the container (or the heading) says them;
+; else a column holding one block that says `{width=N%}` is that wide (the
+; block then fills its column), and the other columns share the rest.
+; Geometry depends only on the width it is given (the gap is a fixed share
+; of it) — `MdDiagram` prepares charts at the column's width before layout,
+; and the layout must ask for the very same width.
+;
+; Nothing here measures or draws: `MdLayout.columnsBlock` places the blocks,
+; `tests/MdColumnsTest.rgr` checks the rules.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdChar.rgr"
+
+class MdColumnsPlan {
+    ; children laid out across the whole width, above the columns
+    def lead:[int]
+    ; per column, the children in it, in order
+    def groups:[[int]]
+    ; per column, its share of the width left after the gaps (sum 1)
+    def fracs:[double]
+    ; children whose `width=` made their column's width: laid out at the
+    ; column's full width, their own `width=` read as done
+    def taken:[int]
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length groups)
+    }
+
+    fn isTaken:boolean (child:int) {
+        def i:int 0
+        while (i < (array_length taken)) {
+            if ((itemAt taken i) == child) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; the column `child` is in, -1 when it goes across (or nowhere)
+    fn columnOf:int (child:int) {
+        def g:int 0
+        while (g < (array_length groups)) {
+            def grp:[int] (itemAt groups g)
+            def k:int 0
+            while (k < (array_length grp)) {
+                if ((itemAt grp k) == child) { return g }
+                k = (k + 1)
+            }
+            g = (g + 1)
+        }
+        return -1
+    }
+
+    fn widths:[double] (w:double) {
+        def out:[double]
+        def n:int (array_length groups)
+        if (n == 0) { return out }
+        def room:double (w - ((MdColumns.gapFor(w)) * (to_double (n - 1))))
+        if (room < 0.0) { room = 0.0 }
+        def i:int 0
+        while (i < n) {
+            push out (room * (itemAt fracs i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; where each column starts, from `x`
+    fn lefts:[double] (x:double w:double) {
+        def out:[double]
+        def ws:[double] (this.widths(w))
+        def gap:double (MdColumns.gapFor(w))
+        def at:double x
+        def i:int 0
+        while (i < (array_length ws)) {
+            push out at
+            at = ((at + (itemAt ws i)) + gap)
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+class MdColumns {
+
+    ; the space between two columns: a share of the width, never a style
+    ; number (see the header)
+    sfn gapFor:double (w:double) {
+        def g:double (w * 0.04)
+        if (g < 6.0) { g = 6.0 }
+        return g
+    }
+
+    sfn isRow:boolean (node:MdNode) {
+        if (node.kind != "container") { return false }
+        def nm:string (MdChar.lower(node.info))
+        return ((nm == "columns") || (nm == "cols"))
+    }
+
+    sfn isCell:boolean (node:MdNode) {
+        if (node.kind != "container") { return false }
+        def nm:string (MdChar.lower(node.info))
+        return ((nm == "col") || (nm == "column"))
+    }
+
+    ; a heading's `layout=` when it is one that puts its section in columns
+    sfn columnLayout:string (node:MdNode) {
+        if (node.kind != "heading") { return "" }
+        def w:string (MdChar.lower((trim (node.attrValue("layout")))))
+        if ((w == "columns") || (w == "comparison")) { return w }
+        if ((w == "two-column") || (w == "two-columns")) { return w }
+        if ((w == "image-right") || (w == "image-left")) { return w }
+        return ""
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Reading the document
+    ; ----------------------------------------------------------------------
+
+    ; Every heading with a columns `layout=` gets its section wrapped in a
+    ; `columns` container, and side-by-side `::: col` blocks without one
+    ; get one too. Run once on a parsed document (MdBlock.run).
+    sfn wrapLayouts:void (node:MdNode) {
+        def kept:[MdNode]
+        def n:int (node.childCount())
+        def i:int 0
+        while (i < n) {
+            def c:MdNode (node.childAt(i))
+            push kept c
+            def word:string (MdColumns.columnLayout(c))
+            if ((strlen word) > 0) {
+                def j:int (i + 1)
+                def going:boolean true
+                while (going && (j < n)) {
+                    def d:MdNode (node.childAt(j))
+                    if ((d.kind == "heading") && (d.level <= c.level)) { going = false }
+                    if (d.kind == "front_matter") { going = false }
+                    if (d.hasClass("slide")) { going = false }
+                    if going { j = (j + 1) }
+                }
+                if (j > (i + 1)) {
+                    def box:MdNode (MdColumns.wrapper((i + 1) j node))
+                    box.setAttr("layout" word)
+                    if (c.hasAttr("widths")) {
+                        box.setAttr("widths" (c.attrValue("widths")))
+                    }
+                    push kept box
+                    i = (j - 1)
+                }
+            } {
+                if ((MdColumns.isCell(c)) && (! (MdColumns.isRow(node)))) {
+                    def k:int (i + 1)
+                    while ((k < n) && (MdColumns.isCell((node.childAt(k))))) {
+                        k = (k + 1)
+                    }
+                    if (k > (i + 1)) {
+                        removeLast kept
+                        push kept (MdColumns.wrapper(i k node))
+                        i = (k - 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        node.children = kept
+        def m:int 0
+        while (m < (array_length kept)) {
+            def k2:MdNode (itemAt kept m)
+            if (k2.kind != "heading") {
+                MdColumns.wrapLayouts(k2)
+            }
+            m = (m + 1)
+        }
+    }
+
+    ; children from..to-1 of `parent` in a new `columns` container
+    sfn wrapper:MdNode (from:int to:int parent:MdNode) {
+        def box:MdNode (MdNode.create("container"))
+        box.info = "columns"
+        box.addClass("columns")
+        def first:MdNode (parent.childAt(from))
+        def last:MdNode (parent.childAt((to - 1)))
+        box.srcStart = first.srcStart
+        box.srcEnd = last.srcEnd
+        box.open = false
+        def i:int from
+        while (i < to) {
+            box.add((parent.childAt(i)))
+            i = (i + 1)
+        }
+        return box
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The plan
+    ; ----------------------------------------------------------------------
+
+    sfn plan:MdColumnsPlan (node:MdNode) {
+        def p:MdColumnsPlan (new MdColumnsPlan())
+        def n:int (node.childCount())
+        def word:string (MdChar.lower((trim (node.attrValue("layout")))))
+        def anyCell:boolean false
+        def anyBreak:boolean false
+        def top:int 7
+        def i:int 0
+        while (i < n) {
+            def c:MdNode (node.childAt(i))
+            if (MdColumns.isCell(c)) { anyCell = true }
+            if (c.kind == "thematic_break") { anyBreak = true }
+            if ((c.kind == "heading") && (c.level < top)) { top = c.level }
+            i = (i + 1)
+        }
+        if anyCell {
+            MdColumns.byCells(node p)
+        } {
+            if anyBreak {
+                MdColumns.byBreaks(node p)
+            } {
+                if ((word == "image-right") || (word == "image-left")) {
+                    MdColumns.byMedia(node p (word == "image-left"))
+                } {
+                    if (top < 7) {
+                        MdColumns.byHeadings(node p top)
+                    } {
+                        MdColumns.byKind(node p)
+                    }
+                }
+            }
+        }
+        MdColumns.share(node p)
+        return p
+    }
+
+    sfn byCells:void (node:MdNode p:MdColumnsPlan) {
+        def cur:[int]
+        def open:boolean false
+        def i:int 0
+        while (i < (node.childCount())) {
+            def c:MdNode (node.childAt(i))
+            if (MdColumns.isCell(c)) {
+                if open { push p.groups cur }
+                def fresh:[int]
+                cur = fresh
+                push cur i
+                open = true
+            } {
+                if open {
+                    push cur i
+                } {
+                    push p.lead i
+                }
+            }
+            i = (i + 1)
+        }
+        if open { push p.groups cur }
+    }
+
+    sfn byBreaks:void (node:MdNode p:MdColumnsPlan) {
+        def cur:[int]
+        def i:int 0
+        while (i < (node.childCount())) {
+            def c:MdNode (node.childAt(i))
+            if (c.kind == "thematic_break") {
+                if ((array_length cur) > 0) { push p.groups cur }
+                def fresh:[int]
+                cur = fresh
+            } {
+                push cur i
+            }
+            i = (i + 1)
+        }
+        if ((array_length cur) > 0) { push p.groups cur }
+    }
+
+    sfn byHeadings:void (node:MdNode p:MdColumnsPlan level:int) {
+        def cur:[int]
+        def open:boolean false
+        def i:int 0
+        while (i < (node.childCount())) {
+            def c:MdNode (node.childAt(i))
+            if ((c.kind == "heading") && (c.level == level)) {
+                if open { push p.groups cur }
+                def fresh:[int]
+                cur = fresh
+                open = true
+            }
+            if open {
+                push cur i
+            } {
+                push p.lead i
+            }
+            i = (i + 1)
+        }
+        if open { push p.groups cur }
+    }
+
+    sfn byMedia:void (node:MdNode p:MdColumnsPlan mediaFirst:boolean) {
+        def media:[int]
+        def text:[int]
+        def i:int 0
+        while (i < (node.childCount())) {
+            if (MdColumns.isMedia((node.childAt(i)))) {
+                push media i
+            } {
+                push text i
+            }
+            i = (i + 1)
+        }
+        if ((array_length media) == 0) {
+            MdColumns.byBlocks(node p)
+            return
+        }
+        if ((array_length text) == 0) {
+            push p.groups media
+            return
+        }
+        if mediaFirst {
+            push p.groups media
+            push p.groups text
+        } {
+            push p.groups text
+            push p.groups media
+        }
+    }
+
+    ; Pictures and charts with text: the two side by side, the side the
+    ; first block is on first. All of one kind: a block a column.
+    sfn byKind:void (node:MdNode p:MdColumnsPlan) {
+        def media:int 0
+        def i:int 0
+        while (i < (node.childCount())) {
+            if (MdColumns.isMedia((node.childAt(i)))) { media = (media + 1) }
+            i = (i + 1)
+        }
+        if ((media > 0) && (media < (node.childCount()))) {
+            MdColumns.byMedia(node p (MdColumns.isMedia((node.childAt(0)))))
+            return
+        }
+        MdColumns.byBlocks(node p)
+    }
+
+    sfn byBlocks:void (node:MdNode p:MdColumnsPlan) {
+        def n:int (node.childCount())
+        if (n <= 4) {
+            def i:int 0
+            while (i < n) {
+                def one:[int]
+                push one i
+                push p.groups one
+                i = (i + 1)
+            }
+            return
+        }
+        def half:int (idiv (n + 1) 2)
+        def a:[int]
+        def b:[int]
+        def k:int 0
+        while (k < n) {
+            if (k < half) {
+                push a k
+            } {
+                push b k
+            }
+            k = (k + 1)
+        }
+        push p.groups a
+        push p.groups b
+    }
+
+    ; A picture on its own, a chart or diagram, a gallery.
+    sfn isMedia:boolean (c:MdNode) {
+        if (c.kind == "embed") { return true }
+        if (c.kind == "code_block") {
+            def info:string (MdChar.lower((trim c.info)))
+            return ((indexOf info "gallery") == 0)
+        }
+        if (c.kind != "paragraph") { return false }
+        def found:boolean false
+        def i:int 0
+        while (i < (c.childCount())) {
+            def k:MdNode (c.childAt(i))
+            if (k.kind == "image") {
+                if found { return false }
+                found = true
+            } {
+                if (k.kind == "text") {
+                    if ((strlen (trim k.literal)) > 0) { return false }
+                } {
+                    if (k.kind != "softbreak") { return false }
+                }
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    ; A `width=` as a share of the whole: `40%` → 0.4, a plain number of
+    ; points is not a share (0).
+    sfn shareOf:double (v0:string) {
+        def v:string (trim v0)
+        def n:int (strlen v)
+        if (n < 2) { return 0.0 }
+        if ((charAt v (n - 1)) != 37) { return 0.0 }
+        def d@(optional):double (str2double (trim (substring v 0 (n - 1))))
+        def f:double ((?? d 0.0) / 100.0)
+        if ((f <= 0.0) || (f >= 1.0)) { return 0.0 }
+        return f
+    }
+
+    ; The width a column's block (or `::: col`) asks for, 0 for none.
+    sfn askedOf:double (c:MdNode) {
+        def f:double (MdColumns.shareOf((c.attrValue("width"))))
+        if (f > 0.0) { return f }
+        if (c.kind == "paragraph") {
+            ; `![…](…){width=40%}` on the picture itself
+            def i:int 0
+            while (i < (c.childCount())) {
+                def k:MdNode (c.childAt(i))
+                if (k.kind == "image") {
+                    def g:double (MdColumns.shareOf((k.attrValue("width"))))
+                    if (g > 0.0) { return g }
+                }
+                i = (i + 1)
+            }
+        }
+        return 0.0
+    }
+
+    sfn share:void (node:MdNode p:MdColumnsPlan) {
+        def n:int (array_length p.groups)
+        if (n == 0) { return }
+        def said:[double] (MdColumns.numbers((node.attrValue("widths"))))
+        if ((array_length said) == n) {
+            def total:double 0.0
+            def i:int 0
+            while (i < n) {
+                total = (total + (itemAt said i))
+                i = (i + 1)
+            }
+            if (total > 0.0) {
+                def k:int 0
+                while (k < n) {
+                    push p.fracs ((itemAt said k) / total)
+                    k = (k + 1)
+                }
+                return
+            }
+        }
+        def asked:[double]
+        def fixed:double 0.0
+        def free:int 0
+        def g:int 0
+        while (g < n) {
+            def grp:[int] (itemAt p.groups g)
+            def a:double 0.0
+            if ((array_length grp) == 1) {
+                a = (MdColumns.askedOf((node.childAt((itemAt grp 0)))))
+                if (a > 0.0) {
+                    push p.taken (itemAt grp 0)
+                }
+            }
+            push asked a
+            fixed = (fixed + a)
+            if (a <= 0.0) { free = (free + 1) }
+            g = (g + 1)
+        }
+        ; asked for more than there is (or all of it with columns left
+        ; over): the asked shares give way in proportion
+        def rest:double (1.0 - fixed)
+        def least:double (0.15 * (to_double free))
+        def scale:double 1.0
+        if ((rest < least) && (fixed > 0.0)) {
+            scale = ((1.0 - least) / fixed)
+            rest = least
+        }
+        if ((free == 0) && (fixed > 0.0)) {
+            scale = (1.0 / fixed)
+            rest = 0.0
+        }
+        def h:int 0
+        while (h < n) {
+            def a2:double (itemAt asked h)
+            if (a2 > 0.0) {
+                push p.fracs (a2 * scale)
+            } {
+                push p.fracs (rest / (to_double free))
+            }
+            h = (h + 1)
+        }
+    }
+
+    ; "60 40", "60/40", "60%,40%" → [60 40]
+    sfn numbers:[double] (v:string) {
+        def out:[double]
+        def cur:string ""
+        def i:int 0
+        def n:int (strlen v)
+        while (i <= n) {
+            def c:int 32
+            if (i < n) { c = (charAt v i) }
+            def digit:boolean (((c >= 48) && (c <= 57)) || (c == 46))
+            if digit {
+                cur = (cur + (substring v i (i + 1)))
+            } {
+                if ((strlen cur) > 0) {
+                    def d@(optional):double (str2double cur)
+                    push out (?? d 0.0)
+                    cur = ""
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}
