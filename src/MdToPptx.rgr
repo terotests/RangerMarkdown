@@ -591,6 +591,8 @@ class MdToPptx {
         r.color((layout.style.headingInk(node.level)))
         def drawn:MdBox (this.runBoxOf(node (this.pageOf(node))))
         MdToPptx.asDrawn((r.model()) drawn)
+        ; its `<br>` breaks and inline spans, as a paragraph's
+        this.withRuns((box.model()) node)
         this.blockRules(slide node)
         def m:PptxShape (box.model())
         MdToPptx.aligned(m drawn)
@@ -1128,6 +1130,9 @@ class MdToPptx {
         if ((k == "footnote_ref") || (k == "mark")) {
             return true
         }
+        if (MdToPptx.isBreak(node)) {
+            return true
+        }
         def i:int 0
         while (i < (node.childCount())) {
             def c:MdNode (node.childAt(i))
@@ -1135,6 +1140,18 @@ class MdToPptx {
                 if (MdToPptx.hasInline(c)) { return true }
             }
             i = (i + 1)
+        }
+        return false
+    }
+
+    ; A line break the layout draws as one (MdLayout: `linebreak`, `<br>`):
+    ; the run "\n" the writer turns into `<a:br/>`.
+    sfn isBreak:boolean (node:MdNode) {
+        if (node.kind == "linebreak") {
+            return true
+        }
+        if (node.kind == "html_inline") {
+            return ((MdHtml.tag(node.literal)).name == "br")
         }
         return false
     }
@@ -1358,6 +1375,14 @@ class MdToPptx {
             push out r
             return
         }
+        if (MdToPptx.isBreak(node)) {
+            def br (new PptxTextRun)
+            tmpl.copyStyleTo(br)
+            br.color = tmpl.color
+            br.text = "\n"
+            push out br
+            return
+        }
         if ((array_length node.children) == 0) {
             def t:string (node.plainText())
             if ((strlen t) == 0) {
@@ -1366,7 +1391,7 @@ class MdToPptx {
             def n:int (array_length out)
             if (n > 0) {
                 def last:PptxTextRun (itemAt out (n - 1))
-                if (((strlen last.math) == 0) && (MdToPptx.sameStyle(last tmpl))) {
+                if ((((strlen last.math) == 0) && (last.text != "\n")) && (MdToPptx.sameStyle(last tmpl))) {
                     last.text = (last.text + t)
                     return
                 }

@@ -1460,6 +1460,20 @@ prose
         return p.runs
     }
 
+    ; `<br>` and a hard break end a line in the PPTX as on the slide, in a
+    ; title and in a paragraph; the words on each side stay apart.
+    fn lineBreaks:void (c:DeckCheck) {
+        print "-- <br> is a line break in titles and paragraphs --"
+        def src:string "# Asiakaskunnan<br>kasvusuunnitelma 2027\n\nMissä kasvu on, keihin panostamme<br>ja mitä teemme.\n\nKaksi\\\nriviä\n"
+        def d:PptxDeck (this.build(src "deck { split-level: 1 }\n"))
+        def w:PptxWriter (new PptxWriter())
+        def xml:string (w.slideXml((itemAt d.pres.slides 0)))
+        c.ok("the title breaks" ((indexOf xml ">Asiakaskunnan</a:t></a:r><a:br/>") >= 0))
+        c.ok("the paragraph breaks" ((indexOf xml ">Missä kasvu on, keihin panostamme</a:t></a:r><a:br/>") >= 0))
+        c.ok("a hard break too" ((indexOf xml ">Kaksi</a:t></a:r><a:br/>") >= 0))
+        c.ok("no words run together" ((indexOf xml "panostammeja") < 0))
+    }
+
     fn run:void () {
         def c:DeckCheck (new DeckCheck())
         print "== MdPptxTest =="
@@ -1481,6 +1495,7 @@ prose
         this.inlineMath(c)
         this.asDrawn(c)
         this.aligned(c)
+        this.lineBreaks(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
