@@ -2031,7 +2031,9 @@ class MdLayout {
         def at:int -1
         while ((k >= fromBox) && (at < 0)) {
             def c:MdBox (itemAt boxes k)
-            if ((c.kind == 3) || (c.kind == 4)) { at = k }
+            ; a corner picture is out of the flow: nothing goes beside it
+            ; here, under the title is where the text goes on (pinPicture)
+            if (((c.kind == 3) || (c.kind == 4)) && (c.pinned == false)) { at = k }
             k = (k - 1)
         }
         if ((at < 0) && ((child.kind == "table") || (child.kind == "code_block"))) {
@@ -4348,15 +4350,25 @@ class MdLayout {
         }
         def room:double (contentBottom - contentTop)
         def used:double (bottom - contentTop)
-        if ((used <= 0.0) || (used >= (room * slideGrowFill))) {
+        def hasMedia:boolean ((array_length mediaW) > 0)
+        if (used <= 0.0) {
             return
         }
+        ; a picture or chart that keeps its size may be what makes the slide
+        ; full: the text beside it can still grow, down to that same foot
+        if ((used >= (room * slideGrowFill)) && (hasMedia == false)) {
+            return
+        }
+        ; …and with one, what is checked is the boxes' foot, not the cursor
+        ; (the space after a chart grows with the text and is no box)
+        def limit:double (contentTop + (room * (slideGrowFill + 0.1)))
+        if (hasMedia && (bottom > limit)) { limit = contentBottom }
         ; the first guess from the height; text wraps more as it grows, so
         ; each try is laid out and checked, a step smaller when it does not fit
         def s:double ((room * slideGrowFill) / used)
         ; with a picture or chart the room the text has is not the slide's
         ; height: each size from the largest down is tried
-        if ((array_length mediaW) > 0) { s = slideGrow }
+        if hasMedia { s = slideGrow }
         if (s > slideGrow) { s = slideGrow }
         def kept:[MdBox]
         def m:int b0
@@ -4394,7 +4406,9 @@ class MdLayout {
             ; …and a heading that was one line stays one line: a title
             ; broken in two to be larger is not larger, it is worse
             def headsNow:int (MdLayout.headingLines(boxes b0 (array_length boxes) ((itemAt saved 0) * s * 1.15)))
-            def fits:boolean (((page == p) && (cursorY <= (contentTop + (room * (slideGrowFill + 0.1))))) && (headsNow <= headsBefore))
+            def reach:double cursorY
+            if hasMedia { reach = (this.footOn(b0 p)) }
+            def fits:boolean (((page == p) && (reach <= (limit + 0.5))) && (headsNow <= headsBefore))
             if (fits && ((array_length mediaW) > 0)) {
                 fits = (this.mediaKept(b0 p mediaW mediaH))
             }
@@ -4426,6 +4440,18 @@ class MdLayout {
             push boxes (itemAt tail r)
             r = (r + 1)
         }
+    }
+
+    ; The lowest edge of the boxes from `from` on page `p`.
+    fn footOn:double (from:int p:int) {
+        def foot:double contentTop
+        def k:int from
+        while (k < (array_length boxes)) {
+            def b:MdBox (itemAt boxes k)
+            if ((b.page == p) && ((b.y + b.h) > foot)) { foot = (b.y + b.h) }
+            k = (k + 1)
+        }
+        return foot
     }
 
     ; Whether the pictures and charts from box `from` on page `p` are the

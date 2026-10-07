@@ -334,6 +334,12 @@ class MdColumnsTest {
         c.ok("…right of the picture" (ch.x >= ((pic.x + pic.w) - 0.5)))
         c.eqInt("…one slide" l.pageCount 1)
         c.ok("…drawn, not a slot with a note" ((l.embeds.heightFor("vega-lite" ch.embedSource ch.w)) > 0.0))
+        def l16:MdLayout (MdColumnsTest.deck((("## L16\n\n```vega-lite\n" + chart) + "\n```\n{width=60%}\n\n**Q4 ennätys**\n\nKasvu jatkui neljännellä neljänneksellä.\n") ""))
+        def c16:MdBox (MdColumnsTest.kindOn(l16 3 0))
+        def t16:MdBox (MdColumnsTest.boxOf(l16 "Q4 ennätys"))
+        c.ok("L16: the text beside the chart" (t16.x > (c16.x + c16.w)))
+        c.ok("…larger than the body size" (t16.size > 20.5))
+        c.near("…the chart as asked" c16.w (864.0 * 0.6) 1.0)
     }
 
     sfn places:void (c:ColCheck) {
@@ -397,6 +403,12 @@ class MdColumnsTest {
         c.ok("…and not over it" ((lt.x + lt.w) < logo.x))
         def lh:MdBox (MdColumnsTest.boxOf(lg "L21"))
         c.ok("…the title clear of it" ((lh.x + lh.w) < logo.x))
+        c.ok("…the text under the title" (lt.y >= (lh.y + lh.h)))
+        def lm:MdLayout (MdColumnsTest.deck("## Otsikko ja logo\n\n![Logo](media/logo.png)\n{float=top-right width=8%}\n\n- Sisältöä logon vieressä\n- Toinen kohta\n" "heading { margin-top: 26pt; margin-bottom: 12pt; }"))
+        def mt:MdBox (MdColumnsTest.boxOf(lm "Otsikko ja logo"))
+        def ml:MdBox (MdColumnsTest.boxOf(lm "Sisältöä logon vieressä"))
+        def mo:MdBox (MdColumnsTest.kindOn(lm 4 0))
+        c.ok("…under a title with room above it" (ml.y >= (mt.y + mt.h)))
         def lc:MdLayout (MdColumnsTest.deck("## T {layout=section}\n\n![Logo](media/logo.png)\n{float=bottom-left}\n\nKeskellä\n" ""))
         def lo:MdBox (MdColumnsTest.kindOn(lc 4 0))
         c.near("bottom-left stays put on a centred slide" (lo.y + lo.h) 492.0 0.5)
