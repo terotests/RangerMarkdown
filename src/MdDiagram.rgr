@@ -325,6 +325,9 @@ class MdDiagram {
         st.textFill = textFill
         ; read from across a room: box labels in bold, measured bold
         st.labelBold = true
+        ; …and with the gaps closed up: the drawing is scaled to the room
+        ; whole, so the space given back is larger boxes and text
+        st.spacing = 0.6
         if (notation == "graphviz") {
             return (DotRender.sceneWrappedStyled(text st width pad aspect))
         }
