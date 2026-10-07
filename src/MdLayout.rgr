@@ -3411,6 +3411,13 @@ class MdLayout {
     ; fits. The continuation goes, and every later slide moves up one.
     def slideShrinkMin:double 0.8
     def slideShrinkSpill:double 0.3
+    ; A TABLE that runs over is set smaller by itself — its text and cell
+    ; padding, the title and the lead above it as they were — and further:
+    ; ten rows on a dark theme's 20pt body spilled half a table, where 14pt
+    ; holds them on one slide. Down to `tableShrinkMin` of its size, for a
+    ; spill of at most `tableShrinkSpill` of a slide.
+    def tableShrinkMin:double 0.6
+    def tableShrinkSpill:double 0.8
 
     fn shrinkSlides:void (doc:MdNode) {
         def n:int (doc.childCount())
@@ -3506,7 +3513,18 @@ class MdLayout {
         ; than filling the first would have: what would have spilled
         def spill:double ((spillBottom - spillTop) - (this.spillExcessAt((p + 1))))
         def room:double (contentBottom - contentTop)
-        if ((b0 < 0) || (spill > (room * slideShrinkSpill))) {
+        def tableOnly:boolean false
+        if ((spanning >= 0) && (extras == 0)) {
+            def sb:MdNode (doc.childAt(spanning))
+            tableOnly = (sb.kind == "table")
+        }
+        def most:double slideShrinkSpill
+        def least:double slideShrinkMin
+        if tableOnly {
+            most = tableShrinkSpill
+            least = tableShrinkMin
+        }
+        if ((b0 < 0) || (spill > (room * most))) {
             return false
         }
         def kept:[MdBox]
@@ -3527,9 +3545,13 @@ class MdLayout {
         def savedCursor:double cursorY
         def savedOverflows:int slideOverflows
         def sc:double 0.95
-        while (sc >= (slideShrinkMin - 0.001)) {
+        while (sc >= (least - 0.001)) {
             this.truncate(b0)
-            this.scaleStyle(saved sc)
+            if tableOnly {
+                this.scaleTable(saved sc)
+            } {
+                this.scaleStyle(saved sc)
+            }
             page = p
             pageCount = (p + 1)
             cursorY = contentTop
@@ -3856,6 +3878,19 @@ class MdLayout {
             return was
         }
         return g
+    }
+
+    ; A table's own size (`tableSize`, else the body's) and its cells'
+    ; padding scaled by `s`; everything else as saved in `v`.
+    fn scaleTable:void (v:[double] s:double) {
+        this.scaleStyle(v 1.0)
+        def size:double (itemAt v 21)
+        if (size <= 0.0) {
+            size = (itemAt v 0)
+        }
+        style.tableSize = (size * s)
+        style.cellPadX = ((itemAt v 18) * s)
+        style.cellPadY = ((itemAt v 19) * s)
     }
 
     fn restoreStyle:void (v:[double]) {
