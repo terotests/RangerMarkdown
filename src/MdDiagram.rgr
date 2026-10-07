@@ -328,6 +328,8 @@ class MdDiagram {
         ; …and with the gaps closed up: the drawing is scaled to the room
         ; whole, so the space given back is larger boxes and text
         st.spacing = 0.6
+        ; a line's name sits in a gap measured for it: it grows less
+        st.labelFill = 1.8
         if (notation == "graphviz") {
             return (DotRender.sceneWrappedStyled(text st width pad aspect))
         }
