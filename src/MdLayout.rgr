@@ -223,6 +223,9 @@ class MdBox {
     ; the source of an embed, for whoever can draw it
     def embedKind:string ""
     def embedSource:string ""
+    ; why an embed is not drawn (a box with the reason written in it), ""
+    ; when it is drawn
+    def embedNote:string ""
     ; A PICTURE (kind 4): where its bytes are in the byte store, and how big
     ; they are in their own pixels. The layout names the picture and does not
     ; carry it, exactly as a display list does — whoever draws it asks the
@@ -4991,11 +4994,14 @@ class MdLayout {
             def note:string (embeds.noteFor(kind node.literal useW))
             def nlen:int (strlen note)
             if (nlen == 0) { note = (kind + " — no handler prepared this one") }
+            b.embedNote = note
+            ; said as plainly as the text round it: a muted italic line was
+            ; read as decoration, not as the reason the chart is missing
+            if (nlen > 0) { note = ("⚠ " + kind + ": " + note) }
             def label:MdBox (MdBox.text(note (x + style.codePadding) (y + style.codePadding) (useW - (style.codePadding * 2.0)) (style.bodySize * style.lineHeight)))
             label.family = style.bodyFamily
             label.size = style.bodySize
-            label.italic = true
-            label.color = style.mutedColor
+            label.color = style.textColor
             this.emit(label)
         }
         cursorY = ((y + h) + style.embedSpacing)
