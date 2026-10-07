@@ -51,6 +51,7 @@ Import "MdHtml.rgr"
 Import "MdBlock.rgr"
 Import "MdTableSplit.rgr"
 Import "MdContainer.rgr"
+Import "MdCellTones.rgr"
 
 ; ----------------------------------------------------------------------------
 ; What the document looks like. Not a stylesheet yet — the values a stylesheet
@@ -6371,6 +6372,8 @@ class MdLayout {
         def tw:double (MdEmbedKinds.widthOf((node.attrValue("width")) w))
         def was:double (this.tableTextOn())
         def widths:[double] (this.gridWidths(node tw))
+        ; cells coloured by their text (`{cells=…}`, `table { cell-tones }`)
+        def tones:MdCellTones (MdCellTones.forTable(node style.tableCellTones))
         ; the header rows, said again on every slide the table continues on
         def heads:int 0
         while ((heads < rows) && (MdLayout.isHeadRow((node.childAt(heads))))) {
@@ -6380,7 +6383,7 @@ class MdLayout {
         def headH:double 0.0
         def r0:int 0
         while (r0 < rows) {
-            def rh:double (this.tableRowHeight((node.childAt(r0)) widths cols))
+            def rh:double (this.tableRowHeight((node.childAt(r0)) widths cols tones))
             if (r0 < heads) {
                 headH = (headH + rh)
             } {
@@ -6404,17 +6407,17 @@ class MdLayout {
                 on = s
                 def hr:int 0
                 while (hr < heads) {
-                    this.tableRow((node.childAt(hr)) x widths cols)
+                    this.tableRow((node.childAt(hr)) x widths cols tones)
                     hr = (hr + 1)
                 }
             }
-            this.tableRow((node.childAt(r2)) x widths cols)
+            this.tableRow((node.childAt(r2)) x widths cols tones)
             r2 = (r2 + 1)
         }
         if (heads == rows) {
             def hr2:int 0
             while (hr2 < heads) {
-                this.tableRow((node.childAt(hr2)) x widths cols)
+                this.tableRow((node.childAt(hr2)) x widths cols tones)
                 hr2 = (hr2 + 1)
             }
         }
@@ -7240,6 +7243,7 @@ class MdLayout {
         ; it is what a browser does with this same markdown.
         def natural:[double]
         def minimum:[double]
+        def tones:MdCellTones (MdCellTones.forTable(node style.tableCellTones))
         def c:int 0
         while (c < cols) {
             def wid:double 0.0
@@ -7250,9 +7254,7 @@ class MdLayout {
                 def rc:int (row.childCount())
                 if (c < rc) {
                     def cell:MdNode (row.childAt(c))
-                    def base:MdRun (this.baseRun())
-                    if cell.isHeader { base.bold = true }
-                    def runs:[MdRun] (this.inlineRuns(cell base))
+                    def runs:[MdRun] (this.tableCellRuns(cell tones))
                     def cw:double (this.runsWidth(runs))
                     if (cw > wid) { wid = cw }
                     ; The narrowest column this cell can be set in, asked of
@@ -7338,7 +7340,27 @@ class MdLayout {
         return total
     }
 
-    fn tableRowHeight:double (row:MdNode widths:[double] cols:int) {
+    ; A table cell's text as runs: bold in the header row, and bold in its
+    ; tone's text colour where the table's mapping names what it says.
+    ; Measuring and drawing ask this one function, so a cell is never
+    ; measured in one face and drawn in another.
+    fn tableCellRuns:[MdRun] (cell:MdNode tones:MdCellTones) {
+        def base:MdRun (this.baseRun())
+        if cell.isHeader { base.bold = true }
+        def tone:string (tones.toneOfCell(cell))
+        if ((strlen tone) > 0) {
+            base.bold = true
+            base.color = (MdCellTones.inkOf(tone (this.tablePaper())))
+        }
+        return (this.inlineRuns(cell base))
+    }
+
+    ; the colour a table's tinted cells are worked out against
+    fn tablePaper:string () {
+        return (MdCellTones.paperOf(style.pageBackground style.textColor))
+    }
+
+    fn tableRowHeight:double (row:MdNode widths:[double] cols:int tones:MdCellTones) {
         def rowH:double 0.0
         def c:int 0
         def rc:int (row.childCount())
@@ -7346,9 +7368,7 @@ class MdLayout {
             def h:double ((style.bodySize * style.lineHeight) + (style.cellPadY * 2.0))
             if (c < rc) {
                 def cell:MdNode (row.childAt(c))
-                def base:MdRun (this.baseRun())
-                if cell.isHeader { base.bold = true }
-                def runs:[MdRun] (this.inlineRuns(cell base))
+                def runs:[MdRun] (this.tableCellRuns(cell tones))
                 def inner:double ((itemAt widths c) - (style.cellPadX * 2.0))
                 def lines:[MdLine] (this.breakRuns(runs inner))
                 h = ((this.linesHeight(lines)) + (style.cellPadY * 2.0))
@@ -7359,7 +7379,7 @@ class MdLayout {
         return rowH
     }
 
-    fn tableRow:void (row:MdNode x:double widths:[double] cols:int) {
+    fn tableRow:void (row:MdNode x:double widths:[double] cols:int tones:MdCellTones) {
         ; Every cell is broken to its own column first, so the row is as tall
         ; as the tallest of them.
         def heights:[double]
@@ -7370,9 +7390,7 @@ class MdLayout {
             def h:double ((style.bodySize * style.lineHeight) + (style.cellPadY * 2.0))
             if (c < rc) {
                 def cell:MdNode (row.childAt(c))
-                def base:MdRun (this.baseRun())
-                if cell.isHeader { base.bold = true }
-                def runs:[MdRun] (this.inlineRuns(cell base))
+                def runs:[MdRun] (this.tableCellRuns(cell tones))
                 def inner:double ((itemAt widths c) - (style.cellPadX * 2.0))
                 def lines:[MdLine] (this.breakRuns(runs inner))
                 def sum:double 0.0
@@ -7395,22 +7413,30 @@ class MdLayout {
         while (c2 < cols) {
             def cw:double (itemAt widths c2)
             def isHead:boolean false
+            def tone:string ""
             if (c2 < rc) {
                 def cell0:MdNode (row.childAt(c2))
                 isHead = cell0.isHeader
+                tone = (tones.toneOfCell(cell0))
             }
             if isHead {
                 this.emit((MdBox.rect(cx y cw rowH style.tableHeadBackground)))
             }
+            def toned:boolean ((strlen tone) > 0)
+            if toned {
+                this.emit((MdBox.rect(cx y cw rowH (MdCellTones.fillOf(tone (this.tablePaper()))))))
+            }
             this.emit((MdBox.outline(cx y cw rowH style.tableBorder 1.0)))
             if (c2 < rc) {
                 def cell:MdNode (row.childAt(c2))
-                def base:MdRun (this.baseRun())
-                if cell.isHeader { base.bold = true }
-                def runs:[MdRun] (this.inlineRuns(cell base))
+                def runs:[MdRun] (this.tableCellRuns(cell tones))
                 def inner:double (cw - (style.cellPadX * 2.0))
                 def lines:[MdLine] (this.breakRuns(runs inner))
                 def ty:double (y + style.cellPadY)
+                ; a toned cell is a value, set in the middle of its cell
+                if toned {
+                    ty = (y + ((rowH - (this.linesHeight(lines))) / 2.0))
+                }
                 def i:int 0
                 def n:int (array_length lines)
                 while (i < n) {
@@ -7419,7 +7445,7 @@ class MdLayout {
                     if (cell.align == "right") {
                         lx = (((cx + cw) - style.cellPadX) - ln.width)
                     }
-                    if (cell.align == "center") {
+                    if ((cell.align == "center") || toned) {
                         lx = ((cx + style.cellPadX) + ((inner - ln.width) / 2.0))
                     }
                     this.emitLine(ln lx ty)

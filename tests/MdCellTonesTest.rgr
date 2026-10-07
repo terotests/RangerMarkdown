@@ -1,0 +1,472 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdCellTonesTest.rgr — a table's cells coloured by what they say.
+; ============================================================================
+;
+;   npm run markdown:celltones:test
+;
+; The model first (`MdCellTones`: the mapping read, a cell's text matched,
+; the colours worked out against a dark page and a light one and held to
+; WCAG's 4.5 : 1), then each place a table goes: the slide layout, a table
+; cut across slides, the PPTX through the file, the DOCX and the HTML.
+; ============================================================================
+
+Import "../src/MdCellTones.rgr"
+Import "../src/MdToPptx.rgr"
+Import "../src/MdToDocx.rgr"
+Import "../src/MdToHtml.rgr"
+Import "../src/MdBlock.rgr"
+Import "../src/MdCss.rgr"
+Import "../src/MdContainer.rgr"
+
+class ToneCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print (("    got  " + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+}
+
+class MdCellTonesTest {
+
+    sfn main:void () {
+        def c:ToneCheck (new ToneCheck())
+        print "== MdCellTonesTest =="
+        MdCellTonesTest.parsing(c)
+        MdCellTonesTest.matching(c)
+        MdCellTonesTest.colours(c)
+        MdCellTonesTest.sheet(c)
+        MdCellTonesTest.layout(c)
+        MdCellTonesTest.longTable(c)
+        MdCellTonesTest.pptx(c)
+        MdCellTonesTest.docx(c)
+        MdCellTonesTest.html(c)
+        print ""
+        print ((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    ; Tero's risk table
+    sfn riskTable:string () {
+        def s:string "| Riski | Todennäköisyys | Vaikutus | Toimenpide |\n"
+        s = (s + "|---|---|---|---|\n")
+        s = (s + "| Keskittyminen | Keskisuuri | Suuri | Kasvua myös top 4:n ulkopuolelta |\n")
+        s = (s + "| Avainasiakkaan menetys | Matala | Suuri | Avainasiakasmalli |\n")
+        s = (s + "| Pienasiakkaat | Korkea | Keskisuuri | Kasvuohjelma |\n")
+        s = (s + "| Datan laatu | Keskisuuri | Keskisuuri | Validointi |\n")
+        s = (s + "{cells=\"Suuri=red Korkea=red Keskisuuri=amber Matala=green\"}\n")
+        return s
+    }
+
+    sfn darkCss:string () {
+        return "page { background-color: #1B2421; } document { color: #E8ECEA; } table { border-color: #3A4541; background-color: #2E6B4F; }"
+    }
+
+    sfn hasSub:boolean (s:string sub:string) {
+        return ((indexOf s sub) >= 0)
+    }
+
+    sfn noHash:string (hex:string) {
+        if (((strlen hex) > 0) && ((charAt hex 0) == 35)) {
+            return (to_uppercase (substring hex 1 (strlen hex)))
+        }
+        return (to_uppercase hex)
+    }
+
+    ; ----------------------------------------------------------------------
+    sfn parsing:void (c:ToneCheck) {
+        print "-- the mapping is read --"
+        def t:MdCellTones (MdCellTones.parse("Suuri=red Korkea=red Keskisuuri=amber Matala=green"))
+        c.eqInt("four pairs" (t.count()) 4)
+        c.eqStr("Suuri is red" (t.toneOf("Suuri")) "red")
+        c.eqStr("Matala is green" (t.toneOf("Matala")) "green")
+        def q:MdCellTones (MdCellTones.parse("'Very high'=red, Low=green; \"On hold\"=grey"))
+        c.eqInt("quoted texts, commas and semicolons" (q.count()) 3)
+        c.eqStr("a quoted text with a space" (q.toneOf("very HIGH")) "red")
+        c.eqStr("…double quoted too" (q.toneOf("On hold")) "grey")
+        def again:MdCellTones (MdCellTones.parse("Done=green done=blue"))
+        c.eqInt("a text said twice is one pair" (again.count()) 1)
+        c.eqStr("…the later one wins" (again.toneOf("DONE")) "blue")
+        def bad:MdCellTones (MdCellTones.parse("x =red y= z=nocolour w=#8E44AD loose Ok=GREEN"))
+        c.eqStr("a hex tone" (bad.toneOf("w")) "#8e44ad")
+        c.eqStr("a tone word in capitals" (bad.toneOf("ok")) "green")
+        c.eqStr("a tone that is no colour is skipped" (bad.toneOf("z")) "")
+        c.eqStr("a word without = is skipped" (bad.toneOf("loose")) "")
+        c.eqInt("…and only the good pairs kept" (bad.count()) 2)
+        def css:MdCellTones (MdCellTones.parse("\"A=red B=green\""))
+        c.eqStr("a CSS string's quotes come off" (css.toneOf("B")) "green")
+        c.ok("nothing is empty" ((MdCellTones.parse("")).isEmpty()))
+        c.eqStr("tones have colours" (MdCellTones.hueOf("amber")) (MdCellTones.hueOf("yellow")))
+        c.eqStr("…and grey is gray" (MdCellTones.hueOf("grey")) (MdCellTones.hueOf("gray")))
+        c.eqStr("a CSS name is a colour" (MdCellTonesTest.noHash((MdCellTones.hueOf("purple")))) "800080")
+    }
+
+    sfn matching:void (c:ToneCheck) {
+        print "-- a cell is matched by its whole text --"
+        def t:MdCellTones (MdCellTones.parse("Suuri=red"))
+        c.eqStr("trimmed and case-blind" (t.toneOf("  sUURI ")) "red")
+        c.eqStr("the whole text, not a part of it" (t.toneOf("Suurin")) "")
+        c.eqStr("nor a sentence that has it" (t.toneOf("Suuri riski")) "")
+        def doc:MdNode (MdBlock.parseText((MdCellTonesTest.riskTable())))
+        c.eqInt("the attribute line is not a row" (doc.childCount()) 1)
+        def table:MdNode (doc.childAt(0))
+        c.eqStr("…it is the table's" table.kind "table")
+        c.eqInt("…which keeps its five rows" (table.childCount()) 5)
+        def tones:MdCellTones (MdCellTones.forTable(table ""))
+        def row1:MdNode (table.childAt(1))
+        c.eqStr("Keskisuuri is amber" (tones.toneOfCell((row1.childAt(1)))) "amber")
+        c.eqStr("Suuri is red" (tones.toneOfCell((row1.childAt(2)))) "red")
+        c.eqStr("a sentence is not toned" (tones.toneOfCell((row1.childAt(3)))) "")
+        def boldDoc:MdNode (MdBlock.parseText("| A |\n|---|\n| **Suuri** |\n{cells=\"Suuri=red\"}\n"))
+        def bt:MdNode (boldDoc.childAt(0))
+        def bTones:MdCellTones (MdCellTones.forTable(bt ""))
+        c.eqStr("the text, not the markup" (bTones.toneOfCell(((bt.childAt(1)).childAt(0)))) "red")
+        ; the header names the column; it is never a value
+        def head:MdNode (MdBlock.parseText("| Suuri | B |\n|---|---|\n| Suuri | x |\n{cells=\"Suuri=red\"}\n"))
+        def ht:MdNode (head.childAt(0))
+        def hTones:MdCellTones (MdCellTones.forTable(ht ""))
+        c.eqStr("the header is never matched" (hTones.toneOfCell(((ht.childAt(0)).childAt(0)))) "")
+        c.eqStr("…the same word below it is" (hTones.toneOfCell(((ht.childAt(1)).childAt(0)))) "red")
+        ; a theme's mapping, and the table's own over it
+        def both:MdCellTones (MdCellTones.forTable(table "Suuri=blue Done=green"))
+        c.eqStr("the table's own wins" (both.toneOf("Suuri")) "red")
+        c.eqStr("…the theme's adds" (both.toneOf("done")) "green")
+    }
+
+    ; Every tone, on a dark page and a light one: the fill is a tint of the
+    ; page (dark stays dark, light stays light, not the page itself), the
+    ; text reads on it at 4.5 : 1 and keeps its hue.
+    sfn colours:void (c:ToneCheck) {
+        print "-- the colours read on dark and light paper --"
+        def papers:[string] ([] _:string ("#1B2421" "#0D1117" "#000000" "#FFFFFF" "#F5F0E6" "#2B3A55"))
+        def toneList:[string] ([] _:string ("red" "amber" "green" "blue" "grey" "#8E44AD"))
+        def p:int 0
+        while (p < (array_length papers)) {
+            def paper:string (itemAt papers p)
+            def dark:boolean (MdCellTones.isDark(paper))
+            def k:int 0
+            while (k < (array_length toneList)) {
+                def tone:string (itemAt toneList k)
+                def fill:string (MdCellTones.fillOf(tone paper))
+                def ink:string (MdCellTones.inkOf(tone paper))
+                def where:string (tone + " on " + paper)
+                c.ok((where + ": text reads on the fill (>= 4.5)") ((MdContainer.contrast(ink fill)) >= 4.5))
+                c.ok((where + ": the fill is not the page") ((MdCellTonesTest.noHash(fill)) != (MdCellTonesTest.noHash(paper))))
+                c.ok((where + ": the fill is muted, near the page") ((MdContainer.contrast(fill paper)) < 1.6))
+                c.ok((where + ": dark page, dark fill; light, light") ((MdCellTones.isDark(fill)) == dark))
+                k = (k + 1)
+            }
+            p = (p + 1)
+        }
+        ; the hue survives: red text is red, green text is green
+        def rInk:EVGColor (EVGColor.parse((MdCellTones.inkOf("red" "#1B2421"))))
+        c.ok("red text on dark paper is red" ((rInk.red()) > ((rInk.green()) + 40)))
+        def gInk:EVGColor (EVGColor.parse((MdCellTones.inkOf("green" "#FFFFFF"))))
+        c.ok("green text on white is green" ((gInk.green()) > ((gInk.red()) + 30)))
+        c.ok("on dark paper the text is lighter than its fill" ((MdContainer.luminance((MdCellTones.inkOf("red" "#1B2421")))) > (MdContainer.luminance((MdCellTones.fillOf("red" "#1B2421"))))))
+        c.ok("on light paper darker" ((MdContainer.luminance((MdCellTones.inkOf("red" "#FFFFFF")))) < (MdContainer.luminance((MdCellTones.fillOf("red" "#FFFFFF"))))))
+        ; the page a table stands on
+        c.eqStr("the page's own colour" (MdCellTonesTest.noHash((MdCellTones.paperOf("#1b2421" "#ffffff")))) "1B2421")
+        c.ok("none: light text means a dark page" (MdCellTones.isDark((MdCellTones.paperOf("" "#EEEEEE")))))
+        c.eqStr("none: dark text means a white page" (MdCellTonesTest.noHash((MdCellTones.paperOf("" "#1f2328")))) "FFFFFF")
+        c.eqStr("transparent is none" (MdCellTonesTest.noHash((MdCellTones.paperOf("transparent" "#1f2328")))) "FFFFFF")
+    }
+
+    sfn sheet:void (c:ToneCheck) {
+        print "-- a theme says it for every table --"
+        def st:MdStyle (new MdStyle())
+        def css:MdCss (new MdCss())
+        css.addStyleSheet("table { cell-tones: \"Done=green Late=red\"; }")
+        css.applyTo(st)
+        def t:MdCellTones (MdCellTones.parse(st.tableCellTones))
+        c.eqStr("table { cell-tones } is read" (t.toneOf("late")) "red")
+        def known:boolean true
+        def i:int 0
+        while (i < (css.unsupportedCount())) {
+            if ((css.unsupportedAt(i)) == "cell-tones") { known = false }
+            i = (i + 1)
+        }
+        c.ok("…and not reported as unsupported" known)
+        c.ok("…and is in the style's fingerprint" (MdCellTonesTest.hasSub((st.fingerprint()) "Done=green")))
+    }
+
+    ; ----------------------------------------------------------------------
+    sfn slides:MdLayout (src:string css:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        def c:MdCss (new MdCss())
+        c.addStyleSheet(css)
+        c.applyTo(l.style)
+        l.setStyleSheet(css)
+        l.applyMeta(doc)
+        l.applySlideMeta(doc)
+        l.setDocSource(src)
+        l.layoutSlides(doc)
+        return l
+    }
+
+    sfn fills:int (l:MdLayout fill:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 1) && ((MdCellTonesTest.noHash(b.fill)) == (MdCellTonesTest.noHash(fill)))) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn textBox:MdBox (l:MdLayout text:string) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 0) && ((trim b.text) == text)) {
+                return b
+            }
+            i = (i + 1)
+        }
+        def none:MdBox (new MdBox())
+        none.kind = -1
+        return none
+    }
+
+    ; the filled box a text box sits in
+    sfn under:MdBox (l:MdLayout t:MdBox) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 1) && (b.page == t.page)) {
+                if (((t.x >= b.x) && (t.x < (b.x + b.w))) && ((t.y >= b.y) && (t.y < (b.y + b.h)))) {
+                    return b
+                }
+            }
+            i = (i + 1)
+        }
+        def none:MdBox (new MdBox())
+        none.kind = -1
+        return none
+    }
+
+    sfn layout:void (c:ToneCheck) {
+        print "-- the slide draws the tint under a matched cell --"
+        def l:MdLayout (MdCellTonesTest.slides(("# Riskit\n\n" + (MdCellTonesTest.riskTable())) (MdCellTonesTest.darkCss())))
+        def paper:string (l.tablePaper())
+        c.eqStr("the table stands on the page's colour" (MdCellTonesTest.noHash(paper)) "1B2421")
+        c.eqInt("three red cells, three tints" (MdCellTonesTest.fills(l (MdCellTones.fillOf("red" paper)))) 3)
+        c.eqInt("four amber" (MdCellTonesTest.fills(l (MdCellTones.fillOf("amber" paper)))) 4)
+        c.eqInt("one green" (MdCellTonesTest.fills(l (MdCellTones.fillOf("green" paper)))) 1)
+        def t:MdBox (MdCellTonesTest.textBox(l "Matala"))
+        c.ok("Matala is drawn" (t.kind >= 0))
+        c.ok("…bold" t.bold)
+        c.eqStr("…in green's ink" (MdCellTonesTest.noHash(t.color)) (MdCellTonesTest.noHash((MdCellTones.inkOf("green" paper)))))
+        def cell:MdBox (MdCellTonesTest.under(l t))
+        c.eqStr("…on green's tint" (MdCellTonesTest.noHash(cell.fill)) (MdCellTonesTest.noHash((MdCellTones.fillOf("green" paper)))))
+        def mid:double (cell.x + (cell.w / 2.0))
+        def tmid:double (t.x + (t.w / 2.0))
+        c.ok("…centred across its cell" ((fabs (mid - tmid)) < 1.0))
+        def vmid:double (cell.y + (cell.h / 2.0))
+        def tv:double (t.y + (t.h / 2.0))
+        c.ok("…and down it" ((fabs (vmid - tv)) < 2.0))
+        def plain:MdBox (MdCellTonesTest.textBox(l "Validointi"))
+        c.ok("an unmatched cell is not bold" (plain.bold == false))
+        def h:MdBox (MdCellTonesTest.textBox(l "Vaikutus"))
+        def hc:MdBox (MdCellTonesTest.under(l h))
+        c.eqStr("the header keeps the header's colour" (MdCellTonesTest.noHash(hc.fill)) "2E6B4F")
+        ; the same table on a white page: tints of white
+        def w:MdLayout (MdCellTonesTest.slides(("# Riskit\n\n" + (MdCellTonesTest.riskTable())) ""))
+        c.eqInt("on white, three light red tints" (MdCellTonesTest.fills(w (MdCellTones.fillOf("red" "#FFFFFF")))) 3)
+        ; no mapping, no tints
+        def none:MdLayout (MdCellTonesTest.slides("| A | B |\n|---|---|\n| Suuri | Matala |\n" ""))
+        c.eqInt("no mapping, nothing toned" (MdCellTonesTest.fills(none (MdCellTones.fillOf("red" "#FFFFFF")))) 0)
+    }
+
+    sfn longTable:void (c:ToneCheck) {
+        print "-- a table cut across slides keeps its tones --"
+        def s:string "# Pitkä\n\n| Nro | Tila |\n|---|---|\n"
+        def i:int 0
+        def reds:int 0
+        while (i < 40) {
+            def word:string "Valmis"
+            if ((i % 3) == 0) {
+                word = "Myöhässä"
+                reds = (reds + 1)
+            }
+            s = (s + "| " + (to_string i) + " | " + word + " |\n")
+            i = (i + 1)
+        }
+        s = (s + "{cells=\"Myöhässä=red Valmis=green\"}\n")
+        def l:MdLayout (MdCellTonesTest.slides(s ""))
+        c.ok("the table runs over more than one slide" (l.pageCount > 1))
+        c.eqInt("every late row is red, on every slide" (MdCellTonesTest.fills(l (MdCellTones.fillOf("red" "#FFFFFF")))) reds)
+        c.eqInt("…and every done row green" (MdCellTonesTest.fills(l (MdCellTones.fillOf("green" "#FFFFFF")))) (40 - reds))
+        ; the header said again on each slide is never toned
+        def p:int 0
+        def lastPage:int 0
+        def k:int 0
+        while (k < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes k)
+            if (b.page > lastPage) { lastPage = b.page }
+            k = (k + 1)
+        }
+        def tintedOnLast:int 0
+        k = 0
+        while (k < (array_length l.boxes)) {
+            def b2:MdBox (itemAt l.boxes k)
+            if ((b2.page == lastPage) && (b2.kind == 1)) {
+                def nf:string (MdCellTonesTest.noHash(b2.fill))
+                if ((nf == (MdCellTonesTest.noHash((MdCellTones.fillOf("red" "#FFFFFF"))))) || (nf == (MdCellTonesTest.noHash((MdCellTones.fillOf("green" "#FFFFFF")))))) {
+                    tintedOnLast = (tintedOnLast + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        c.ok("the last slide's rows are toned too" (tintedOnLast > 0))
+    }
+
+    ; ----------------------------------------------------------------------
+    sfn tableShape:PptxShape (d:PptxDeck) {
+        def s:int 0
+        while (s < (d.slideCount())) {
+            def sl:PptxSlideRef (d.slideAt(s))
+            def k:int 0
+            while (k < (sl.shapeCount())) {
+                def m:PptxShape ((sl.shapeAt(k)).model())
+                if ((array_length m.tableCells) > 0) { return m }
+                k = (k + 1)
+            }
+            s = (s + 1)
+        }
+        def none:PptxShape (new PptxShape())
+        return none
+    }
+
+    sfn cellRun:PptxTextRun (cell:PptxTableCell) {
+        def p:PptxParagraph (itemAt cell.body.paragraphs 0)
+        return (itemAt p.runs 0)
+    }
+
+    sfn pptx:void (c:ToneCheck) {
+        print "-- the PPTX cell is filled --"
+        def src:string ("# Riskit\n\n" + (MdCellTonesTest.riskTable()))
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        def css:MdCss (new MdCss())
+        css.addStyleSheet((MdCellTonesTest.darkCss()))
+        css.applyTo(l.style)
+        l.setStyleSheet((MdCellTonesTest.darkCss()))
+        l.applyMeta(doc)
+        l.applySlideMeta(doc)
+        l.setDocSource(src)
+        l.layoutSlides(doc)
+        def maker:MdToPptx (new MdToPptx())
+        def made:PptxDeck (maker.deck(doc l))
+        def back:PptxDeck (PptxApi.open((made.save())))
+        def decks:[PptxDeck] ([] _:PptxDeck (made back))
+        def names:[string] ([] _:string ("made" "through the file"))
+        def paper:string "#1B2421"
+        def di:int 0
+        while (di < 2) {
+            def m:PptxShape (MdCellTonesTest.tableShape((itemAt decks di)))
+            def at:string (" (" + (itemAt names di) + ")")
+            c.eqInt(("a 5 x 4 table" + at) (array_length m.tableCells) 20)
+            if ((array_length m.tableCells) == 20) {
+                ; row 1: Keskittyminen | Keskisuuri | Suuri | …
+                def amber:PptxTableCell (itemAt m.tableCells 5)
+                c.eqStr(("Keskisuuri's fill is amber's tint" + at) (MdCellTonesTest.noHash(amber.fill.srgb)) (MdCellTonesTest.noHash((MdCellTones.fillOf("amber" paper)))))
+                def red:PptxTableCell (itemAt m.tableCells 6)
+                c.eqStr(("Suuri's fill is red's tint" + at) (MdCellTonesTest.noHash(red.fill.srgb)) (MdCellTonesTest.noHash((MdCellTones.fillOf("red" paper)))))
+                def rr:PptxTextRun (MdCellTonesTest.cellRun(red))
+                c.ok(("…its text bold" + at) rr.bold)
+                c.eqStr(("…in red's ink" + at) (MdCellTonesTest.noHash(rr.color.srgb)) (MdCellTonesTest.noHash((MdCellTones.inkOf("red" paper)))))
+                c.eqStr(("…centred" + at) red.align "ctr")
+                c.eqStr(("…in the middle" + at) red.anchor "ctr")
+                def plain:PptxTableCell (itemAt m.tableCells 7)
+                c.ok(("a sentence cell has no tint" + at) ((MdCellTonesTest.noHash(plain.fill.srgb)) != (MdCellTonesTest.noHash((MdCellTones.fillOf("red" paper))))))
+                def head:PptxTableCell (itemAt m.tableCells 2)
+                c.eqStr(("the header keeps the header colour" + at) (MdCellTonesTest.noHash(head.fill.srgb)) "2E6B4F")
+            }
+            di = (di + 1)
+        }
+    }
+
+    sfn docx:void (c:ToneCheck) {
+        print "-- the Word cell is shaded --"
+        def node:MdNode (MdBlock.parseText((MdCellTonesTest.riskTable())))
+        def maker:MdToDocx (new MdToDocx())
+        def st:MdStyle (new MdStyle())
+        def d:RichDocument (maker.build(node st))
+        def t:DocumentTable (itemAt d.tables 0)
+        def r1:DocTableRow (itemAt t.rows 1)
+        def red:DocTableCell (itemAt r1.cells 2)
+        c.eqStr("Suuri is shaded red's tint" red.fillHex (MdCellTonesTest.noHash((MdCellTones.fillOf("red" "#FFFFFF")))))
+        def p:Paragraph (itemAt red.paragraphs 0)
+        c.ok("…bold" (d.paraHasBold(p)))
+        c.eqInt("…centred" p.align 1)
+        def sp:TextSpan (itemAt p.spans 0)
+        c.eqStr("…in red's ink" (MdCellTonesTest.noHash(sp.colorHex)) (MdCellTonesTest.noHash((MdCellTones.inkOf("red" "#FFFFFF")))))
+        def plain:DocTableCell (itemAt r1.cells 3)
+        c.eqInt("a sentence is not shaded" (strlen plain.fillHex) 0)
+        def head:DocTableRow (itemAt t.rows 0)
+        def h2:DocTableCell (itemAt head.cells 2)
+        c.eqStr("the header keeps the header shade" (MdCellTonesTest.noHash(h2.fillHex)) (MdCellTonesTest.noHash(st.tableHeadBackground)))
+    }
+
+    sfn html:void (c:ToneCheck) {
+        print "-- the HTML cell carries its tone for both pages --"
+        def doc:MdNode (MdBlock.parseText((MdCellTonesTest.riskTable())))
+        def h:string (MdToHtml.render(doc))
+        c.ok("a toned cell is marked" (MdCellTonesTest.hasSub(h "<td class=\"tone\" data-tone=\"red\"")))
+        def fl:string (MdCellTones.fillOf("red" "#FFFFFF"))
+        def fd:string (MdCellTones.fillOf("red" "#0D1117"))
+        c.ok("…with its tint for a light page and a dark one" (MdCellTonesTest.hasSub(h ("background:light-dark(" + fl + "," + fd + ")"))))
+        c.ok("…its ink for both" (MdCellTonesTest.hasSub(h ("color:light-dark(" + (MdCellTones.inkOf("red" "#FFFFFF")) + "," + (MdCellTones.inkOf("red" "#0D1117")) + ")"))))
+        c.ok("…bold and centred" (MdCellTonesTest.hasSub(h "font-weight:700;text-align:center")))
+        c.ok("the header is not" (MdCellTonesTest.hasSub(h "<th>Vaikutus</th>")))
+        c.ok("a sentence is not" (MdCellTonesTest.hasSub(h "<td>Validointi</td>")))
+        def plain:string (MdToHtml.render((MdBlock.parseText("| A |\n|---|\n| Suuri |\n"))))
+        c.ok("no mapping, the spec's HTML" (MdCellTonesTest.hasSub(plain "<td>Suuri</td>")))
+        def r:MdToHtml (new MdToHtml())
+        r.cellTones = "Suuri=green"
+        def themed:string (r.node((MdBlock.parseText("| A |\n|---|\n| Suuri |\n"))))
+        c.ok("a theme's mapping reaches the HTML" (MdCellTonesTest.hasSub(themed "data-tone=\"green\"")))
+    }
+}

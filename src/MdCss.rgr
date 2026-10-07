@@ -402,7 +402,11 @@ class MdCss {
         style.cellPadX = (this.len(got "padding-left" style.cellPadX))
         style.cellPadY = (this.len(got "padding-top" style.cellPadY))
         style.tableSize = (this.size(got "font-size" style.tableSize))
-        this.rest(got "border-color,background-color,padding-left,padding-top,font-size")
+        ; cells coloured by their text, `MdCellTones`' mapping
+        if (got.has("cell-tones")) {
+            style.tableCellTones = (trim (this.raw(got "cell-tones")))
+        }
+        this.rest(got "border-color,background-color,padding-left,padding-top,font-size,cell-tones")
     }
 
     ; `img { justify-content: center; max-height: 300px }`
