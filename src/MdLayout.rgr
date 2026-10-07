@@ -3675,6 +3675,7 @@ class MdLayout {
                 }
                 this.dropSpillExcess((p + 1))
                 this.dropContinuation((p + 1))
+                this.pagesMovedUp(p)
                 page = (savedPage - 1)
                 pageCount = (savedPageCount - 1)
                 cursorY = savedCursor
@@ -6582,6 +6583,34 @@ class MdLayout {
     fn spillExcessAt:double (p:int) {
         if ((p < 0) || (p >= (array_length spillExcess))) { return 0.0 }
         return (itemAt spillExcess p)
+    }
+
+    ; Slide p + 1 was folded into p (`shrinkSlide`): the pages noted for
+    ; the slides after p move up one, as their boxes did. A hidden title
+    ; written after the shrunk slide was still noted on the page below its
+    ; own, so it named the slide before it and its slide began at the
+    ; first thing drawn instead of at its heading (deleting that slide by
+    ; number left the heading behind).
+    fn pagesMovedUp:void (p:int) {
+        MdLayout.shiftAfter(hiddenPage p)
+        MdLayout.shiftAfter(headPage p)
+        MdLayout.shiftAfter(namedPage p)
+        MdLayout.shiftAfter(overlayPage p)
+        MdLayout.shiftAfter(noteFirstPage p)
+        if (hiddenOnPage > p) {
+            hiddenOnPage = (hiddenOnPage - 1)
+        }
+    }
+
+    sfn shiftAfter:void (pages:[int] p:int) {
+        def i:int 0
+        while (i < (array_length pages)) {
+            def v:int (itemAt pages i)
+            if (v > p) {
+                set_at pages i (v - 1)
+            }
+            i = (i + 1)
+        }
     }
 
     ; the slide `p` went: what was recorded for the slides after it moves up

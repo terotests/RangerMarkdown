@@ -473,6 +473,13 @@ class MdNode {
         if (kind == "math_block") { return literal }
         if (kind == "softbreak") { return " " }
         if (kind == "linebreak") { return " " }
+        ; `<br>` in a title breaks the line where it is drawn; in the
+        ; title's text it is a space, not two words run together
+        ; ("<small>3 / 4</small><br>Beta" is "3 / 4 Beta", not "3 / 4Beta")
+        if (kind == "html_inline") {
+            if (MdNode.isBrTag(literal)) { return " " }
+            return ""
+        }
         def out:string ""
         def i:int 0
         def n:int (array_length children)
@@ -562,6 +569,15 @@ class MdNode {
             i = (i + 1)
         }
         return (out + pad + "</" + name + ">\n")
+    }
+
+    ; <br>, <br/>, <br /> and <BR …>
+    sfn isBrTag:boolean (tag:string) {
+        def t:string (to_lowercase (trim tag))
+        if ((strlen t) < 4) { return false }
+        if ((substring t 0 3) != "<br") { return false }
+        def c:int (charAt t 3)
+        return ((c == 62) || ((c == 47) || ((c == 32) || ((c == 9) || (c == 10)))))
     }
 
     sfn spaces:string (n:int) {

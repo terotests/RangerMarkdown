@@ -309,6 +309,12 @@ class MarkdownTest {
         ; percent-encoding, and `&` in an attribute
         this.eq("url encode" (this.html("[a](/x y)\n")) "<p>[a](/x y)</p>\n")
         this.eq("url amp" (this.html("[a](/x?b&c)\n")) "<p><a href=\"/x?b&amp;c\">a</a></p>\n")
+        ; a heading's text (a slide's title): <br> is a space between the
+        ; words, other tags are left out
+        def hd:MdNode (MdBlock.parseText("## <small>3 / 4</small><br>Beta\n"))
+        this.eq("<br> in a heading's text" ((hd.childAt(0)).plainText()) "3 / 4 Beta")
+        def hd2:MdNode (MdBlock.parseText("# One<br/>two<BR >three\n"))
+        this.eq("<br/> and <BR >" ((hd2.childAt(0)).plainText()) "One two three")
     }
 
     fn gfm:void () {
