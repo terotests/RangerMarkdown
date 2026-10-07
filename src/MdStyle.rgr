@@ -540,6 +540,12 @@ class MdTypo {
     Constructor () {
     }
 
+    fn copy:MdTypo () {
+        def t:MdTypo (new MdTypo())
+        t.over(this)
+        return t
+    }
+
     fn isEmpty:boolean () {
         return ((((weight < 0) && (italic < 0)) && ((strlen transform) == 0)) && (spacingSet == false))
     }

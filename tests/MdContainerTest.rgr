@@ -55,6 +55,7 @@ class MdContainerTest {
         MdContainerTest.painting(c)
         MdContainerTest.headings(c)
         MdContainerTest.shadows(c)
+        MdContainerTest.sheetBlocks(c)
         print ""
         print ((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed))
         if (c.failed == 0) {
@@ -185,6 +186,65 @@ class MdContainerTest {
         def ok:MdLayout (MdContainerTest.laid("## Levy {container=box}\n" "h2 { color: #102030 } container { background-color: #ffffff }"))
         def hk:MdBox (MdContainerTest.textBox(ok "Levy"))
         c.eqStr("…a heading that reads on its plate keeps its colour" hk.color "#102030")
+    }
+
+    ; what a sheet says about a block, drawn: a class's box, typography, a
+    ; quote's band, the header row's text
+    sfn sheetBlocks:void (c:ContainerCheck) {
+        def boxed:MdLayout (MdContainerTest.laid("Before\n\nLaatikko\n{.laatikko}\n\nAfter\n" ".laatikko { background-color: #2b3a67; padding: 20pt; border-radius: 12pt; border-color: #7ee0ff; border-width: 2pt }"))
+        def pi:int (MdContainerTest.plateIndex(boxed))
+        c.ok("a class's background is a plate with no container=" (pi >= 0))
+        if (pi >= 0) {
+            def plate:MdBox (itemAt boxed.boxes pi)
+            c.eqStr("…in its colour" plate.fill "#2B3A67")
+            c.ok("…with its radius" (plate.radius == 12.0))
+            def t:MdBox (MdContainerTest.textBox(boxed "Laatikko"))
+            c.ok("…its padding round the text" ((t.y - plate.y) >= 19.5))
+            c.ok("…and the text kept readable on it" (t.color != "#1f2328"))
+            def edge:MdBox (itemAt boxed.boxes (pi + 1))
+            c.ok("…a border round it" ((edge.kind == 2) && ((edge.stroke == "#7EE0FF") && (edge.strokeWidth == 2.0))))
+            c.ok("…rounded as the plate" (edge.radius == 12.0))
+        }
+        def plain:MdLayout (MdContainerTest.laid("Laatikko\n{.laatikko}\n" ".laatikko { font-size: 14pt }"))
+        c.ok("a class with no box gives none" ((MdContainerTest.plateIndex(plain)) < 0))
+        ; typography
+        def ty:MdLayout (MdContainerTest.laid("Kicker text\n{.kicker}\n\nPlain text\n" ".kicker { text-transform: uppercase; letter-spacing: 3pt; font-weight: bold }"))
+        def k:MdBox (MdContainerTest.textBox(ty "KICKER TEXT"))
+        c.ok("text-transform: uppercase" (k.w > 0.0))
+        c.ok("…font-weight: bold" k.bold)
+        c.ok("…letter-spacing on the box" (k.spacing == 3.0))
+        def loose:MdLayout (MdContainerTest.laid("KICKER TEXT\n" ""))
+        def k2:MdBox (MdContainerTest.textBox(loose "KICKER TEXT"))
+        c.ok("…and measured wider by it" (k.w > (k2.w + 20.0)))
+        def p:MdBox (MdContainerTest.textBox(ty "Plain text"))
+        c.ok("…the next block is not" ((p.bold == false) && (p.spacing == 0.0)))
+        def hs:MdLayout (MdContainerTest.laid("# Title\n\n## Sub\n" "h1 { text-transform: uppercase } heading { font-weight: normal }"))
+        def ht:MdBox (MdContainerTest.textBox(hs "TITLE"))
+        c.ok("h1 { text-transform }" (ht.w > 0.0))
+        def sub:MdBox (MdContainerTest.textBox(hs "Sub"))
+        c.ok("heading { font-weight: normal }" (sub.bold == false))
+        def li:MdLayout (MdContainerTest.laid("- one\n- two\n" "li { font-style: italic }"))
+        def lb:MdBox (MdContainerTest.textBox(li "one"))
+        c.ok("li { font-style }" lb.italic)
+        def fam:MdLayout (MdContainerTest.laid("Serif\n{.serif}\n" ".serif { font-family: Droid Serif }"))
+        def fb:MdBox (MdContainerTest.textBox(fam "Serif"))
+        c.eqStr("a class's font-family" fb.family "Droid Serif")
+        ; a quote's band, under its text
+        def q:MdLayout (MdContainerTest.laid("> Quoted\n" "blockquote { background-color: #2a1530 }"))
+        def band:int -1
+        for q.boxes qb:MdBox qi {
+            if ((band < 0) && ((qb.kind == 1) && (qb.fill == "#2A1530"))) {
+                band = qi
+            }
+        }
+        c.ok("blockquote { background-color } draws a band" (band >= 0))
+        c.ok("…under the text" (band < (MdContainerTest.indexOfText(q "Quoted"))))
+        ; the header row's text
+        def tb:MdLayout (MdContainerTest.laid("| A | B |\n|---|---|\n| 1 | 2 |\n" "th { background-color: #ff3d7f; color: #000000 }"))
+        def ta:MdBox (MdContainerTest.textBox(tb "A"))
+        def t1:MdBox (MdContainerTest.textBox(tb "1"))
+        c.eqStr("th { color }" ta.color "#000000")
+        c.eqStr("…the body cells keep theirs" t1.color "#1f2328")
     }
 
     sfn textBox:MdBox (l:MdLayout t:string) {

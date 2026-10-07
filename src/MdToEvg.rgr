@@ -209,6 +209,7 @@ class MdToEvg {
             t.text = box.text
             t.fontSize = box.size
             t.fontFamily = (layout.style.faceFor(box.family box.bold box.italic))
+            t.letterSpacing = box.spacing
             this.tint(t box.color)
             push out.cmds t
             return
@@ -679,6 +680,7 @@ class MdToEvg {
         ; its own box, which is both wasted work and a chance to disagree.
         t.whiteSpace = "nowrap"
         t.textContent = b.text
+        t.letterSpacing = b.spacing
         t.fontSize = (EVGUnit.px(b.size))
         t.inheritedFontSize = b.size
         t.lineHeight = 1.0
