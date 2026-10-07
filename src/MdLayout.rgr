@@ -751,9 +751,158 @@ class MdLayout {
     }
 
     ; What the sheet says about one block. Empty when there is no sheet,
-    ; which is the common case and costs one selector match.
+    ; which is the common case and costs one selector match. Under a slide
+    ; or section, as being under it (`#intro .lead`).
     fn styleOf:CssComputed (node:MdNode) {
-        return (sheet.resolve(node))
+        return (sheet.resolveIn(node scopeCtx))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A slide's own rules
+    ; ----------------------------------------------------------------------
+
+    ; At the start of a layout: no heading yet, and the style's look as the
+    ; sheet and the front matter left it, to come back to.
+    fn startScopes:void () {
+        def none:[MdNode]
+        scopeHeads = none
+        def noCtx@(optional):CssNode
+        scopeCtx = noCtx
+        clear paperFrom
+        clear paperColour
+        clear paperPicture
+        paperPending = false
+        scoped = sheet.hasScoped
+        if scoped {
+            baseLook = (style.look())
+        }
+    }
+
+    ; …and at its end, the look put back: a host reads the style after a
+    ; layout and must not find the last slide's colours in it.
+    fn endScopes:void () {
+        if scoped {
+            style.setLook(baseLook)
+        }
+    }
+
+    ; A heading of the document begins: the blocks after it are under it
+    ; (and under the ones above it of a lower level).
+    fn enterHeading:void (h:MdNode) {
+        if ((h.level < 1) || (h.level > 6)) {
+            return
+        }
+        while ((array_length scopeHeads) < 7) {
+            push scopeHeads (new MdNode())
+        }
+        set_at scopeHeads h.level h
+        def d:int (h.level + 1)
+        while (d <= 6) {
+            set_at scopeHeads d (new MdNode())
+            d = (d + 1)
+        }
+        this.enterScope()
+    }
+
+    ; The headings block `i` of `doc` is under, found by walking back: for a
+    ; block laid out again on its own (a slide shrunk to fit).
+    fn scopeAtBlock:void (doc:MdNode i:int) {
+        def heads:[MdNode]
+        while ((array_length heads) < 7) {
+            push heads (new MdNode())
+        }
+        def limit:int 7
+        def j:int i
+        while ((j >= 0) && (limit > 1)) {
+            def c:MdNode (doc.childAt(j))
+            if ((c.kind == "heading") && (c.level < limit)) {
+                set_at heads c.level c
+                limit = c.level
+            }
+            j = (j - 1)
+        }
+        scopeHeads = heads
+        this.enterScope()
+    }
+
+    fn enterScope:void () {
+        scopeCtx = (MdCss.scopeOf(scopeHeads))
+        if (scoped == false) {
+            return
+        }
+        style.setLook(baseLook)
+        sheet.applyLook(style scopeCtx)
+        ; the page's own colour from here on, when it is not the sheet's
+        def n:int (array_length paperFrom)
+        def last:string (style.pageBackground + "|" + style.pageBackgroundImage)
+        def was:string ""
+        if (n > 0) {
+            was = ((itemAt paperColour (n - 1)) + "|" + (itemAt paperPicture (n - 1)))
+        } {
+            was = ((itemAt baseLook 22) + "|" + (itemAt baseLook 23))
+        }
+        if (last != was) {
+            if (paperPending && (n > 0)) {
+                set_at paperColour (n - 1) style.pageBackground
+                set_at paperPicture (n - 1) style.pageBackgroundImage
+            } {
+                push paperFrom page
+                push paperColour style.pageBackground
+                push paperPicture style.pageBackgroundImage
+            }
+            paperPending = true
+        }
+    }
+
+    ; The heading that began a scope is on page `p`: so is the scope's
+    ; colour, from there on.
+    fn settlePaper:void (p:int) {
+        if (paperPending == false) {
+            return
+        }
+        paperPending = false
+        def n:int (array_length paperFrom)
+        if (n == 0) {
+            return
+        }
+        set_at paperFrom (n - 1) p
+        ; one before it on the same page is overruled by it
+        if ((n > 1) && ((itemAt paperFrom (n - 2)) == p)) {
+            def keepC:string (itemAt paperColour (n - 1))
+            def keepP:string (itemAt paperPicture (n - 1))
+            remove_index paperFrom (n - 1)
+            remove_index paperColour (n - 1)
+            remove_index paperPicture (n - 1)
+            set_at paperColour (n - 2) keepC
+            set_at paperPicture (n - 2) keepP
+        }
+    }
+
+    ; The colour of page `p`: the sheet's, or the one a slide's own rules
+    ; gave it (`.dark page { background-color }`).
+    fn paperOf:string (p:int) {
+        def out:string style.pageBackground
+        def i:int 0
+        while (i < (array_length paperFrom)) {
+            if ((itemAt paperFrom i) <= p) {
+                out = (itemAt paperColour i)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; …and its picture
+    fn pictureOf:string (p:int) {
+        def out:string style.pageBackgroundImage
+        def i:int 0
+        while (i < (array_length paperFrom)) {
+            if ((itemAt paperFrom i) <= p) {
+                out = (itemAt paperPicture i)
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     ; Boxes measured with another style are boxes of another document — and
@@ -782,6 +931,7 @@ class MdLayout {
         boxIndexReady = false
         pageIndexReady = false
         this.resetHeadings()
+        this.startScopes()
         paginate = false
         page = 0
         pageCount = 1
@@ -793,6 +943,7 @@ class MdLayout {
         this.startNotes(doc)
         this.layoutBody(doc)
         this.placeNotesAtEnd()
+        this.endScopes()
         documentHeight = (cursorY + style.margin)
     }
 
@@ -851,6 +1002,7 @@ class MdLayout {
         boxIndexReady = false
         pageIndexReady = false
         this.resetHeadings()
+        this.startScopes()
         paginate = true
         page = 0
         pageCount = 1
@@ -881,6 +1033,7 @@ class MdLayout {
             this.growSlides(doc)
         }
         this.placeNotesPaged()
+        this.endScopes()
         this.emitFurniture()
         if slides {
             this.mirrorBook()
@@ -1527,6 +1680,8 @@ class MdLayout {
         boxIndexReady = false
         pageIndexReady = false
         this.resetHeadings()
+        this.endScopes()
+        this.startScopes()
         page = 0
         pageCount = 1
         cursorY = contentTop
@@ -1547,6 +1702,9 @@ class MdLayout {
     fn armCache:boolean (doc:MdNode) {
         cacheOn = false
         if paginate { return false }
+        ; a block's boxes depend on the slide it is under, which its own
+        ; source does not say
+        if sheet.hasScoped { return false }
         if style.wantToc { return false }
         if ((strlen docSource) == 0) { return false }
         if (doc.readingSig != cacheReading) {
@@ -1819,6 +1977,9 @@ class MdLayout {
                     }
                 }
             }
+            if (child.kind == "heading") {
+                this.enterHeading(child)
+            }
             ; Whether this block opens its slide: a heading that does is the
             ; slide's title, and what comes right under it is fitted to it
             ; (see `fitSlideTitle`) rather than spilled onto a slide of its own.
@@ -1906,6 +2067,23 @@ class MdLayout {
     def typo:MdTypo (new MdTypo())
     def typoDepth:int 0
     def blockFamily:string ""
+
+    ; The headings the block being laid out is under, by level (1…6), as
+    ; the sheet sees them (`MdCss.scopeOf`): `#intro h2`, `.dark page`. The
+    ; style's look as the sheet left it is kept in `baseLook`, and a slide's
+    ; own rules are laid over it while that slide is laid out (`enterScope`).
+    def scopeHeads:[MdNode]
+    def scopeCtx@(optional):CssNode
+    def baseLook:[string]
+    def scoped:boolean false
+    ; the page's colour and picture from the page a scope began on, when a
+    ; slide's rules changed them (`paperOf`, `pictureOf`)
+    def paperFrom:[int]
+    def paperColour:[string]
+    def paperPicture:[string]
+    ; a mark whose page is the one its heading lands on, not yet known
+    ; (a slide break starts the new page at the heading's first line)
+    def paperPending:boolean false
 
     ; --- footnotes (see "Footnotes" below) --------------------------------
     ; the document whose `notes` are drawn; empty: none
@@ -3266,6 +3444,12 @@ class MdLayout {
         }
         typo = nt
         typoDepth = (typoDepth + 1)
+        ; `p { color }` (a class's own colour, set above, wins)
+        if (((node.kind == "paragraph") && ((strlen style.paraColor) > 0)) && (style.textColor == savedColor)) {
+            if (quoteDepth == 0) {
+                style.textColor = style.paraColor
+            }
+        }
         def plate:string (MdContainer.kindOf(node))
         if (((strlen plate) == 0) && boxed) {
             if ((node.hasAttr("container")) == false) {
@@ -3904,6 +4088,9 @@ class MdLayout {
     ; it runs onto says the right ones.
     fn relayoutBlock:void (doc:MdNode i:int) {
         def child:MdNode (doc.childAt(i))
+        if scoped {
+            this.scopeAtBlock(doc i)
+        }
         if (child.kind == "heading") {
             this.clearSection()
             if (child.level <= splitLevel) {
@@ -4466,6 +4653,7 @@ class MdLayout {
             push headText (node.plainText())
             push headLevel node.level
             push headPage page
+            this.settlePaper(page)
             push headY cursorY
             this.readEdgesOff(node)
             this.noteHidden(node.srcStart page)
@@ -4489,6 +4677,7 @@ class MdLayout {
         push headText (node.plainText())
         push headLevel node.level
         push headPage page
+        this.settlePaper(page)
         push headY at
         this.readEdgesOff(node)
         this.paragraph(runs x w)

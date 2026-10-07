@@ -12,6 +12,7 @@
 
 Import "../src/MdBlock.rgr"
 Import "../src/MdLayout.rgr"
+Import "../src/MdEmbed.rgr"
 Import "../src/MdCss.rgr"
 Import "../src/MdContainer.rgr"
 Import "../src/MdToEvg.rgr"
@@ -56,6 +57,7 @@ class MdContainerTest {
         MdContainerTest.headings(c)
         MdContainerTest.shadows(c)
         MdContainerTest.sheetBlocks(c)
+        MdContainerTest.slideScopes(c)
         print ""
         print ((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed))
         if (c.failed == 0) {
@@ -245,6 +247,61 @@ class MdContainerTest {
         def t1:MdBox (MdContainerTest.textBox(tb "1"))
         c.eqStr("th { color }" ta.color "#000000")
         c.eqStr("…the body cells keep theirs" t1.color "#1f2328")
+    }
+
+    ; a slide's own rules: `#id h2`, `.class page`, `.class p`, and a class
+    ; under a slide
+    sfn slideScopes:void (c:ContainerCheck) {
+        def src:string "## Eka\n\nTeksti A\n\n## Anker {#erikoisdia}\n\nTeksti B\n\nIso\n{.lead}\n\n## Tumma {.tumma}\n\nTeksti C\n\n## Vika\n\nTeksti D\n"
+        def css:string "deck { split-level: 2 }\nh2 { color: #7ee0ff }\n#erikoisdia h2 { color: #00ff9c }\n.tumma page { background-color: #000000 }\n.tumma p { color: #ff0000 }\n#erikoisdia .lead { font-size: 30pt }\n#eka p { text-transform: uppercase }"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        def mc:MdCss (new MdCss())
+        mc.addStyleSheet(css)
+        mc.applyTo(l.style)
+        l.setStyleSheet(css)
+        l.setDocSource(src)
+        l.applySlideMeta(doc)
+        l.layoutSlides(doc)
+        def a:MdBox (MdContainerTest.textBox(l "Eka"))
+        def b:MdBox (MdContainerTest.textBox(l "Anker"))
+        def d:MdBox (MdContainerTest.textBox(l "Vika"))
+        c.eqStr("h2 keeps the sheet's colour elsewhere" a.color "#7EE0FF")
+        c.eqStr("#erikoisdia h2: the slide with that id" b.color "#00FF9C")
+        c.eqStr("…and not the slide after it" d.color "#7EE0FF")
+        def tc:MdBox (MdContainerTest.textBox(l "Teksti C"))
+        def tb:MdBox (MdContainerTest.textBox(l "Teksti B"))
+        c.eqStr(".tumma p: text on the slide with that class" tc.color "#FF0000")
+        c.ok("…not on another" (tb.color != "#FF0000"))
+        c.eqStr(".tumma page: that slide's colour" (l.paperOf(tc.page)) "#000000")
+        c.eqStr("…not the one before" (l.paperOf(tb.page)) "")
+        def td:MdBox (MdContainerTest.textBox(l "Teksti D"))
+        c.eqStr("…nor the one after" (l.paperOf(td.page)) "")
+        def lead:MdBox (MdContainerTest.textBox(l "Iso"))
+        c.ok("#erikoisdia .lead: a class under a slide" (lead.size > 29.0))
+        c.ok("#eka p: the anchor a heading's text makes" ((MdContainerTest.indexOfText(l "TEKSTI A")) >= 0))
+        c.eqStr("the style is the sheet's again after the layout" l.style.h2Color "#7EE0FF")
+        ; `#erikoisdia list { list-style: process }`: the list under that
+        ; heading is a figure (its id or its anchor)
+        def cache:MdEmbedCache (new MdEmbedCache())
+        def lsheet:MdCss (new MdCss())
+        lsheet.addStyleSheet("#erikoisdia list { list-style: process }\n#toinen-otsikko ul { list-style: swot }")
+        cache.listSheet = lsheet
+        def ldoc:MdNode (MdBlock.parseText("## Anker {#erikoisdia}\n\n- a\n- b\n\n## Toinen otsikko\n\n- c\n\n## Kolmas\n\n- d\n"))
+        def styles:string ""
+        def k:int 0
+        while (k < (ldoc.childCount())) {
+            def ch:MdNode (ldoc.childAt(k))
+            if (ch.kind == "heading") {
+                cache.underHeadingNode(ch)
+            }
+            if (ch.kind == "list") {
+                styles = (styles + (cache.listStyleOf(ch)) + "|")
+            }
+            k = (k + 1)
+        }
+        c.eqStr("#id list / #anchor ul: list-style under a heading" styles "process|swot||")
     }
 
     sfn textBox:MdBox (l:MdLayout t:string) {

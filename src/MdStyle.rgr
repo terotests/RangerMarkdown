@@ -72,6 +72,8 @@ class MdStyle {
     def highlightCode:boolean true
 
     def textColor:string "#1f2328"
+    ; `p { color }`: a paragraph's text, "" for the document's
+    def paraColor:string ""
     ; The page's own ground, and a picture on it.
     ;
     ; `background-color` was already here three times — for code, for a table
@@ -334,11 +336,12 @@ class MdStyle {
         push v imgAlign
         push v (this.typoText())
         push v containerBorder
+        push v paraColor
         return v
     }
 
     fn setLook:void (v:[string]) {
-        if ((array_length v) < 46) {
+        if ((array_length v) < 47) {
             return
         }
         bodyFamily = (itemAt v 0)
@@ -387,6 +390,7 @@ class MdStyle {
         imgAlign = (itemAt v 43)
         this.setTypoText((itemAt v 44))
         containerBorder = (itemAt v 45)
+        paraColor = (itemAt v 46)
     }
 
     fn setTypoText:void (text:string) {
@@ -474,7 +478,7 @@ class MdStyle {
         if headerBold { out = (out + "/hb") }
         if footerBold { out = (out + "/fb") }
         out = (out + " img " + imgAlign + "/" + (to_string imgMaxHeight))
-        out = (out + " quote+ " + quoteBackground + " th " + tableHeadColor)
+        out = (out + " quote+ " + quoteBackground + " th " + tableHeadColor + " p " + paraColor)
         out = (out + " plate " + (to_string containerPadX) + "/" + (to_string containerPadY) + "/" + containerBorder + "/" + (to_string containerBorderWidth))
         out = (out + " typo " + (this.typoText()))
         out = ((out + " embed ") + (to_string embedSpacing))

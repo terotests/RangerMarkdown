@@ -209,6 +209,10 @@ class MdEmbedCache {
     def listScopeStyles:[string]
     ; the anchors of the headings a walk is under, by level (1..6)
     def headingSlugs:[string]
+    ; …their `{#id}`s ("" for none), and the headings themselves, so a
+    ; sheet's `#intro list { list-style: process }` matches (MdCss.scopeOf)
+    def headingIds:[string]
+    def headingNodes:[MdNode]
     ; The number of the pass now running. An entry that is not wanted during a
     ; pass is not wanted at all — see `endPass`.
     def pass:int 0
@@ -315,6 +319,41 @@ class MdEmbedCache {
         return chartMaxH
     }
 
+    ; A heading the walk passes: its anchor, its `{#id}` and itself.
+    fn underHeadingNode:void (h:MdNode) {
+        this.underHeading(h.level (MdAnchor.slug((h.plainText()))))
+        if ((h.level < 1) || (h.level > 6)) {
+            return
+        }
+        while ((array_length headingIds) < 7) {
+            push headingIds ""
+            push headingNodes (new MdNode())
+        }
+        set_at headingIds h.level h.nodeId
+        set_at headingNodes h.level h
+        def d:int (h.level + 1)
+        while (d <= 6) {
+            set_at headingIds d ""
+            set_at headingNodes d (new MdNode())
+            d = (d + 1)
+        }
+    }
+
+    ; whether the walk's heading at `lv` is the one `scope` names (its
+    ; anchor or its `{#id}`)
+    fn headingIs:boolean (lv:int scope:string) {
+        if ((strlen scope) == 0) {
+            return false
+        }
+        if ((lv < (array_length headingSlugs)) && ((itemAt headingSlugs lv) == scope)) {
+            return true
+        }
+        if ((lv < (array_length headingIds)) && ((itemAt headingIds lv) == scope)) {
+            return true
+        }
+        return false
+    }
+
     fn underHeading:void (level:int slug:string) {
         if ((level >= 1) && (level <= 6)) {
             headLevel = level
@@ -336,6 +375,10 @@ class MdEmbedCache {
     fn resetHeadings:void () {
         def none:[string]
         headingSlugs = none
+        def noIds:[string]
+        headingIds = noIds
+        def noNodes:[MdNode]
+        headingNodes = noNodes
         headLevel = 0
     }
 
@@ -344,15 +387,12 @@ class MdEmbedCache {
     fn scopedConfig:string () {
         def lv:int ((array_length headingSlugs) - 1)
         while (lv >= 1) {
-            def sl:string (itemAt headingSlugs lv)
-            if ((strlen sl) > 0) {
-                def i:int 0
-                while (i < (array_length chartScopes)) {
-                    if ((itemAt chartScopes i) == sl) {
-                        return (itemAt chartScopeConfig i)
-                    }
-                    i = (i + 1)
+            def i:int 0
+            while (i < (array_length chartScopes)) {
+                if (this.headingIs(lv (itemAt chartScopes i))) {
+                    return (itemAt chartScopeConfig i)
                 }
+                i = (i + 1)
             }
             lv = (lv - 1)
         }
@@ -363,15 +403,12 @@ class MdEmbedCache {
     fn scopedListStyle:string () {
         def lv:int ((array_length headingSlugs) - 1)
         while (lv >= 1) {
-            def sl:string (itemAt headingSlugs lv)
-            if ((strlen sl) > 0) {
-                def i:int 0
-                while (i < (array_length listScopes)) {
-                    if ((itemAt listScopes i) == sl) {
-                        return (itemAt listScopeStyles i)
-                    }
-                    i = (i + 1)
+            def i:int 0
+            while (i < (array_length listScopes)) {
+                if (this.headingIs(lv (itemAt listScopes i))) {
+                    return (itemAt listScopeStyles i)
                 }
+                i = (i + 1)
             }
             lv = (lv - 1)
         }
@@ -389,11 +426,20 @@ class MdEmbedCache {
         if ((strlen scoped) > 0) {
             return scoped
         }
-        def got:CssComputed (listSheet.resolve(node))
+        def ctx@(optional):CssNode (MdCss.scopeOf(headingNodes))
+        def got:CssComputed (listSheet.resolveIn(node ctx))
         if (got.has("list-style")) {
             def v:string (trim (got.get("list-style")))
             if ((strlen v) > 0) {
                 return v
+            }
+        }
+        ; `list { list-style }`, the theme's word for every list
+        def asList:CssComputed (listSheet.resolveAs(node "list" ctx))
+        if (asList.has("list-style")) {
+            def v2:string (trim (asList.get("list-style")))
+            if ((strlen v2) > 0) {
+                return v2
             }
         }
         return ""

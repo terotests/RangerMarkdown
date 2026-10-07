@@ -57,6 +57,7 @@
 
 Import "MdContainer.rgr"
 Import "MdCssSupport.rgr"
+Import "MdAnchor.rgr"
 Import "MdNode.rgr"
 Import "MdStyle.rgr"
 Import "../../css/CssCore.rgr"
@@ -91,6 +92,17 @@ class MdCss {
     ; what the lint said about the sheets added, in order
     def notes:[MdCssNote]
 
+    ; The rules about a slide or a section (`#intro h2`, `.dark page`,
+    ; `slide.dark p`): every selector whose first part is the heading a
+    ; block is under. Kept apart so the layout can lay them over the style
+    ; on the slides they are about (`applyLook`) and take them off after.
+    def scopedSheet:CssSheet (new CssSheet())
+    def hasScoped:boolean false
+    ; while `applyLook` runs: only colours, faces and typography are read,
+    ; and every element is asked as being under `lookCtx`
+    def looksOnly:boolean false
+    def lookCtx@(optional):CssNode
+
     Constructor () {
     }
 
@@ -120,6 +132,8 @@ class MdCss {
         printText = ""
         sheet = (new CssSheet())
         printSheet = (new CssSheet())
+        scopedSheet = (new CssSheet())
+        hasScoped = false
         clear unsupported
         def noVars:[string]
         vars = noVars
@@ -152,15 +166,158 @@ class MdCss {
         printText = (printText + printPart)
         printSheet.parse(printPart)
         sheet.parse(screenText)
+        this.keepScoped(screenText)
         if (media == "print") {
             sheet.parse(printPart)
+            this.keepScoped(printPart)
         } {
             sheet.parse(screenOnly)
+            this.keepScoped(screenOnly)
         }
         ; The deck rules are read here rather than in `applyTo`, because they
         ; are not about how a page LOOKS and a caller that only wants the
         ; slide rules should not have to resolve a style to get them.
         this.readDeck()
+    }
+
+    ; The rules of `css` whose selectors are under a slide or a section,
+    ; into `scopedSheet` (in the order they are written).
+    fn keepScoped:void (css:string) {
+        if ((strlen (trim css)) == 0) {
+            return
+        }
+        def tmp:CssSheet (new CssSheet())
+        tmp.parse(css)
+        for tmp.rules r:CssRule ri {
+            def keep:[CssSelector]
+            for r.selectors sel:CssSelector si {
+                if (MdCss.scopedSelector(sel)) {
+                    sel.order = scopedSheet.counter
+                    scopedSheet.counter = (scopedSheet.counter + 1)
+                    push keep sel
+                }
+            }
+            if ((array_length keep) > 0) {
+                def nr:CssRule (new CssRule())
+                nr.selectors = keep
+                nr.decls = r.decls
+                push scopedSheet.rules nr
+                hasScoped = true
+            }
+        }
+    }
+
+    ; more than one part, and the outer ones not a gallery's (`gallery
+    ; cell`, `cell caption` are the gallery's own nesting)
+    sfn scopedSelector:boolean (sel:CssSelector) {
+        if ((array_length sel.parts) < 2) {
+            return false
+        }
+        def first:CssSelectorPart (itemAt sel.parts 0)
+        return ((first.tag != "gallery") && (first.tag != "cell"))
+    }
+
+    ; The slide and sections a block is under, as the sheet sees them: one
+    ; `slide` per heading in `heads` (by level, outermost first; empty
+    ; places skipped), each with the heading's `{#id}` — or, without one,
+    ; its anchor — and its `{.classes}`. Absent when there is no heading.
+    sfn scopeOf@(optional):CssNode (heads:[MdNode]) {
+        def out@(optional):CssNode
+        def i:int 0
+        while (i < (array_length heads)) {
+            def h:MdNode (itemAt heads i)
+            if (h.kind == "heading") {
+                def n (new CssNode())
+                n.tag = "slide"
+                n.id = (MdCss.anchorOf(h))
+                def k:int 0
+                while (k < (h.classCount())) {
+                    n.addClass((h.classAt(k)))
+                    k = (k + 1)
+                }
+                n.parent = out
+                out = n
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; a heading's `{#id}`, else the anchor its text makes (MdAnchor.slug)
+    sfn anchorOf:string (h:MdNode) {
+        if ((strlen h.nodeId) > 0) {
+            return h.nodeId
+        }
+        return (MdAnchor.slug((h.plainText())))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A slide's own rules, over the style
+    ; ----------------------------------------------------------------------
+    ;
+    ; `#intro h2 { color }`, `.dark page { background-color }`: what the
+    ; scoped rules say about every element under `ctx`, written into
+    ; `style` — colours, faces, backgrounds and typography only (see
+    ; `MdCssSupport.scopedOk`). The layout puts the style's look back after
+    ; (`MdStyle.setLook`). Answers whether there was anything to apply.
+    fn applyLook:boolean (style:MdStyle ctx@(optional):CssNode) {
+        if ((hasScoped == false) || (null? ctx)) {
+            return false
+        }
+        def keep:CssSheet sheet
+        def keepApplied:int applied
+        def keepAsked:int asked
+        sheet = scopedSheet
+        looksOnly = true
+        lookCtx = ctx
+        this.page(style (this.forTag("page")))
+        this.body(style (this.forTag("document")))
+        this.body(style (this.forTag("body")))
+        this.para(style (this.forTag("p")))
+        this.headings(style)
+        this.code(style (this.forTag("code")))
+        this.mark(style (this.forTag("mark")))
+        this.kbd(style (this.forTag("kbd")))
+        this.link(style (this.forTag("a")))
+        this.rule(style (this.forTag("hr")))
+        this.quote(style (this.forTag("blockquote")))
+        this.container(style (this.forTag("container")))
+        this.list(style (this.forTag("list")))
+        this.item(style (this.forTag("li")))
+        this.table(style (this.forTag("table")))
+        this.tableHead(style (this.forTag("th")))
+        this.picture(style (this.forTag("img")))
+        this.furniture(style (this.forTag("header")) true)
+        this.furniture(style (this.forTag("footer")) false)
+        def none@(optional):CssNode
+        lookCtx = none
+        looksOnly = false
+        sheet = keep
+        applied = keepApplied
+        asked = keepAsked
+        return true
+    }
+
+    ; What the sheet says about one block under a slide or section (`ctx`,
+    ; from `scopeOf`): the same as `resolve`, with `#intro .lead` able to
+    ; match.
+    fn resolveIn:CssComputed (node:MdNode ctx@(optional):CssNode) {
+        return (this.resolveAs(node (MdCss.tagOf(node)) ctx))
+    }
+
+    ; …as element `tag` (a list is `ul` / `ol` and also `list`)
+    fn resolveAs:CssComputed (node:MdNode tag:string ctx@(optional):CssNode) {
+        def n (new CssNode())
+        n.tag = tag
+        n.id = node.nodeId
+        def i:int 0
+        while (i < (node.classCount())) {
+            n.addClass((node.classAt(i)))
+            i = (i + 1)
+        }
+        n.parent = ctx
+        asked = (asked + 1)
+        return (CssCascade.resolve(sheet n))
     }
 
     fn readDeck:void () {
@@ -248,6 +405,7 @@ class MdCss {
     fn forTag:CssComputed (tag:string) {
         def n (new CssNode())
         n.tag = tag
+        n.parent = lookCtx
         asked = (asked + 1)
         return (CssCascade.resolve(sheet n))
     }
@@ -339,8 +497,9 @@ class MdCss {
 
     fn para:void (style:MdStyle got:CssComputed) {
         style.paraSpacing = (this.len(got "margin-bottom" style.paraSpacing))
+        style.paraColor = (this.color(got "color" style.paraColor))
         this.typo(style "p" got)
-        this.rest(got ("margin-bottom,text-align," + (MdCssSupport.TYPO())))
+        this.rest(got ("margin-bottom,color,text-align," + (MdCssSupport.TYPO())))
     }
 
     ; `font-weight`, `font-style`, `text-transform`, `letter-spacing` for
@@ -519,6 +678,9 @@ class MdCss {
             style.containerShadow = (MdContainer.shadowColour((this.raw(got "box-shadow"))))
         }
         def pads:[double] (MdCss.padding(got))
+        if looksOnly {
+            pads = ([] _:double (-1.0 -1.0 -1.0 -1.0))
+        }
         if ((itemAt pads 0) >= 0.0) {
             style.containerPadY = (itemAt pads 0)
             applied = (applied + 1)
@@ -527,7 +689,7 @@ class MdCss {
             style.containerPadX = (itemAt pads 3)
         }
         def bc:string (MdCss.borderColour(got))
-        if ((strlen bc) > 0) {
+        if (((strlen bc) > 0) && (looksOnly == false)) {
             style.containerBorder = bc
             style.containerBorderWidth = (MdCss.borderWidth(got 1.0))
             applied = (applied + 1)
@@ -764,6 +926,7 @@ class MdCss {
 
     fn len:double (got:CssComputed name:string fallback:double) {
         if (! (got.has(name))) { return fallback }
+        if looksOnly { return fallback }
         applied = (applied + 1)
         return (CssValue.fontPoints((got.get(name)) fallback))
     }
@@ -778,6 +941,7 @@ class MdCss {
     ; the one thing reported rather than guessed.
     fn ratio:double (got:CssComputed name:string fallback:double) {
         if (! (got.has(name))) { return fallback }
+        if looksOnly { return fallback }
         def v:string (CssSheet.tidy((got.get(name))))
         if (CssValue.isBareNumber(v)) {
             applied = (applied + 1)
@@ -838,6 +1002,7 @@ class MdCss {
     ; than being left to wonder — `PLAN_SLIDES.md` §8.4, and the problem
     ; `PptxCss` already had and answered.
     fn rest:void (got:CssComputed known:string) {
+        if looksOnly { return }
         def i:int 0
         while (i < (got.count())) {
             def name:string (itemAt got.names i)

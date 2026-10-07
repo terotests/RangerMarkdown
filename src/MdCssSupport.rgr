@@ -71,7 +71,7 @@ class MdCssSupport {
         this.addElement("deck" "split-level,overflow,aspect-ratio,crop-marks" "how a document becomes slides")
         this.addElement("document" ("font-family,font-size,line-height,color," + t) "all text")
         this.addElement("body" ("font-family,font-size,line-height,color," + t) "the same as document")
-        this.addElement("p" ("margin-bottom,text-align," + t) "paragraphs")
+        this.addElement("p" ("margin-bottom,color,text-align," + t) "paragraphs")
         this.addElement("heading" ("font-family,font-size,margin-top,margin-bottom,color,text-align," + t) "every heading level")
         this.addElement("h1" ("font-size,color,text-align," + t) "a level-1 heading")
         this.addElement("h2" ("font-size,color,text-align," + t) "a level-2 heading")
