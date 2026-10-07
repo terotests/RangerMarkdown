@@ -742,6 +742,31 @@ class MdVegaTest {
         }
     }
 
+    ; Axis labels the overlap pass hides are left out of the scene, not drawn
+    ; at opacity 0: the PDF writer paints text without its colour's alpha,
+    ; so a hidden "11 000" came out printed over "10 000" there.
+    fn hiddenLabels:void (c:VegaCheck) {
+        print "-- labels the overlap pass hid are not drawn --"
+        def spec:string "{\"width\": 300, \"height\": 200, \"data\": {\"values\": [{\"m\": \"a\", \"n\": 7499}, {\"m\": \"b\", \"n\": 10243}, {\"m\": \"c\", \"n\": 1491}]}, \"mark\": \"bar\", \"encoding\": {\"y\": {\"field\": \"m\", \"type\": \"nominal\"}, \"x\": {\"field\": \"n\", \"type\": \"quantitative\"}}}"
+        def d:MdVegaDrawing (MdVegaRender.draw(spec 300.0 10.0))
+        c.ok("it drew" d.ok)
+        def hidden:int 0
+        def texts:int 0
+        def i:int 0
+        while (i < (array_length d.scene.items)) {
+            def it:SceneItem (itemAt d.scene.items i)
+            if (it.kind == 1) {
+                texts = (texts + 1)
+                if (it.opacity <= 0.0) {
+                    hidden = (hidden + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        c.ok("labels drawn" (texts > 3))
+        c.eqInt("no invisible label in the scene" hidden 0)
+    }
+
     fn run:void () {
         def c (new VegaCheck())
         print "== MdVegaTest =="
@@ -755,6 +780,7 @@ class MdVegaTest {
         this.grownToFit(c)
         this.staggered(c)
         this.inView(c)
+        this.hiddenLabels(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
