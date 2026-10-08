@@ -57,6 +57,7 @@ Import "MdTableSplit.rgr"
 Import "MdContainer.rgr"
 Import "MdColumns.rgr"
 Import "MdSlideLayout.rgr"
+Import "MdSlideMeta.rgr"
 Import "MdCellTones.rgr"
 
 ; ----------------------------------------------------------------------------
@@ -532,6 +533,19 @@ class MdLayout {
     ; `{furniture=off}`: the edge is left off that sheet.
     def headerOff:[int]
     def footerOff:[int]
+    ; A SLIDE'S OWN DATA, from the keys on its heading the engine does not
+    ; know — `## Revenue {jira=ACME-412}` (MdSlideMeta). Three arrays rather
+    ; than a map per sheet, because a trial layout has to be able to undo
+    ; exactly what it added, and `removeLast` is how the rest of this file
+    ; does that. It is drawn nowhere by itself; `{jira}` in a header or a
+    ; footer is filled in from the sheet it is on, and a host reads the rest
+    ; back per slide.
+    def metaPage:[int]
+    def metaKey:[string]
+    def metaVal:[string]
+    ; "2|transtion|transition": a key one character from an engine key, the
+    ; sheet it is on, for the report
+    def metaSuspect:[string]
     ; GROW: a slide with room to spare is laid out again with everything on
     ; it larger — text, headings, spacing, together, so the title stays the
     ; larger thing — by at most this factor (1.0 = off). A deck has no font
@@ -1056,6 +1070,10 @@ class MdLayout {
         }
         clear headerOff
         clear footerOff
+        clear metaPage
+        clear metaKey
+        clear metaVal
+        clear metaSuspect
         this.makeEdgeRoom()
         cursorY = contentTop
         clear blockFirstPage
@@ -1370,6 +1388,127 @@ class MdLayout {
         }
     }
 
+    ; `{jira=ACME-412 owner=Tero}` on a heading: the slide's own data.
+    ; A slide laid out again (a sheet that grew, a block that spilled) reads
+    ; its heading again, so the same key is written once per sheet rather
+    ; than once per pass.
+    fn readSlideMeta:void (node:MdNode) {
+        def m:MdSlideMeta (MdSlideMeta.of(node))
+        def i:int 0
+        while (i < (m.count())) {
+            def key:string (itemAt m.keys i)
+            def at:int (this.metaAt(page key))
+            if (at >= 0) {
+                set_at metaVal at (itemAt m.values i)
+            } {
+                push metaPage page
+                push metaKey key
+                push metaVal (itemAt m.values i)
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length m.suspect)) {
+            def pair:[string] (strsplit (itemAt m.suspect j) "~")
+            if ((array_length pair) == 2) {
+                def line:string ((to_string page) + "|" + (itemAt pair 0) + "|" + (itemAt pair 1))
+                if ((indexOf metaSuspect line) < 0) {
+                    push metaSuspect line
+                }
+            }
+            j = (j + 1)
+        }
+    }
+
+    fn metaAt:int (p:int key:string) {
+        def i:int 0
+        while (i < (array_length metaPage)) {
+            if (((itemAt metaPage i) == p) && ((itemAt metaKey i) == key)) { return i }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; What sheet p's heading said. Empty when it said nothing.
+    fn slideMeta:MdSlideMeta (p:int) {
+        def out:MdSlideMeta (new MdSlideMeta())
+        def i:int 0
+        while (i < (array_length metaPage)) {
+            if ((itemAt metaPage i) == p) {
+                out.put((itemAt metaKey i) (itemAt metaVal i))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn metaValue:string (p:int key:string) {
+        def want:string (MdChar.lower((trim key)))
+        def i:int 0
+        while (i < (array_length metaPage)) {
+            if (((itemAt metaPage i) == p) && ((itemAt metaKey i) == want)) {
+                return (itemAt metaVal i)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; One line per slide that carries data, for a host's report.
+    fn slideMetaNotes:[string] () {
+        def out:[string]
+        def p:int 0
+        while (p < pageCount) {
+            def m:MdSlideMeta (this.slideMeta(p))
+            if ((m.count()) > 0) {
+                def name:string (this.pageTitle(p))
+                def head:string ("Slide " + (to_string (p + 1)))
+                if ((strlen name) > 0) {
+                    head = (head + " \"" + name + "\"")
+                }
+                push out (head + ": " + (m.asText()))
+            }
+            p = (p + 1)
+        }
+        return out
+    }
+
+    ; A key one character from an engine key: kept as data, and said so.
+    fn slideMetaWarnings:[string] () {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length metaSuspect)) {
+            def parts:[string] (strsplit (itemAt metaSuspect i) "|")
+            if ((array_length parts) == 3) {
+                def pno@(optional):int (str2int (itemAt parts 0))
+                def p:int (?? pno 0)
+                push out ("Slide " + (to_string (p + 1)) + ": " + (itemAt parts 1)
+                    + " is not a key Sliqtly knows, so it is kept as the slide's own data. Did you mean "
+                    + (itemAt parts 2) + "?")
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The heading a sheet was given, or the name a page without one got.
+    fn pageTitle:string (p:int) {
+        def i:int 0
+        def out:string ""
+        while (i < (array_length headPage)) {
+            if ((itemAt headPage i) == p) {
+                if ((strlen out) == 0) {
+                    out = (itemAt headText i)
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen out) == 0) {
+            out = (this.pageName(p))
+        }
+        return out
+    }
+
     sfn isOff:boolean (v:string) {
         def t:string (MdChar.lower((trim v)))
         return ((((t == "off") || (t == "none")) || (t == "false")) || (t == "no"))
@@ -1597,7 +1736,7 @@ class MdLayout {
 
     fn slotWidth:double (slot:string p:int top:boolean) {
         if ((strlen (trim slot)) == 0) { return 0.0 }
-        def text:string (MdLayout.fillTokens((MdLayout.slotText(slot)) (p + 1) pageCount style.title))
+        def text:string (this.slotFilled(slot p))
         def tw:double 0.0
         if ((strlen text) > 0) {
             tw = (this.measureRun(text (this.slotRun(top))))
@@ -1617,7 +1756,7 @@ class MdLayout {
         if ((strlen colour) == 0) {
             colour = (this.edgeInk())
         }
-        def text:string (MdLayout.fillTokens((MdLayout.slotText(slot)) (p + 1) pageCount style.title))
+        def text:string (this.slotFilled(slot p))
         def pic:MdSlotPic (this.slotPicture(slot top))
         def iw:double pic.w
         def ih:double pic.h
@@ -1656,6 +1795,86 @@ class MdLayout {
             t.color = colour
             t.furniture = mark
             this.emit(t)
+        }
+    }
+
+    ; One place's text with every token filled in: `{page}`, `{pages}`,
+    ; `{title}` — and the slide's own data, so a deck whose slides carry a
+    ; ticket can print it (`footer-right: "{jira}"`). A key the slide does
+    ; not have leaves nothing behind rather than printing its own name,
+    ; because a slide without a ticket should show no ticket.
+    fn slotFilled:string (slot:string p:int) {
+        def out:string (MdLayout.fillTokens((MdLayout.slotText(slot)) (p + 1) pageCount style.title))
+        return (this.fillMeta(out p))
+    }
+
+    fn fillMeta:string (text:string p:int) {
+        if ((indexOf text "{") < 0) { return text }
+        def out:string text
+        def m:MdSlideMeta (this.slideMeta(p))
+        def i:int 0
+        while (i < (m.count())) {
+            out = (MdLayout.replaceAll(out ("{" + (itemAt m.keys i) + "}") (itemAt m.values i)))
+            i = (i + 1)
+        }
+        ; A key SOME slide in the deck carries, on a slide that does not:
+        ; the place is left empty rather than printing `{jira}` at the foot
+        ; of every slide without a ticket.
+        def j:int 0
+        def emptied:boolean false
+        while (j < (array_length metaKey)) {
+            def token:string ("{" + (itemAt metaKey j) + "}")
+            if ((indexOf out token) >= 0) {
+                out = (MdLayout.replaceAll(out token ""))
+                emptied = true
+            }
+            j = (j + 1)
+        }
+        if emptied {
+            out = (MdLayout.tidySlot(out))
+        }
+        return out
+    }
+
+    ; A place whose data was missing: `"{jira} · {page}"` on a slide without
+    ; a ticket would read " · 1". The separator left hanging goes with it.
+    sfn tidySlot:string (text:string) {
+        def out:string text
+        out = (MdLayout.replaceAll(out "  " " "))
+        out = (trim out)
+        def seps:[string] ([] _:string ("·" "-" "–" "|" "/" ","))
+        def i:int 0
+        while (i < (array_length seps)) {
+            def sep:string (itemAt seps i)
+            def n:int (strlen sep)
+            if ((strlen out) > n) {
+                if ((substring out 0 n) == sep) {
+                    out = (trim (substring out n (strlen out)))
+                }
+            }
+            if ((strlen out) > n) {
+                if ((substring out ((strlen out) - n) (strlen out)) == sep) {
+                    out = (trim (substring out 0 ((strlen out) - n)))
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The sheets a suspect key was noted on move up with their slides.
+    fn shiftSuspect:void (p:int) {
+        def i:int 0
+        while (i < (array_length metaSuspect)) {
+            def parts:[string] (strsplit (itemAt metaSuspect i) "|")
+            if ((array_length parts) == 3) {
+                def pno@(optional):int (str2int (itemAt parts 0))
+                def at:int (?? pno 0)
+                if (at > p) {
+                    set_at metaSuspect i ((to_string (at - 1)) + "|" + (itemAt parts 1) + "|" + (itemAt parts 2))
+                }
+            }
+            i = (i + 1)
         }
     }
 
@@ -2387,6 +2606,8 @@ class MdLayout {
         def savedHeads:int (array_length headText)
         def savedHeaderOff:int (array_length headerOff)
         def savedFooterOff:int (array_length footerOff)
+        def savedMeta:int (array_length metaPage)
+        def savedSuspect:int (array_length metaSuspect)
         def savedNamed:int (array_length namedPage)
         def savedHiddenOn:int hiddenOnPage
         def savedFullDone:boolean fullPageDone
@@ -2417,6 +2638,14 @@ class MdLayout {
         }
         while ((array_length headerOff) > savedHeaderOff) {
             removeLast headerOff
+        }
+        while ((array_length metaPage) > savedMeta) {
+            removeLast metaPage
+            removeLast metaKey
+            removeLast metaVal
+        }
+        while ((array_length metaSuspect) > savedSuspect) {
+            removeLast metaSuspect
         }
         while ((array_length footerOff) > savedFooterOff) {
             removeLast footerOff
@@ -5252,6 +5481,7 @@ class MdLayout {
             this.settlePaper(page)
             push headY cursorY
             this.readEdgesOff(node)
+            this.readSlideMeta(node)
             this.noteHidden(node.srcStart page)
             hiddenOnPage = page
             return
@@ -5276,6 +5506,7 @@ class MdLayout {
         this.settlePaper(page)
         push headY at
         this.readEdgesOff(node)
+        this.readSlideMeta(node)
         this.paragraph(runs x w)
         if (node.level <= 2) {
             def y:double cursorY
@@ -8172,6 +8403,8 @@ class MdLayout {
         MdLayout.shiftAfter(hiddenPage p)
         MdLayout.shiftAfter(headPage p)
         MdLayout.shiftAfter(namedPage p)
+        MdLayout.shiftAfter(metaPage p)
+        this.shiftSuspect(p)
         MdLayout.shiftAfter(overlayPage p)
         MdLayout.shiftAfter(noteFirstPage p)
         if (hiddenOnPage > p) {

@@ -1,0 +1,215 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdSlideMeta.rgr — a slide's own data in its heading: `{jira=ABC-123}`
+; ============================================================================
+;
+; ````markdown
+; ## Revenue {jira=ACME-412 owner=Tero status=review}
+; ## Costs {meta-width=wide}
+; ````
+;
+; `MdAttrs` already reads `key=value` off a heading; what was missing is a
+; rule for which keys MEAN something to the engine and which are the
+; document's own business. This file is that rule, and it is the only place
+; the engine's key list is written down:
+;
+;   a key the engine knows (`transition`, `bg`, `fx-density`, …)  ──► engine
+;   anything else (`jira`, `owner`, `epic`, `status`, …)          ──► metadata
+;   `meta-<key>`                                                 ──► metadata
+;
+; The prefix is not needed for `jira`, and is the way to carry a key the
+; engine would otherwise claim — `{meta-width=wide}` is data, `{width=wide}`
+; is a layout. Keys are lowercased; the value is the text as written.
+;
+; Metadata is drawn NOWHERE by itself. It travels with the slide, it can be
+; read back (an assistant asking which slide carries a ticket), and it fills
+; a `{jira}` placeholder in a header or a footer the same way `{page}` does.
+;
+; A misspelt engine key would otherwise become metadata in silence —
+; `{transtion=fade}` is a key the engine does not know, and no slide would
+; fade. So a metadata key one character away from an engine key is named in
+; `warnings`, and still kept: the report says what happened rather than the
+; slide quietly losing its transition.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdChar.rgr"
+
+class MdSlideMeta {
+    def keys:[string]
+    def values:[string]
+    ; metadata keys that are one character from an engine key, as
+    ; "transtion~transition" — the report's business, not the layout's
+    def suspect:[string]
+
+    Constructor () {
+        def k:[string]
+        keys = k
+        def v:[string]
+        values = v
+        def s:[string]
+        suspect = s
+    }
+
+    fn count:int () {
+        return (array_length keys)
+    }
+
+    fn has:boolean (k:string) {
+        def want:string (MdChar.lower((trim k)))
+        def i:int 0
+        while (i < (array_length keys)) {
+            if ((itemAt keys i) == want) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn value:string (k:string) {
+        def want:string (MdChar.lower((trim k)))
+        def i:int 0
+        while (i < (array_length keys)) {
+            if ((itemAt keys i) == want) { return (itemAt values i) }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; Last one wins, as an attribute block does.
+    fn put:void (k:string v:string) {
+        def key:string (MdChar.lower((trim k)))
+        if ((strlen key) == 0) { return }
+        def i:int 0
+        while (i < (array_length keys)) {
+            if ((itemAt keys i) == key) {
+                set_at values i v
+                return
+            }
+            i = (i + 1)
+        }
+        push keys key
+        push values v
+    }
+
+    ; `jira=ACME-412 owner=Tero`, in the order they were written.
+    fn asText:string () {
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length keys)) {
+            push parts ((itemAt keys i) + "=" + (itemAt values i))
+            i = (i + 1)
+        }
+        return (join parts " ")
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The engine's keys
+    ; ----------------------------------------------------------------------
+    ;
+    ; Everything a heading's attribute block means to the layout, the deck or
+    ; a figure. Longhand on purpose: a list is readable and a new key added
+    ; to the engine without a line here shows up as metadata in the report,
+    ; which is a louder failure than a silent one.
+
+    sfn engineKeys:[string] () {
+        return ([] _:string ("align" "anim" "art" "art-seed" "background" "ball" "bg" "bg-dim" "caption" "cells" "chart-style" "choose" "colors" "container" "diagram" "duration" "fit" "float" "focus" "footer" "furniture" "fx" "header" "heading" "height" "hold" "layout" "lines" "list-style" "numbers" "padding" "radius" "seconds" "span" "step" "style" "tour" "transition" "valign" "width" "widths" "zoom"))
+    }
+
+    sfn isEngineKey:boolean (k0:string) {
+        def k:string (MdChar.lower((trim k0)))
+        ; `fx-density`, `fx-speed`, … all belong to the effect named by `fx`
+        if ((MdSlideMeta.startsWith(k "fx-")) == true) { return true }
+        def all:[string] (MdSlideMeta.engineKeys())
+        def i:int 0
+        while (i < (array_length all)) {
+            if ((itemAt all i) == k) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn startsWith:boolean (text:string what:string) {
+        def n:int (strlen what)
+        if ((strlen text) < n) { return false }
+        return ((substring text 0 n) == what)
+    }
+
+    ; The engine key this is one character away from, or "".
+    sfn nearEngineKey:string (k0:string) {
+        def k:string (MdChar.lower((trim k0)))
+        if ((strlen k) < 3) { return "" }
+        def all:[string] (MdSlideMeta.engineKeys())
+        def i:int 0
+        while (i < (array_length all)) {
+            def cand:string (itemAt all i)
+            if (MdSlideMeta.oneApart(k cand)) { return cand }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; One substitution, one insertion or one deletion apart — the three ways
+    ; a key is mistyped. Not a general edit distance: two differences are two
+    ; words, and `owner` is not a misspelt `order`.
+    sfn oneApart:boolean (a:string b:string) {
+        def la:int (strlen a)
+        def lb:int (strlen b)
+        if (a == b) { return false }
+        if (la == lb) {
+            def diff:int 0
+            def i:int 0
+            while (i < la) {
+                if ((charAt a i) != (charAt b i)) { diff = (diff + 1) }
+                i = (i + 1)
+            }
+            return (diff == 1)
+        }
+        if (la == (lb + 1)) { return (MdSlideMeta.oneLonger(a b)) }
+        if (lb == (la + 1)) { return (MdSlideMeta.oneLonger(b a)) }
+        return false
+    }
+
+    ; `long` is `short` with one character inserted.
+    sfn oneLonger:boolean (long:string short:string) {
+        def i:int 0
+        def n:int (strlen short)
+        while (i < n) {
+            if ((charAt long i) != (charAt short i)) { break }
+            i = (i + 1)
+        }
+        def j:int i
+        while (j < n) {
+            if ((charAt long (j + 1)) != (charAt short j)) { return false }
+            j = (j + 1)
+        }
+        return true
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Reading one off a heading
+    ; ----------------------------------------------------------------------
+
+    sfn of:MdSlideMeta (node:MdNode) {
+        def out:MdSlideMeta (new MdSlideMeta())
+        def n:int (node.attrCount())
+        def i:int 0
+        while (i < n) {
+            def key:string (MdChar.lower((trim (itemAt node.attrKeys i))))
+            def val:string (itemAt node.attrVals i)
+            if (MdSlideMeta.startsWith(key "meta-")) {
+                out.put((substring key 5 (strlen key)) val)
+            } {
+                if ((MdSlideMeta.isEngineKey(key)) == false) {
+                    out.put(key val)
+                    def near:string (MdSlideMeta.nearEngineKey(key))
+                    if ((strlen near) > 0) {
+                        push out.suspect (key + "~" + near)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}
