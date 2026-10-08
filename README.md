@@ -43,6 +43,7 @@ npm run markdown:slides:test   # columns, and where a slide breaks
 npm run markdown:pptx:test     # the deck goes out and comes back the same deck
 npm run markdown:gallery:test  # ```gallery, {heading=hidden} and @media print
 npm run markdown:celltones:test # {cells="Suuri=red Matala=green"}: table cells tinted by their text
+npm run markdown:meta:test     # `## Revenue {jira=ACME-412}`: a slide's own data, carried and never drawn
 npm run markdown:columns:test  # ::: columns, {layout=…}, {valign=…}, {float=top-right}: where a slide's blocks go
 ```
 
@@ -263,6 +264,7 @@ src/
   MdCodeHighlight.rgr  a small lexer, fourteen languages, five colours
   MdFrontMatter.rgr    the YAML subset a metadata block actually uses
   MdAttrs.rgr       `{.class #id key=value}` — Goldmark's block attributes
+  MdSlideMeta.rgr   a heading's keys the engine does not claim: the slide's data
   MdStyle.rgr       the values a stylesheet sets, in one place
   MdCss.rgr         a stylesheet over the document, through gallery/css
   MdThemes.rgr      `theme: corporate` — a name to a stylesheet, no files
@@ -593,6 +595,33 @@ editors this repository already has rather than by a third one written here.
 [`../PLAN_DOCUMENT_MODES.md`](../PLAN_DOCUMENT_MODES.md) has the modes and the
 staging; the bytes a picture or a background image needs are in
 [`../vfs/PLAN_VFS.md`](../vfs/PLAN_VFS.md).
+
+## A slide's own data: `{jira=ACME-412}`
+
+````markdown
+---
+footer-right: "{jira} · {page} / {pages}"
+---
+
+## Revenue {jira=ACME-412 owner=Tero}
+## Costs {meta-width=wide}
+````
+
+A key on a heading that the engine does not claim is the document's own:
+a ticket number, an owner, a status. `MdSlideMeta` is the rule and the only
+place the engine's key list is written down —
+
+- a key the engine knows (`transition`, `bg`, `fx-density`, `layout`, …) is
+  the engine's; anything else is data; `meta-<key>` is data whatever it is
+  called, which is how a key the engine would claim is carried anyway.
+- Nothing draws it. `MdLayout.slideMeta(p)` and `metaValue(p key)` read it
+  back per sheet, and `{jira}` in a header or a footer is filled in from the
+  sheet it is on, as `{page}` is. A sheet without the key leaves the place
+  empty, and a separator left hanging (`" · 1 / 3"`) goes with it.
+- A key one character from an engine key — `{transtion=fade}` — is kept as
+  data AND named in `slideMetaWarnings()`, because a silently ignored
+  transition is worse than a line in the report. `slideMetaNotes()` is one
+  line per slide that carries data.
 
 ## Photo albums: ```gallery, hidden titles and print
 

@@ -1,0 +1,153 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdSlideMetaTest.rgr — a slide's own data in its heading
+; ============================================================================
+;
+;   npm run markdown:meta:test
+;
+; Three claims, and they fail separately:
+;
+;   1. `{jira=ACME-412}` on a heading is the SLIDE's data: readable per
+;      slide, never drawn, and the heading's own text is untouched.
+;   2. An engine key stays the engine's. `{transition=fade}` is not data,
+;      `{meta-width=wide}` is.
+;   3. A header or footer's `{jira}` is filled in from the slide it is on,
+;      the way `{page}` is, and a slide without the key gets nothing.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdSlideMeta.rgr"
+Import "../src/MdLayout.rgr"
+
+class MetaCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+
+    ; The layout of a deck, as a host lays one out.
+    fn laid:MdLayout (text:string) {
+        def doc:MdNode (MdBlock.parseText(text))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        l.applyMeta(doc)
+        l.applySlideMeta(doc)
+        l.setDocSource(text)
+        l.layoutSlides(doc)
+        return l
+    }
+
+    fn textsOn:string (l:MdLayout page:int) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.page == page) && (b.kind == 0)) {
+                push out b.text
+            }
+            i = (i + 1)
+        }
+        return (join out " | ")
+    }
+
+    fn run:void () {
+        print "MdSlideMeta"
+
+        ; ---- 1. a heading's own data -----------------------------------
+        def doc:MdNode (MdBlock.parseText("## Revenue {jira=ACME-412 owner=Tero}\n\nText.\n"))
+        def h:MdNode (doc.childAt(0))
+        this.eqStr("the heading keeps its text" (h.plainText()) "Revenue")
+        def m:MdSlideMeta (MdSlideMeta.of(h))
+        this.ok("two keys" ((m.count()) == 2))
+        this.eqStr("jira" (m.value("jira")) "ACME-412")
+        this.eqStr("owner" (m.value("owner")) "Tero")
+        this.ok("a key nobody wrote is not there" ((m.has("epic")) == false))
+        this.eqStr("a key nobody wrote reads empty" (m.value("epic")) "")
+        this.eqStr("as text" (m.asText()) "jira=ACME-412 owner=Tero")
+        this.ok("nothing suspect" ((array_length m.suspect) == 0))
+
+        ; ---- 2. the engine's keys are the engine's ----------------------
+        def doc2:MdNode (MdBlock.parseText("## Costs {transition=zoom seconds=0.4 fx-density=2 meta-width=wide jira=ACME-9}\n"))
+        def m2:MdSlideMeta (MdSlideMeta.of((doc2.childAt(0))))
+        this.ok("transition is not data" ((m2.has("transition")) == false))
+        this.ok("seconds is not data" ((m2.has("seconds")) == false))
+        this.ok("an fx- key is not data" ((m2.has("fx-density")) == false))
+        this.eqStr("meta- carries a key the engine would claim" (m2.value("width")) "wide")
+        this.eqStr("…and a plain key still comes through" (m2.value("jira")) "ACME-9")
+        this.ok("two keys, no more" ((m2.count()) == 2))
+        this.ok("an engine key is an engine key" (MdSlideMeta.isEngineKey("bg")))
+        this.ok("…and a ticket is not" ((MdSlideMeta.isEngineKey("jira")) == false))
+
+        ; ---- a misspelt engine key is named, and still kept -------------
+        def doc3:MdNode (MdBlock.parseText("## Slow {transtion=fade}\n"))
+        def m3:MdSlideMeta (MdSlideMeta.of((doc3.childAt(0))))
+        this.ok("the misspelling is kept as data" ((m3.has("transtion")) == true))
+        this.ok("…and named" ((array_length m3.suspect) == 1))
+        this.eqStr("…as what it was meant to be" (itemAt m3.suspect 0) "transtion~transition")
+        this.eqStr("one letter missing is named" (MdSlideMeta.nearEngineKey("widt")) "width")
+        this.eqStr("one letter over is named" (MdSlideMeta.nearEngineKey("ownerr")) "")
+        this.eqStr("a word of its own is not" (MdSlideMeta.nearEngineKey("jira")) "")
+
+        ; ---- 3. the slide, and a footer's placeholder -------------------
+        def deck:string ("---\nslide-split-level: 2\nfooter-right: \"{jira} · {page} / {pages}\"\n---\n\n"
+            + "## Revenue {jira=ACME-412}\n\nUp 18 %.\n\n## Costs {jira=ACME-413 owner=Tero}\n\nFlat.\n\n## Outlook\n\nGood.\n")
+        def l:MdLayout (this.laid(deck))
+        this.ok("three slides" ((l.pageCount) == 3))
+        this.eqStr("slide 1 carries its ticket" (l.metaValue(0 "jira")) "ACME-412")
+        this.eqStr("slide 2 carries its own" (l.metaValue(1 "jira")) "ACME-413")
+        this.eqStr("…and its owner" (l.metaValue(1 "owner")) "Tero")
+        this.eqStr("slide 3 carries none" (l.metaValue(2 "jira")) "")
+        def one:string (this.textsOn(l 0))
+        this.ok("the ticket is in the footer" ((indexOf one "ACME-412 · 1 / 3") >= 0))
+        this.ok("…and not drawn on the slide itself" ((indexOf one "jira=") < 0))
+        def three:string (this.textsOn(l 2))
+        this.ok("a slide without the key leaves the place empty" ((indexOf three "3 / 3") >= 0))
+        this.ok("…and no separator hanging where the data was" ((indexOf three "· 3 / 3") < 0))
+        this.eqStr("a hanging separator goes with the data" (MdLayout.tidySlot(" · 3 / 3")) "3 / 3")
+        this.ok("…and says nothing about jira" ((indexOf three "{jira}") < 0))
+
+        ; the report lines a host shows
+        def notes:[string] (l.slideMetaNotes())
+        this.ok("the slides with data are reported" ((array_length notes) == 2))
+        this.ok("…by number and title" ((indexOf (itemAt notes 0) "Slide 1 \"Revenue\": jira=ACME-412") >= 0))
+
+        def warn:MdLayout (this.laid("---\nslide-split-level: 2\n---\n\n## One {transtion=fade}\n\nText.\n"))
+        def warns:[string] (warn.slideMetaWarnings())
+        this.ok("a misspelt key is warned about" ((array_length warns) == 1))
+        this.ok("…naming both spellings" (((indexOf (itemAt warns 0) "transtion") >= 0) && ((indexOf (itemAt warns 0) "transition") >= 0)))
+
+        print ("  " + (to_string passed) + " passed, " + (to_string failed) + " failed")
+        if (failed > 0) {
+            print "FAILED"
+        }
+    }
+}
+
+class MdSlideMetaTest {
+    sfn main:void () {
+        def c:MetaCheck (new MetaCheck())
+        c.run()
+    }
+}
