@@ -138,32 +138,33 @@ class MdSlideMeta {
     ; The engine key this is one character away from, or "".
     sfn nearEngineKey:string (k0:string) {
         def k:string (MdChar.lower((trim k0)))
-        if ((strlen k) < 3) { return "" }
-        def all:[string] (MdSlideMeta.engineKeys())
-        def i:int 0
-        while (i < (array_length all)) {
-            def cand:string (itemAt all i)
-            if (MdSlideMeta.oneApart(k cand)) { return cand }
-            i = (i + 1)
-        }
-        return ""
+        return (MdSlideMeta.nearIn(k (MdSlideMeta.engineKeys())))
     }
 
-    ; One substitution, one insertion or one deletion apart — the three ways
-    ; a key is mistyped. Not a general edit distance: two differences are two
-    ; words, and `owner` is not a misspelt `order`.
+    ; One substitution, insertion, deletion or swap of two neighbours apart —
+    ; the four ways a key is mistyped (`tilte`). Not a general edit
+    ; distance: two differences are two words, and `owner` is not a misspelt
+    ; `order`.
     sfn oneApart:boolean (a:string b:string) {
         def la:int (strlen a)
         def lb:int (strlen b)
         if (a == b) { return false }
         if (la == lb) {
             def diff:int 0
+            def first:int -1
             def i:int 0
             while (i < la) {
-                if ((charAt a i) != (charAt b i)) { diff = (diff + 1) }
+                if ((charAt a i) != (charAt b i)) {
+                    if (diff == 0) { first = i }
+                    diff = (diff + 1)
+                }
                 i = (i + 1)
             }
-            return (diff == 1)
+            if (diff == 1) { return true }
+            if ((diff == 2) && ((first + 1) < la)) {
+                return (((charAt a first) == (charAt b (first + 1))) && ((charAt a (first + 1)) == (charAt b first)))
+            }
+            return false
         }
         if (la == (lb + 1)) { return (MdSlideMeta.oneLonger(a b)) }
         if (lb == (la + 1)) { return (MdSlideMeta.oneLonger(b a)) }
@@ -184,6 +185,87 @@ class MdSlideMeta {
             j = (j + 1)
         }
         return true
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The deck's own data: the front matter
+    ; ----------------------------------------------------------------------
+    ;
+    ; ````yaml
+    ; ---
+    ; title: Q3 review
+    ; lang: fi
+    ; jira: ACME-400
+    ; owner: Tero
+    ; ---
+    ; ````
+    ;
+    ; The same rule one level up: a front matter key the engine reads is the
+    ; engine's (`title`, `lang`, `theme`, the header's and footer's, …),
+    ; anything else is the deck's own data, and `meta-<key>` is data whatever
+    ; it is called. A slide's own value goes over the deck's: `{jira}` in a
+    ; footer prints the slide's ticket where it has one and the deck's where
+    ; it has none.
+
+    sfn frontMatterKeys:[string] () {
+        return ([] _:string ("art" "art-seed" "book-start" "breakonh1" "chart-style" "diagram-style" "footer" "fx" "header" "highlight" "hold" "lang" "margin" "margin-bottom" "margin-inside" "margin-outside" "margin-top" "mode" "orientation" "page" "pagenumbers" "render" "runninghead" "seconds" "slide-grow" "slide-overflow" "slide-split-level" "step" "style" "theme" "title" "toc" "transition" "typographer" "valign"))
+    }
+
+    sfn isFrontMatterKey:boolean (k0:string) {
+        def k:string (MdChar.lower((trim k0)))
+        if ((MdSlideMeta.startsWith(k "fx-")) == true) { return true }
+        ; every `header-…` and `footer-…` belongs to the edges (MdLayout)
+        if ((MdSlideMeta.startsWith(k "header-")) == true) { return true }
+        if ((MdSlideMeta.startsWith(k "footer-")) == true) { return true }
+        def all:[string] (MdSlideMeta.frontMatterKeys())
+        def i:int 0
+        while (i < (array_length all)) {
+            if ((itemAt all i) == k) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Whether a front matter key, as written, is the deck's data.
+    sfn isDeckDataKey:boolean (k0:string) {
+        def k:string (MdChar.lower((trim k0)))
+        if ((strlen k) == 0) { return false }
+        if (MdSlideMeta.startsWith(k "meta-")) { return ((strlen k) > 5) }
+        return ((MdSlideMeta.isFrontMatterKey(k)) == false)
+    }
+
+    ; The deck's data from its front matter's keys and values.
+    sfn ofFrontMatter:MdSlideMeta (keys:[string] values:[string]) {
+        def out:MdSlideMeta (new MdSlideMeta())
+        def i:int 0
+        while (i < (array_length keys)) {
+            def key:string (MdChar.lower((trim (itemAt keys i))))
+            if (MdSlideMeta.isDeckDataKey(key)) {
+                if (MdSlideMeta.startsWith(key "meta-")) {
+                    out.put((substring key 5 (strlen key)) (itemAt values i))
+                } {
+                    out.put(key (itemAt values i))
+                    def near:string (MdSlideMeta.nearIn(key (MdSlideMeta.frontMatterKeys())))
+                    if ((strlen near) > 0) {
+                        push out.suspect (key + "~" + near)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The key in `all` this one is one character away from, or "".
+    sfn nearIn:string (k:string all:[string]) {
+        if ((strlen k) < 3) { return "" }
+        def i:int 0
+        while (i < (array_length all)) {
+            def cand:string (itemAt all i)
+            if (MdSlideMeta.oneApart(k cand)) { return cand }
+            i = (i + 1)
+        }
+        return ""
     }
 
     ; ----------------------------------------------------------------------

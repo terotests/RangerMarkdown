@@ -109,6 +109,8 @@ class MetaCheck {
         this.eqStr("one letter missing is named" (MdSlideMeta.nearEngineKey("widt")) "width")
         this.eqStr("one letter over is named" (MdSlideMeta.nearEngineKey("ownerr")) "")
         this.eqStr("a word of its own is not" (MdSlideMeta.nearEngineKey("jira")) "")
+        this.eqStr("two neighbours swapped is named" (MdSlideMeta.nearEngineKey("trasnition")) "transition")
+        this.eqStr("two letters apart are two words" (MdSlideMeta.nearEngineKey("owner")) "")
 
         ; ---- 3. the slide, and a footer's placeholder -------------------
         def deck:string ("---\nslide-split-level: 2\nfooter-right: \"{jira} · {page} / {pages}\"\n---\n\n"
@@ -137,6 +139,36 @@ class MetaCheck {
         def warns:[string] (warn.slideMetaWarnings())
         this.ok("a misspelt key is warned about" ((array_length warns) == 1))
         this.ok("…naming both spellings" (((indexOf (itemAt warns 0) "transtion") >= 0) && ((indexOf (itemAt warns 0) "transition") >= 0)))
+
+        ; ---- 4. the deck's own data, in the front matter ----------------
+        def fm:string ("---\ntitle: Q3\nlang: fi\nslide-split-level: 2\njira: ACME-400\nowner: Tero\nmeta-theme: internal\ntilte: Oops\n"
+            + "footer-left: \"{jira}\"\nfooter-right: \"{owner} · {page}\"\n---\n\n"
+            + "## Plan {jira=ACME-412}\n\nText.\n\n## Rest\n\nMore.\n")
+        def dl:MdLayout (this.laid(fm))
+        def dm:MdSlideMeta dl.deckMeta
+        this.eqStr("the deck's ticket" (dm.value("jira")) "ACME-400")
+        this.eqStr("the deck's owner" (dm.value("owner")) "Tero")
+        this.ok("title is the engine's" ((dm.has("title")) == false))
+        this.ok("lang is the engine's" ((dm.has("lang")) == false))
+        this.ok("a footer key is the engine's" ((dm.has("footer-left")) == false))
+        this.eqStr("meta- carries a key the engine reads" (dm.value("theme")) "internal")
+        this.ok("…and the engine's theme is not touched" ((dm.has("meta-theme")) == false))
+        this.eqStr("a slide's value goes over the deck's" (dl.dataValue(0 "jira")) "ACME-412")
+        this.eqStr("…and the deck's fills the rest" (dl.dataValue(1 "jira")) "ACME-400")
+        this.eqStr("a key only the deck has reaches every slide" (dl.dataValue(0 "owner")) "Tero")
+        def p1:string (this.textsOn(dl 0))
+        def p2:string (this.textsOn(dl 1))
+        this.ok("slide 1's footer has its own ticket" ((indexOf p1 "ACME-412") >= 0))
+        this.ok("slide 2's footer has the deck's" ((indexOf p2 "ACME-400") >= 0))
+        this.ok("the deck's owner prints on every slide" ((indexOf p2 "Tero · 2") >= 0))
+        def dn:[string] (dl.slideMetaNotes())
+        this.ok("the deck's data is reported first" ((indexOf (itemAt dn 0) "Presentation: jira=ACME-400 owner=Tero theme=internal") >= 0))
+        def dw:[string] (dl.slideMetaWarnings())
+        this.ok("a misspelt front matter key is warned about" ((array_length dw) == 1))
+        if ((array_length dw) > 0) {
+            this.ok("…naming title" ((indexOf (itemAt dw 0) "Did you mean title?") >= 0))
+        }
+        this.ok("a deck without front matter has no data" (((this.laid("## A\n\nB\n")).deckMeta.count()) == 0))
 
         print ("  " + (to_string passed) + " passed, " + (to_string failed) + " failed")
         if (failed > 0) {
