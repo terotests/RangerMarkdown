@@ -596,16 +596,25 @@ editors this repository already has rather than by a third one written here.
 staging; the bytes a picture or a background image needs are in
 [`../vfs/PLAN_VFS.md`](../vfs/PLAN_VFS.md).
 
-## A slide's own data: `{jira=ACME-412}`
+## Your own data: `jira: ACME-400`, `{jira=ACME-412}`
 
 ````markdown
 ---
+title: Q3
+jira: ACME-400
 footer-right: "{jira} · {page} / {pages}"
 ---
 
 ## Revenue {jira=ACME-412 owner=Tero}
 ## Costs {meta-width=wide}
 ````
+
+A front matter key the engine does not read is the DECK's own data
+(`MdSlideMeta.ofFrontMatter`, held as `MdLayout.deckMeta`); a heading's is
+the slide's, and goes over the deck's — `dataValue(p key)` and `{jira}`
+take the slide's where it has one and the deck's where it has none. The
+same `meta-` prefix and misspelling rules hold for both (`tilte:` is named
+too: a swap of two neighbours counts as one slip).
 
 A key on a heading that the engine does not claim is the document's own:
 a ticket number, an owner, a status. `MdSlideMeta` is the rule and the only

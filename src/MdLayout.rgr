@@ -546,6 +546,9 @@ class MdLayout {
     ; "2|transtion|transition": a key one character from an engine key, the
     ; sheet it is on, for the report
     def metaSuspect:[string]
+    ; THE DECK'S OWN DATA, from the front matter keys the engine does not
+    ; read (`jira: ACME-400`). A slide's own value goes over it.
+    def deckMeta:MdSlideMeta (new MdSlideMeta())
     ; GROW: a slide with room to spare is laid out again with everything on
     ; it larger — text, headings, spacing, together, so the title stays the
     ; larger thing — by at most this factor (1.0 = off). A deck has no font
@@ -719,6 +722,7 @@ class MdLayout {
     ; a document with no front matter is unchanged by it.
     fn applyMeta:void (doc:MdNode) {
         def meta:MdMeta (MdFrontMatter.of(doc))
+        deckMeta = (MdSlideMeta.ofFrontMatter(meta.keys meta.values))
         if ((meta.count()) == 0) { return }
         def page:string (meta.get("page" ""))
         def plen:int (strlen page)
@@ -1454,9 +1458,13 @@ class MdLayout {
         return ""
     }
 
-    ; One line per slide that carries data, for a host's report.
+    ; One line for the deck's data and one per slide that carries any, for a
+    ; host's report.
     fn slideMetaNotes:[string] () {
         def out:[string]
+        if ((deckMeta.count()) > 0) {
+            push out ("Presentation: " + (deckMeta.asText()))
+        }
         def p:int 0
         while (p < pageCount) {
             def m:MdSlideMeta (this.slideMeta(p))
@@ -1473,9 +1481,28 @@ class MdLayout {
         return out
     }
 
+    ; The value `{key}` prints on sheet p: the slide's, else the deck's.
+    fn dataValue:string (p:int key:string) {
+        def want:string (MdChar.lower((trim key)))
+        if ((this.metaAt(p want)) >= 0) {
+            return (this.metaValue(p want))
+        }
+        return (deckMeta.value(want))
+    }
+
     ; A key one character from an engine key: kept as data, and said so.
     fn slideMetaWarnings:[string] () {
         def out:[string]
+        def w:int 0
+        while (w < (array_length deckMeta.suspect)) {
+            def pair:[string] (strsplit (itemAt deckMeta.suspect w) "~")
+            if ((array_length pair) == 2) {
+                push out ("Front matter: " + (itemAt pair 0)
+                    + " is not a key Sliqtly knows, so it is kept as the presentation's own data. Did you mean "
+                    + (itemAt pair 1) + "?")
+            }
+            w = (w + 1)
+        }
         def i:int 0
         while (i < (array_length metaSuspect)) {
             def parts:[string] (strsplit (itemAt metaSuspect i) "|")
@@ -1816,6 +1843,12 @@ class MdLayout {
         while (i < (m.count())) {
             out = (MdLayout.replaceAll(out ("{" + (itemAt m.keys i) + "}") (itemAt m.values i)))
             i = (i + 1)
+        }
+        ; then the deck's, for a key this slide does not say otherwise
+        def d:int 0
+        while (d < (deckMeta.count())) {
+            out = (MdLayout.replaceAll(out ("{" + (itemAt deckMeta.keys d) + "}") (itemAt deckMeta.values d)))
+            d = (d + 1)
         }
         ; A key SOME slide in the deck carries, on a slide that does not:
         ; the place is left empty rather than printing `{jira}` at the foot
