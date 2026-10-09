@@ -113,7 +113,7 @@ class MdSlideMeta {
     ; which is a louder failure than a silent one.
 
     sfn engineKeys:[string] () {
-        return ([] _:string ("align" "anim" "art" "art-seed" "background" "ball" "bg" "bg-dim" "caption" "cells" "chart-style" "choose" "colors" "container" "diagram" "duration" "fit" "float" "focus" "footer" "furniture" "fx" "header" "heading" "height" "hold" "layout" "lines" "list-style" "numbers" "padding" "radius" "seconds" "span" "step" "style" "tour" "transition" "valign" "width" "widths" "zoom"))
+        return ([] _:string ("align" "allow" "anim" "art" "art-seed" "background" "ball" "bg" "bg-dim" "caption" "cells" "chart-style" "choose" "colors" "container" "diagram" "duration" "export-frame" "fit" "float" "focus" "footer" "furniture" "fx" "header" "heading" "height" "hold" "layout" "lines" "list-style" "numbers" "padding" "radius" "script" "seconds" "span" "step" "style" "tour" "transition" "valign" "width" "widths" "zoom"))
     }
 
     sfn isEngineKey:boolean (k0:string) {
