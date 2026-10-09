@@ -118,6 +118,7 @@ class MdDeckDiagram {
         if (notation == "plantuml") { return "PlantUML" }
         if (notation == "graphviz") { return "Graphviz" }
         if (notation == "d2") { return "D2" }
+        if (notation == "xstate") { return "XState" }
         return "Drawing"
     }
 }

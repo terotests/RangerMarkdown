@@ -48,6 +48,9 @@ class MdEmbedKinds {
         if (word == "dot") { return "graphviz" }
         if (word == "graphviz") { return "graphviz" }
         if (word == "d2") { return "d2" }
+        ; A statechart: an XState machine config (JSON, or the object in
+        ; `createMachine({ … })`), drawn by RangerFlow's `domains/xstate`.
+        if (word == "xstate") { return "xstate" }
         ; A chart, not a diagram — the one notation here that is not a graph.
         ; Both spellings reach the same reader: `VlCompile.compileSpec` takes
         ; Vega-Lite to Vega and passes Vega through, so a writer does not have
@@ -77,6 +80,7 @@ class MdEmbedKinds {
         if (n == "plantuml") { return "PlantUML" }
         if (n == "graphviz") { return "Graphviz" }
         if (n == "d2") { return "D2" }
+        if (n == "xstate") { return "XState" }
         if (n == "vega") { return "Vega" }
         if (n == "figure") { return "Figure" }
         return "Drawing"
