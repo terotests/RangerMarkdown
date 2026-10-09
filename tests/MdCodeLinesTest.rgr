@@ -60,6 +60,8 @@ class MdCodeLinesTest {
         MdCodeLinesTest.parsed(c)
         MdCodeLinesTest.drawn(c)
         MdCodeLinesTest.readable(c)
+        MdCodeLinesTest.wrapModel(c)
+        MdCodeLinesTest.wrapped(c)
         print ""
         print ((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed))
         if (c.failed == 0) {
@@ -200,5 +202,112 @@ class MdCodeLinesTest {
         c.eqInt("bands" bands 7)
         c.eqStr("highlights revealed one step each" (join steps ",") "1,1,2,2")
         c.eqStr("markers drawn, context's space not" (join texts "|") "context|-|old|+|new|+|more")
+    }
+
+    ; every piece 10 wide: rows end after a space or , ; ( [ { = in the row,
+    ; between characters where there is none
+    sfn tens:[double] (units:[string]) {
+        def out:[double]
+        for units u:string i {
+            push out 10.0
+        }
+        return out
+    }
+
+    sfn rowsOf:string (text:string first:double rest:double) {
+        def u:[string] (MdCodeWrap.units(text))
+        def offs:[int] (MdCodeWrap.offsets(u (MdCodeWrap.rows(u (MdCodeLinesTest.tens(u)) first rest))))
+        def parts:[string]
+        def at:int 0
+        for offs o:int i {
+            push parts (substring text at o)
+            at = o
+        }
+        push parts (substring text at (strlen text))
+        return (join parts "|")
+    }
+
+    sfn wrapModel:void (c:CodeCheck) {
+        c.eqStr("fits: one row" (MdCodeLinesTest.rowsOf("const a = 1" 200.0 200.0)) "const a = 1")
+        c.eqStr("after the space" (MdCodeLinesTest.rowsOf("const abc = 1" 100.0 100.0)) "const abc |= 1")
+        c.eqStr("after a comma" (MdCodeLinesTest.rowsOf("f(aa,bb,cc)" 80.0 80.0)) "f(aa,bb,|cc)")
+        c.eqStr("no place to break: between characters" (MdCodeLinesTest.rowsOf("abcdefghij" 40.0 40.0)) "abcd|efgh|ij")
+        c.eqStr("spaces hang at the row's end" (MdCodeLinesTest.rowsOf("ab    cd" 40.0 40.0)) "ab    |cd")
+        c.eqStr("narrower rows after the first" (MdCodeLinesTest.rowsOf("abcdefgh" 60.0 30.0)) "abcdef|gh")
+        ; a character's UTF-8 bytes stay together
+        def u:[string] (MdCodeWrap.units("aä€b"))
+        c.eqInt("one piece per character" (array_length u) 4)
+        c.eqStr("ä whole" (itemAt u 1) "ä")
+        def iu:[string] (MdCodeWrap.units("    x = 1"))
+        c.ok("indent is the line's own" ((MdCodeWrap.indentOf(iu (MdCodeLinesTest.tens(iu)) 200.0)) == 40.0))
+        c.ok("but never more than half the row" ((MdCodeWrap.indentOf(iu (MdCodeLinesTest.tens(iu)) 60.0)) == 0.0))
+    }
+
+    ; a diff line wider than the block wraps inside it: nothing drawn past
+    ; the block's right edge, the text all there in order, its band as tall
+    ; as its rows
+    sfn wrapped:void (c:CodeCheck) {
+        def long:string "const result = computeSomethingVeryLong(firstArgument, secondArgument, thirdArgument, fourthArgument)"
+        for ([] _:boolean (true false)) hlOn:boolean hi {
+            def src:string ("```diff js {.numbers}\n@@ -1,2 +1,2 @@\n-" + long + "\n+" + long + "\n x\n```\n")
+            def doc:MdNode (MdBlock.parseText(src))
+            def l:MdLayout (new MdLayout())
+            l.style = (new MdStyle())
+            l.style.highlightCode = hlOn
+            l.setDocSource(src)
+            l.layoutContinuous(doc 300.0)
+            def name:string "plain: "
+            if hlOn {
+                name = "highlighted: "
+            }
+            def right:double 0.0
+            def blockH:double 0.0
+            for l.boxes b:MdBox i {
+                if ((b.kind == 1) && (b.h > blockH)) {
+                    right = (b.x + b.w)
+                    blockH = b.h
+                }
+            }
+            def lh:double (l.style.codeSize * l.style.codeLineHeight)
+            def past:int 0
+            def ys:[string]
+            def drawn:string ""
+            def addedH:double 0.0
+            for l.boxes b2:MdBox j {
+                if ((b2.kind == 0) && ((strlen b2.text) > 0)) {
+                    def probe:MdRun (new MdRun())
+                    probe.family = l.style.monoFamily
+                    probe.size = l.style.codeSize
+                    if ((b2.x + (l.measureRun(b2.text probe))) > (right + 0.5)) {
+                        past = (past + 1)
+                        print ("    past the edge: " + b2.text)
+                    }
+                    drawn = (drawn + b2.text)
+                }
+                if (((b2.kind == 1) && (b2.h < blockH)) && (b2.h > addedH)) {
+                    addedH = b2.h
+                }
+            }
+            c.eqInt((name + "nothing past the block's edge") past 0)
+            def squeezed:string (MdCodeLinesTest.noSpaces(long))
+            def flat:string (MdCodeLinesTest.noSpaces(drawn))
+            c.ok((name + "the removed line's text all drawn") ((indexOf flat ("-" + squeezed)) >= 0))
+            c.ok((name + "the added line's text all drawn") ((indexOf flat ("+" + squeezed)) >= 0))
+            c.ok((name + "a wrapped line's band covers its rows") (addedH >= ((lh * 2.0) - 0.01)))
+            c.ok((name + "the block is as tall as its rows") (blockH > (lh * 6.0)))
+        }
+    }
+
+    sfn noSpaces:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:string (substring s i (i + 1))
+            if (ch != " ") {
+                out = (out + ch)
+            }
+            i = (i + 1)
+        }
+        return out
     }
 }
