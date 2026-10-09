@@ -1,0 +1,119 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdAppTest.rgr — what an ```app fence says, and the box it takes.
+; ============================================================================
+;
+;   npm run markdown:app:test
+; ============================================================================
+
+Import "../src/MdApp.rgr"
+Import "../src/MdEmbedKinds.rgr"
+
+class AppCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if ((d < 0.01) && (d > -0.01)) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print (("    got  " + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+}
+
+class MdAppTest {
+    sfn main:void () {
+        def t:MdAppTest (new MdAppTest())
+        t.run()
+    }
+
+    fn reading:void (c:AppCheck) {
+        print "-- the fence's lines --"
+        def nl:string (strfromcode 10)
+        def s:MdAppSpec (MdApp.read(("src: apps/scaffold.tsx" + nl + "size: 640x480   # the game's own units" + nl + "allow: deck.data, slide.nav" + nl)))
+        c.eqStr("src" s.src "apps/scaffold.tsx")
+        c.eqStr("css beside it" s.css "apps/scaffold.tsx.css")
+        c.near("width" s.width 640.0)
+        c.near("height" s.height 480.0)
+        c.ok("allows deck.data" (s.allows("deck.data")))
+        c.ok("allows slide.nav" (s.allows("slide.nav")))
+        c.ok("not slide.style" ((s.allows("slide.style")) == false))
+        c.ok("no warnings" ((array_length s.warnings) == 0))
+        c.eqStr("name without folder" (s.name()) "scaffold.tsx")
+
+        def s2:MdAppSpec (MdApp.read(("src: a.tsx" + nl + "css: look.css" + nl + "size: 300 × 100" + nl)))
+        c.eqStr("own css" s2.css "look.css")
+        c.near("size with ×" s2.width 300.0)
+        c.near("aspect" (s2.aspect()) 3.0)
+        c.ok("nothing allowed" ((array_length s2.allow) == 0))
+    }
+
+    fn warnings:void (c:AppCheck) {
+        print "-- what it says it did not take --"
+        def nl:string (strfromcode 10)
+        def s:MdAppSpec (MdApp.read(("size: 10x10" + nl + "allow: network, slide.nav" + nl + "colour: red" + nl + "just words" + nl)))
+        c.ok("four warnings and no src" ((array_length s.warnings) == 5))
+        c.near("too small keeps the default" s.width 640.0)
+        c.ok("known grant kept" (s.allows("slide.nav")))
+        c.ok("unknown grant dropped" ((s.allows("network")) == false))
+        c.eqStr("no css without src" s.css "")
+    }
+
+    fn boxes:void (c:AppCheck) {
+        print "-- the box --"
+        def s:MdAppSpec (MdApp.read("src: a.tsx"))
+        def wide:[double] (MdApp.boxSize(s 800.0 0.0))
+        c.near("column wide" (itemAt wide 0) 800.0)
+        c.near("4:3 high" (itemAt wide 1) 600.0)
+        def held:[double] (MdApp.boxSize(s 800.0 300.0))
+        c.near("held by the room" (itemAt held 1) 300.0)
+        c.near("narrower for it" (itemAt held 0) 400.0)
+        c.eqStr("the fence word" (MdEmbedKinds.notationOf("app")) "app")
+        c.eqStr("its name" (MdEmbedKinds.notationWord("app")) "App")
+        def p:EVGElement (MdApp.placeholder(s 400.0 300.0))
+        c.ok("plate has its label" ((array_length p.children) == 1))
+    }
+
+    fn run:void () {
+        def c:AppCheck (new AppCheck())
+        print "== MdAppTest =="
+        this.reading(c)
+        this.warnings(c)
+        this.boxes(c)
+        print ""
+        print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

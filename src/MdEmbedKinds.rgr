@@ -25,6 +25,7 @@
 ;   dot, graphviz               graphviz
 ;   d2                          d2
 ;   vega, vega-lite, vegalite   vega
+;   app                         app
 ;   process, swot, timeline,    figure
 ;   stats, cards
 ;
@@ -65,6 +66,9 @@ class MdEmbedKinds {
         if (word == "stats") { return "figure" }
         if (word == "timeline") { return "figure" }
         if (word == "cards") { return "figure" }
+        ; A program the host runs (MdApp): the box it paints into, and a
+        ; plate with its name where nothing runs it.
+        if (word == "app") { return "app" }
         return ""
     }
 
@@ -83,6 +87,7 @@ class MdEmbedKinds {
         if (n == "xstate") { return "XState" }
         if (n == "vega") { return "Vega" }
         if (n == "figure") { return "Figure" }
+        if (n == "app") { return "App" }
         return "Drawing"
     }
 

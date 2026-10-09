@@ -49,6 +49,7 @@ Import "MdEmbed.rgr"
 Import "MdEmbedKinds.rgr"
 Import "MdVegaRender.rgr"
 Import "MdFigure.rgr"
+Import "MdApp.rgr"
 Import "MdAnchor.rgr"
 Import "MdColumns.rgr"
 Import "../../rangerflow/domains/mermaid/MermaidRender.rgr"
@@ -70,6 +71,14 @@ class MdDiagram {
     ; it. In a document, a 4:3 box. The layout cuts any of these to the room
     ; that is left, and the pass that draws it lays out with the real one.
     sfn estimate:double (notation:string width:double pad:double maxH:double) {
+        if (notation == "app") {
+            ; a program keeps its own shape: 4:3 until its fence is read
+            def h:double (width * 0.75)
+            if ((maxH > 0.0) && (h > maxH)) {
+                return maxH
+            }
+            return h
+        }
         if (maxH > 0.0) {
             if ((notation == "vega") || (notation == "figure")) {
                 return (maxH + (pad * 2.0))
@@ -295,6 +304,21 @@ class MdDiagram {
                 }
             }
             text = (MdVegaRender.limitsByFont(text))
+        }
+        ; A program: a box of its own shape, as large as the column and the
+        ; slide's room allow, with a plate in it the host paints over.
+        if (notation == "app") {
+            def spec:MdAppSpec (MdApp.read(text))
+            def room:double (MdDiagram.fitRoom(cache.chartMaxH fitH 0.0))
+            def wh:[double] (MdApp.boxSize(spec width room))
+            e.width = (itemAt wh 0)
+            e.height = (itemAt wh 1)
+            e.root = (MdApp.placeholder(spec e.width e.height))
+            e.align = "center"
+            e.warnings = spec.warnings
+            e.ok = true
+            cache.add(e)
+            return
         }
         if (notation == "figure") {
             if (cache.figure.allowed == false) {
