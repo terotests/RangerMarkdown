@@ -1646,8 +1646,12 @@ class MdFigure {
     ;   glow       soft pastel light from two corners, layered discs
     ;   halftone   dots shrinking away from two corners
     ;   tide       the waves' ribbons kept to the bottom of the page
+    ;   blocks     a solid band down the right edge with an accent block on
+    ;              it, and an accent bar along the bottom left (work themes)
+    ;   pulse      a heartbeat line over a pale band along the bottom, and a
+    ;              small cross in the top right corner (health themes)
     sfn artNames:[string] () {
-        def k:[string] ([] _:string ("waves" "honeycomb" "lattice" "corners" "glow" "halftone" "tide"))
+        def k:[string] ([] _:string ("waves" "honeycomb" "lattice" "corners" "glow" "halftone" "tide" "blocks" "pulse"))
         return k
     }
 
@@ -1805,6 +1809,14 @@ class MdFigure {
         }
         if (name == "tide") {
             MdFigure.artTide(sc st w h seed)
+            return sc
+        }
+        if (name == "blocks") {
+            MdFigure.artBlocks(sc st w h)
+            return sc
+        }
+        if (name == "pulse") {
+            MdFigure.artPulse(sc st w h)
             return sc
         }
         def c0:string (MdFigure.colorAt(st 0))
@@ -2035,6 +2047,50 @@ class MdFigure {
         ; quarter circles in the other two corners
         MdFigure.artShape(sc w h (MdFigure.ring(w 0.0 (l * 0.62) 40)) c0 "" 0.0)
         MdFigure.artShape(sc w h (MdFigure.ring(0.0 h (l * 0.5) 40)) c1 "" 0.0)
+    }
+
+    ; The work themes' blocks: the first colour as a band down the right
+    ; edge, narrower than a slide's side padding; the second as a block on
+    ; it, standing out a little to the left, and as a bar along the bottom
+    ; left. Square edges, nothing in the middle.
+    sfn artBlocks:void (sc:FlowScene st:MdFigureStyle w:double h:double) {
+        def u:double (MdFigure.shorter(w h))
+        def c0:string (MdFigure.colorAt(st 0))
+        def c1:string (MdFigure.colorAt(st 1))
+        def bw:double (u * 0.07)
+        def x0:double (w - bw)
+        MdFigure.artShape(sc w h ([] _:double (x0 0.0 w 0.0 w h x0 h)) c0 "" 0.0)
+        def x1:double (w - (bw * 1.35))
+        def y1:double (h * 0.58)
+        def y2:double (h * 0.8)
+        MdFigure.artShape(sc w h ([] _:double (x1 y1 w y1 w y2 x1 y2)) c1 "" 0.0)
+        def bh:double (u * 0.022)
+        def bx:double (w * 0.22)
+        MdFigure.artShape(sc w h ([] _:double (0.0 (h - bh) bx (h - bh) bx h 0.0 h)) c1 "" 0.0)
+    }
+
+    ; The health themes' pulse: a pale band of the second colour along the
+    ; bottom, a heartbeat line in the first colour across it (one beat, at
+    ; about two thirds of the width), and a small cross in the second
+    ; colour in the top right corner, inside the page's padding.
+    sfn artPulse:void (sc:FlowScene st:MdFigureStyle w:double h:double) {
+        def u:double (MdFigure.shorter(w h))
+        def c0:string (MdFigure.colorAt(st 0))
+        def c1:string (MdFigure.colorAt(st 1))
+        def top:double (h - (u * 0.075))
+        MdFigure.artShape(sc w h ([] _:double (0.0 top w top w h 0.0 h)) (MdFigure.rgba(c1 0.14)) "" 0.0)
+        def y:double (h - (u * 0.04))
+        def a:double (u * 0.1)
+        def b:double (w * 0.66)
+        def k:double (u * 0.02)
+        def pts:[double] ([] _:double (0.0 y (b - (k * 5.0)) y (b - (k * 4.0)) (y - (a * 0.12)) (b - (k * 3.0)) y (b - (k * 1.5)) y (b - k) (y + (a * 0.18)) b (y - a) (b + k) (y + (a * 0.32)) (b + (k * 1.6)) y (b + (k * 3.2)) y (b + (k * 4.4)) (y - (a * 0.22)) (b + (k * 5.6)) y w y))
+        def ln:SceneItem (sc.path(pts "" c0 (u * 0.005)))
+        ln.tag = "art"
+        def cx:double (w - (u * 0.065))
+        def cy:double (u * 0.065)
+        def r:double (u * 0.025)
+        def t:double (r * 0.36)
+        MdFigure.artShape(sc w h ([] _:double ((cx - t) (cy - r) (cx + t) (cy - r) (cx + t) (cy - t) (cx + r) (cy - t) (cx + r) (cy + t) (cx + t) (cy + t) (cx + t) (cy + r) (cx - t) (cy + r) (cx - t) (cy + t) (cx - r) (cy + t) (cx - r) (cy - t) (cx - t) (cy - t))) c1 "" 0.0)
     }
 
     ; A soft light: `layers` discs, each smaller and adding a little colour.

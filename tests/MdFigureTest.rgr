@@ -776,7 +776,7 @@ class MdFigureTest {
         c.ok("waves: the seed moves the lines" ((itemAt p1.pts 41) != (itemAt p2.pts 41)))
         ; the light themes' shapes: on the page, on every target the same,
         ; and the middle of a landscape page left to the text
-        def kinds:[string] ([] _:string ("honeycomb" "lattice" "corners" "glow" "halftone" "tide"))
+        def kinds:[string] ([] _:string ("honeycomb" "lattice" "corners" "glow" "halftone" "tide" "blocks" "pulse"))
         for kinds kn:string ki {
             c.ok((kn + ": a known art") (MdFigure.isArt(kn)))
             def ak:FlowScene (MdFigure.art(kn st 960.0 540.0 1))
@@ -789,6 +789,14 @@ class MdFigureTest {
         def cn:FlowScene (MdFigure.art("corners" st 960.0 540.0 1))
         c.ok("corners: a slide's title corner (padding 60pt) is clear" ((c.artAt(cn 62.0 62.0)) == 0))
         c.ok("corners: the corner itself is filled" ((c.artAt(cn 4.0 4.0)) > 0))
+        def bl:FlowScene (MdFigure.art("blocks" st 960.0 540.0 1))
+        c.ok("blocks: the right edge is a band" ((c.artAt(bl 958.0 100.0)) > 0))
+        c.ok("blocks: inside a slide's side padding (60pt) it is clear" ((c.artAt(bl 896.0 100.0)) == 0))
+        c.ok("blocks: the bar along the bottom left" ((c.artAt(bl 20.0 538.0)) > 0))
+        def pu:FlowScene (MdFigure.art("pulse" st 960.0 540.0 1))
+        c.ok("pulse: the band along the bottom" ((c.artAt(pu 100.0 535.0)) > 0))
+        c.ok("pulse: the cross in the top right corner" ((c.artAt(pu 925.0 35.0)) > 0))
+        c.ok("pulse: inside the padding (60pt) at the top right it is clear" ((c.artAt(pu 896.0 62.0)) == 0))
         def cut:[double] (MdFigure.clipPage(([] _:double (-10.0 -10.0 50.0 -10.0 50.0 50.0 -10.0 50.0)) 100.0 100.0))
         c.ok("clipPage: a square over the corner ends at the edges" (((array_length cut) == 8) && ((itemAt cut 0) >= 0.0)))
         def none:FlowScene (MdFigure.art("nope" st 100.0 100.0 1))
