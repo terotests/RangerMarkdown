@@ -956,6 +956,17 @@ class MdVegaTest {
         c.ok("…the drawing fits the column" (d.scene.worldW <= 482.5))
         c.ok("…and grows down into the page's height" (d.scene.worldH >= 500.0))
         c.ok("…no taller than the room" (d.scene.worldH <= 620.5))
+        ; a scatter that was 300 square, near enough its column's width that
+        ; it was left at its size: it takes the column, and on a page taller
+        ; than wide it is taller than wide too
+        def sc:string "{\"width\": \"container\", \"height\": \"container\", \"data\": {\"values\": [{\"p\":\"Ma\",\"j\":3,\"k\":42},{\"p\":\"La\",\"j\":14,\"k\":88}]}, \"mark\": \"point\", \"encoding\": {\"x\": {\"field\":\"j\",\"type\":\"quantitative\",\"title\":\"Jonotus (min)\"}, \"y\": {\"field\":\"k\",\"type\":\"quantitative\",\"title\":\"Kahvikupit\"}}, \"config\": {\"view\": {\"continuousWidth\": 300, \"continuousHeight\": 300}, \"axis\": {\"labelFontSize\": 15, \"titleFontSize\": 16}}, \"padding\": 14}"
+        def gs:string (MdVegaRender.limitsByFont((MdVegaRender.grown((MdVegaRender.withoutContainer(sc)) 482.0 10.0 2.5 600.0))))
+        def ds:MdVegaDrawing (MdVegaRender.draw(gs 482.0 10.0))
+        print ((("   portrait scatter: drawing " + (to_string ds.scene.worldW)) + " x ") + (to_string ds.scene.worldH))
+        c.ok("a scatter takes the column's width" (ds.scene.worldW >= 440.0))
+        c.ok("…and the page's height, taller than wide" ((ds.scene.worldH > ds.scene.worldW) && (ds.scene.worldH <= 620.5)))
+        c.ok("a slide's wide room keeps a chart at three quarters of its width" (MdVegaTest.close((MdVegaRender.tallestFor(319.0 840.0)) 0.75)))
+        c.ok("…a portrait page lets it be four thirds" (MdVegaTest.close((MdVegaRender.tallestFor(600.0 440.0)) (4.0 / 3.0))))
         ; "container" is no height of the chart's own
         c.ok("\"height\": \"container\" states no height" ((MdEmbedKinds.statesHeight(spec)) == false))
         c.ok("\"height\": 300 does" (MdEmbedKinds.statesHeight("{\"height\" : 300}")))

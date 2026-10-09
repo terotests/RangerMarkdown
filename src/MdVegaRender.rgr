@@ -651,7 +651,7 @@ class MdVegaRender {
         def one:string (MdVegaRender.radialRoom((MdVegaRender.repeatAsLayers(text)) maxH))
         def out:string (MdVegaRender.narrowedTo((MdVegaRender.grownIn(one width pad most maxH)) width pad))
         if ((maxH > 1.0) && ((indexOf text "\"height\"") < 0)) {
-            out = (MdVegaRender.filledTo(out maxH))
+            out = (MdVegaRender.filledTo(out maxH (width - (pad * 2.0))))
         }
         return (MdVegaRender.rowsFitted(out))
     }
@@ -734,13 +734,32 @@ class MdVegaRender {
         return (step / 1.2)
     }
 
+    ; How tall a chart that states no height may be, as a share of its
+    ; plot's width: the shape of its room, `maxH` over the `column`, from
+    ; three quarters (a slide's wide room: a chart in a column stays a
+    ; chart) to four thirds (a portrait page, where held to three quarters
+    ; a chart left the lower half of the page empty).
+    sfn tallestFor:double (maxH:double column:double) {
+        if ((maxH < 1.0) || (column < 1.0)) {
+            return 0.75
+        }
+        def k:double (maxH / column)
+        if (k < 0.75) {
+            return 0.75
+        }
+        if (k > (4.0 / 3.0)) {
+            return (4.0 / 3.0)
+        }
+        return k
+    }
+
     ; A chart that states no height, measured again as it will be drawn
     ; (its words grown, its limits by its type, its plot narrowed) and its
     ; height set so that the drawing is the room's: what the axes and the
     ; legend take was read at the chart's own type, and grown words took
     ; more of it, so the chart stopped short of its room. No taller than
-    ; three quarters of its width (see `grownAsOne`).
-    sfn filledTo:string (text:string maxH:double) {
+    ; its room's shape allows (`tallestFor`).
+    sfn filledTo:string (text:string maxH:double column:double) {
         def p (new VlJsonParser())
         def spec:VlJson (p.parse(text))
         if ((p.ok == false) || ((spec.isObject()) == false)) {
@@ -767,7 +786,7 @@ class MdVegaRender {
             return text
         }
         def want:double (to_double (to_int (h + (maxH - viewH))))
-        def cap:double (rt.chartWidth * 0.75)
+        def cap:double (rt.chartWidth * (MdVegaRender.tallestFor(maxH column)))
         if ((want > cap) && (want > h)) {
             want = cap
             if (want < h) {
@@ -1091,7 +1110,9 @@ class MdVegaRender {
                 extraW = ((rt2.viewWidth()) - plot2)
             }
         }
-        if ((viewW < (avail * 0.8)) || (fill && ((plotW + extraW) < (avail * 0.8)))) {
+        ; a chart that names no width takes the column's, however near it
+        ; already is; one with a width of its own grows only when small
+        if ((viewW < (avail * 0.8)) || (fill && ((plotW + extraW) < avail))) {
             fw = ((avail - extraW) / plotW)
             f = fw
             if (f > most) {
@@ -1139,12 +1160,12 @@ class MdVegaRender {
         ; A chart that states no height takes the room's height, as a
         ; slide's figure does: Vega-Lite's 20 points a category left five
         ; rows of ticks a strip across the top of an empty slide. No taller
-        ; than three quarters of its width (a chart in a column stays a
-        ; chart), and never lower than its own proportions grown.
+        ; than its room's shape allows (`tallestFor`), and never lower than
+        ; its own proportions grown.
         def tallH:double (plotH * f)
         if ((((spec.has("height")) == false) && (maxH > 1.0)) && ((indexOf text "\"arc\"") < 0)) {
             def roomH:double (maxH - (extra * k))
-            def capH:double ((plotW * fw) * 0.75)
+            def capH:double ((plotW * fw) * (MdVegaRender.tallestFor(maxH avail)))
             if (roomH > capH) {
                 roomH = capH
             }
