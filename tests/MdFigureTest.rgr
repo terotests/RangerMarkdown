@@ -276,6 +276,44 @@ class FigureCheck {
 
     ; the lowest WCAG ratio of any text over what is under it, as is (no
     ; allowance for large text)
+    ; How many filled shapes of the art cover the point (x, y): polygons by
+    ; their bounding box, dots by theirs.
+    fn artAt:int (sc:FlowScene x:double y:double) {
+        def n:int 0
+        for sc.items s:SceneItem i {
+            if ((s.kind == 0) && ((((x >= s.x) && (x <= (s.x + s.w))) && (y >= s.y)) && (y <= (s.y + s.h)))) {
+                n = (n + 1)
+            }
+            if ((s.kind == 2) && ((strlen s.fill) > 0)) {
+                ; a ray to the right crosses the outline an odd number of times
+                def inside:boolean false
+                def m:int (idiv (array_length s.pts) 2)
+                def k:int 0
+                while (k < m) {
+                    def q:int (k - 1)
+                    if (q < 0) {
+                        q = (m - 1)
+                    }
+                    def ax:double (itemAt s.pts (k * 2))
+                    def ay:double (itemAt s.pts ((k * 2) + 1))
+                    def bx:double (itemAt s.pts (q * 2))
+                    def by:double (itemAt s.pts ((q * 2) + 1))
+                    if ((ay > y) != (by > y)) {
+                        def cx:double (ax + (((y - ay) * (bx - ax)) / (by - ay)))
+                        if (x < cx) {
+                            inside = (inside == false)
+                        }
+                    }
+                    k = (k + 1)
+                }
+                if inside {
+                    n = (n + 1)
+                }
+            }
+        }
+        return n
+    }
+
     fn lowestRatio:double (sc:FlowScene paper:string) {
         def low:double 99.0
         def i:int 0
@@ -736,6 +774,23 @@ class MdFigureTest {
         def p1:SceneItem (itemAt w1.items 5)
         def p2:SceneItem (itemAt w2.items 5)
         c.ok("waves: the seed moves the lines" ((itemAt p1.pts 41) != (itemAt p2.pts 41)))
+        ; the light themes' shapes: on the page, on every target the same,
+        ; and the middle of a landscape page left to the text
+        def kinds:[string] ([] _:string ("honeycomb" "lattice" "corners" "glow" "halftone" "tide"))
+        for kinds kn:string ki {
+            c.ok((kn + ": a known art") (MdFigure.isArt(kn)))
+            def ak:FlowScene (MdFigure.art(kn st 960.0 540.0 1))
+            c.ok((kn + ": drawn") ((array_length ak.items) > 2))
+            c.inside(kn ak)
+            def tall:FlowScene (MdFigure.art(kn st 540.0 960.0 1))
+            c.inside((kn + " portrait") tall)
+            c.ok((kn + ": the middle stays clear") ((c.artAt(ak 480.0 270.0)) == 0))
+        }
+        def cn:FlowScene (MdFigure.art("corners" st 960.0 540.0 1))
+        c.ok("corners: a slide's title corner (padding 60pt) is clear" ((c.artAt(cn 62.0 62.0)) == 0))
+        c.ok("corners: the corner itself is filled" ((c.artAt(cn 4.0 4.0)) > 0))
+        def cut:[double] (MdFigure.clipPage(([] _:double (-10.0 -10.0 50.0 -10.0 50.0 50.0 -10.0 50.0)) 100.0 100.0))
+        c.ok("clipPage: a square over the corner ends at the edges" (((array_length cut) == 8) && ((itemAt cut 0) >= 0.0)))
         def none:FlowScene (MdFigure.art("nope" st 100.0 100.0 1))
         c.ok("unknown art: nothing" ((array_length none.items) == 0))
 
