@@ -83,6 +83,17 @@ class MdEmbedEntry {
         }
         return 0.0
     }
+
+    ; How wide the drawing is in a column `w` wide: its own width when it is
+    ; narrower, else the column. A drawing set at `shiftIn` and given the
+    ; rest of the column was stretched to the column's end (an app's plate
+    ; drawn wide and off to the right).
+    fn widthIn:double (w:double) {
+        if ((width <= 0.0) || (width >= w)) {
+            return w
+        }
+        return width
+    }
 }
 
 ; How the figures (```process, ```swot, ```timeline, ```cards — MdFigure) are coloured

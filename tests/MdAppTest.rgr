@@ -9,6 +9,7 @@
 
 Import "../src/MdApp.rgr"
 Import "../src/MdEmbedKinds.rgr"
+Import "../src/MdEmbed.rgr"
 
 class AppCheck {
     def passed:int 0
@@ -111,6 +112,21 @@ class MdAppTest {
         c.eqStr("its name" (MdEmbedKinds.notationWord("app")) "App")
         def p:EVGElement (MdApp.placeholder(s 400.0 300.0))
         c.ok("plate has its label" ((array_length p.children) == 1))
+        def pe:EVGElement (MdApp.plate(s 400.0 300.0 "SyntaxError: line 3"))
+        c.ok("a plate with a note has two lines" ((array_length pe.children) == 2))
+        def noteEl:EVGElement (itemAt pe.children 1)
+        c.eqStr("the note" noteEl.textContent "SyntaxError: line 3")
+        ; centred in a wider column: placed at its own width, not stretched
+        ; to the column's end
+        def e:MdEmbedEntry (new MdEmbedEntry())
+        e.width = 400.0
+        e.align = "center"
+        c.near("centred shift" (e.shiftIn(800.0)) 200.0)
+        c.near("own width in the column" (e.widthIn(800.0)) 400.0)
+        e.width = 0.0
+        c.near("no width: the column" (e.widthIn(800.0)) 800.0)
+        e.width = 900.0
+        c.near("wider than the column: the column" (e.widthIn(800.0)) 800.0)
     }
 
     fn run:void () {
