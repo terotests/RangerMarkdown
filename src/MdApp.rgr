@@ -201,6 +201,13 @@ class MdApp {
     ; What stands in the box where the program does not run: a dark plate,
     ; a play mark and the program's name.
     sfn placeholder:EVGElement (spec:MdAppSpec w:double h:double) {
+        return (MdApp.plate(spec w h ""))
+    }
+
+    ; The plate with why the program is not running under its name (its
+    ; syntax error, what it threw, a frame that was no element tree), ""
+    ; for none: said where the program was to be, not only in a console.
+    sfn plate:EVGElement (spec:MdAppSpec w:double h:double note:string) {
         def root:EVGElement (EVGElement.createDiv())
         root.width = (EVGUnit.px(w))
         root.height = (EVGUnit.px(h))
@@ -228,6 +235,25 @@ class MdApp {
         t.color = (EVGColor.parse("#c9d1e6"))
         t.textAlign = "center"
         root.addChild(t)
+        if ((strlen note) > 0) {
+            t.top = (EVGUnit.px(((h * 0.5) - (size * 1.8))))
+            def small:double (size * 0.6)
+            if (small < 9.0) {
+                small = 9.0
+            }
+            def n:EVGElement (EVGElement.createSpan())
+            n.tagName = "text"
+            n.position = "absolute"
+            n.left = (EVGUnit.px((w * 0.08)))
+            n.top = (EVGUnit.px(((h * 0.5) - (size * 0.2))))
+            n.width = (EVGUnit.px((w * 0.84)))
+            n.textContent = note
+            n.fontSize = (EVGUnit.px(small))
+            n.lineHeight = 1.3
+            n.color = (EVGColor.parse("#ff9b8a"))
+            n.textAlign = "center"
+            root.addChild(n)
+        }
         return root
     }
 }
