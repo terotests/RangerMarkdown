@@ -6314,7 +6314,7 @@ class MdLayout {
                         ; drawn for the room a slide keeps on any slide
                         ; (`chartRoomKept`) and shorter than the room this
                         ; slide has under its title: drawn for this room
-                        if ((((notation == "vega") && (had <= 0.0)) && (embeds.chartGrow > 1.0)) && ((avail > (h + 8.0)) && ((indexOf node.literal "\"height\"") < 0))) {
+                        if ((((notation == "vega") && (had <= 0.0)) && (embeds.chartGrow > 1.0)) && ((avail > (h + 8.0)) && ((MdEmbedKinds.statesHeight(node.literal)) == false))) {
                             embeds.askRoom(kind node.literal useW avail)
                         }
                     }

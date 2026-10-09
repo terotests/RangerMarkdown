@@ -930,6 +930,49 @@ class MdVegaTest {
         return (d < 0.01)
     }
 
+    ; A stacked bar of seven days with its key over the plot, on a portrait
+    ; page (Tero 2026-10-09, an A4 deck): the chart was a strip at the
+    ; left, a third of the column wide, under a key spread across the page.
+    ; The key over the plot is no width beside it, and the plot fills the
+    ; column and grows down into the page's height.
+    fn portrait:void (c:VegaCheck) {
+        print "-- a chart with its key over it on a portrait page --"
+        def rows:string ""
+        def days:[string] (strsplit "Ma Ti Ke To Pe La Su" " ")
+        for days d:string di {
+            if (di > 0) { rows = (rows + ",") }
+            rows = (rows + (("{\"p\":\"" + d) + "\",\"t\":\"Pelkkä kahvi\",\"k\":30},"))
+            rows = (rows + (("{\"p\":\"" + d) + "\",\"t\":\"Kahvi + pulla\",\"k\":14}"))
+        }
+        def spec:string (("{\"width\": \"container\", \"height\": \"container\", \"data\": {\"values\": [" + rows) + "]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\":\"p\",\"type\":\"ordinal\",\"sort\":null,\"title\":null}, \"y\": {\"field\":\"k\",\"type\":\"quantitative\",\"stack\":\"zero\",\"title\":\"Tilaukset\"}, \"color\": {\"field\":\"t\",\"type\":\"nominal\",\"title\":null,\"legend\":{\"orient\":\"top\"}}}, \"config\": {\"axis\": {\"labelFontSize\": 15, \"titleFontSize\": 16}, \"legend\": {\"labelFontSize\": 15}}, \"padding\": 14}")
+        def text:string (MdVegaRender.withoutContainer(spec))
+        def g:string (MdVegaRender.limitsByFont((MdVegaRender.grown(text 482.0 10.0 2.5 600.0))))
+        def d:MdVegaDrawing (MdVegaRender.draw(g 482.0 10.0))
+        def ma:SceneItem (MdVegaTest.textStarting(d.scene "Ma"))
+        def su:SceneItem (MdVegaTest.textStarting(d.scene "Su"))
+        def across:double (su.x - ma.x)
+        print ((((("   portrait: drawing " + (to_string d.scene.worldW)) + " x ") + (to_string d.scene.worldH)) + ", Ma..Su ") + (to_string across))
+        c.ok("the days are spread across the column, not a strip" (across > (482.0 * 0.5)))
+        c.ok("…the drawing fits the column" (d.scene.worldW <= 482.5))
+        c.ok("…and grows down into the page's height" (d.scene.worldH >= 500.0))
+        c.ok("…no taller than the room" (d.scene.worldH <= 620.5))
+        ; a scatter that was 300 square, near enough its column's width that
+        ; it was left at its size: it takes the column, and on a page taller
+        ; than wide it is taller than wide too
+        def sc:string "{\"width\": \"container\", \"height\": \"container\", \"data\": {\"values\": [{\"p\":\"Ma\",\"j\":3,\"k\":42},{\"p\":\"La\",\"j\":14,\"k\":88}]}, \"mark\": \"point\", \"encoding\": {\"x\": {\"field\":\"j\",\"type\":\"quantitative\",\"title\":\"Jonotus (min)\"}, \"y\": {\"field\":\"k\",\"type\":\"quantitative\",\"title\":\"Kahvikupit\"}}, \"config\": {\"view\": {\"continuousWidth\": 300, \"continuousHeight\": 300}, \"axis\": {\"labelFontSize\": 15, \"titleFontSize\": 16}}, \"padding\": 14}"
+        def gs:string (MdVegaRender.limitsByFont((MdVegaRender.grown((MdVegaRender.withoutContainer(sc)) 482.0 10.0 2.5 600.0))))
+        def ds:MdVegaDrawing (MdVegaRender.draw(gs 482.0 10.0))
+        print ((("   portrait scatter: drawing " + (to_string ds.scene.worldW)) + " x ") + (to_string ds.scene.worldH))
+        c.ok("a scatter takes the column's width" (ds.scene.worldW >= 440.0))
+        c.ok("…and the page's height, taller than wide" ((ds.scene.worldH > ds.scene.worldW) && (ds.scene.worldH <= 620.5)))
+        c.ok("a slide's wide room keeps a chart at three quarters of its width" (MdVegaTest.close((MdVegaRender.tallestFor(319.0 840.0)) 0.75)))
+        c.ok("…a portrait page lets it be four thirds" (MdVegaTest.close((MdVegaRender.tallestFor(600.0 440.0)) (4.0 / 3.0))))
+        ; "container" is no height of the chart's own
+        c.ok("\"height\": \"container\" states no height" ((MdEmbedKinds.statesHeight(spec)) == false))
+        c.ok("\"height\": 300 does" (MdEmbedKinds.statesHeight("{\"height\" : 300}")))
+        c.ok("…nor does a chart that says nothing" ((MdEmbedKinds.statesHeight("{\"mark\": \"bar\"}")) == false))
+    }
+
     fn run:void () {
         def c (new VegaCheck())
         print "== MdVegaTest =="
@@ -947,6 +990,7 @@ class MdVegaTest {
         this.hiddenLabels(c)
         this.chartTestFindings(c)
         this.pictures(c)
+        this.portrait(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
