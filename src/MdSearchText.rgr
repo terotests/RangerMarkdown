@@ -1,0 +1,267 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdSearchText.rgr — the words a reader sees in a document, for search.
+; ============================================================================
+;
+; A search through decks should find what is written in them, not how it is
+; written: not the front matter's keys, the `{.build anim=rise}` lines, the
+; fence markers, a link's or a picture's address, a theme's CSS, a chart's
+; JSON. So the document is read by the parser that draws it (MdBlock), and
+; only the text of its blocks is kept, one block to a line:
+;
+;   headings, paragraphs, list items, table cells, quotes, definition lists,
+;   footnotes and `::: …` containers (speaker notes too)   their inline text
+;                                                           (a link's words,
+;                                                           a picture's alt)
+;   ```process / swot / timeline / stats / cards           the list inside,
+;                                                           read the same way
+;   other code (```js, ```text …)                          as written
+;   ```mermaid, plantuml, dot, d2, xstate, vega …          left out: syntax
+;   ```css / style, HTML blocks' tags, math, front matter  left out
+;
+; `find` and `snippet` answer a query on that text: every word of it, in any
+; case, anywhere; the snippet is the text around the first word found.
+; ============================================================================
+
+Import "MdBlock.rgr"
+
+class MdSearchText {
+    ; The document's text, one block to a line.
+    sfn of:string (md:string) {
+        def doc:MdNode (MdBlock.parseText(md))
+        def lines:[string]
+        MdSearchText.walk(doc lines)
+        return (join lines "\n")
+    }
+
+    sfn walk:void (n:MdNode lines:[string]) {
+        def k:string n.kind
+        if ((k == "heading") || (k == "paragraph") || (k == "table_cell") || (k == "dt")) {
+            MdSearchText.add(lines (n.plainText()))
+            return
+        }
+        if ((k == "code_block") || (k == "embed")) {
+            MdSearchText.code(n lines)
+            return
+        }
+        if (k == "html_block") {
+            MdSearchText.add(lines (MdSearchText.untag(n.literal)))
+            return
+        }
+        if ((k == "math_block") || (k == "thematic_break")) {
+            return
+        }
+        for n.children c:MdNode i {
+            MdSearchText.walk(c lines)
+        }
+    }
+
+    ; a fenced block: a figure's list is text, a drawing's or a sheet's
+    ; source is not, other code is kept as written
+    sfn code:void (n:MdNode lines:[string]) {
+        def word:string (to_lowercase (MdBlock.firstWord((trim n.info))))
+        def notation:string (MdEmbedKinds.notationOf(word))
+        if (notation == "figure") {
+            def inner:MdNode (MdBlock.parseText(n.literal))
+            MdSearchText.walk(inner lines)
+            return
+        }
+        if ((strlen notation) > 0) {
+            return
+        }
+        if ((word == "css") || (word == "style") || (word == "scss") || (word == "less") || (word == "gallery")) {
+            return
+        }
+        MdSearchText.add(lines n.literal)
+    }
+
+    ; a line of text, its runs of white space as one space; nothing for none
+    sfn add:void (lines:[string] text:string) {
+        def words:[string]
+        def n:int (strlen text)
+        def start:int -1
+        def i:int 0
+        while (i <= n) {
+            def c:int 32
+            if (i < n) {
+                c = (charAt text i)
+            }
+            def blank:boolean ((c == 32) || (c == 9) || (c == 10) || (c == 13))
+            if blank {
+                if (start >= 0) {
+                    push words (substring text start i)
+                    start = -1
+                }
+            } {
+                if (start < 0) {
+                    start = i
+                }
+            }
+            i = (i + 1)
+        }
+        if ((array_length words) > 0) {
+            push lines (join words " ")
+        }
+    }
+
+    ; an HTML block's text: its tags, comments and <style>/<script>
+    ; contents left out
+    sfn untag:string (html:string) {
+        def low:string (to_lowercase html)
+        def parts:[string]
+        def n:int (strlen html)
+        def i:int 0
+        while (i < n) {
+            def lt:int (MdSearchText.indexFrom(low "<" i))
+            if (lt < 0) {
+                push parts (substring html i n)
+                i = n
+            } {
+                push parts (substring html i lt)
+                def skipTo:string ">"
+                if ((MdSearchText.at(low lt "<!--"))) {
+                    skipTo = "-->"
+                }
+                if ((MdSearchText.at(low lt "<style"))) {
+                    skipTo = "</style>"
+                }
+                if ((MdSearchText.at(low lt "<script"))) {
+                    skipTo = "</script>"
+                }
+                def end:int (MdSearchText.indexFrom(low skipTo (lt + 1)))
+                if (end < 0) {
+                    i = n
+                } {
+                    i = (end + (strlen skipTo))
+                }
+            }
+        }
+        return (join parts " ")
+    }
+
+    ; `what`'s place in `s` at or after `from`, -1 when it is not there
+    sfn indexFrom:int (s:string what:string from:int) {
+        def n:int (strlen s)
+        def m:int (strlen what)
+        if (m == 0) {
+            return from
+        }
+        def first:int (charAt what 0)
+        def i:int from
+        while ((i + m) <= n) {
+            if ((charAt s i) == first) {
+                if ((MdSearchText.at(s i what))) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn blank:boolean (c:int) {
+        return ((c == 32) || (c == 10) || (c == 9) || (c == 13))
+    }
+
+    sfn at:boolean (s:string i:int what:string) {
+        def m:int (strlen what)
+        if ((i + m) > (strlen s)) {
+            return false
+        }
+        return ((substring s i (i + m)) == what)
+    }
+
+    ; the query's words, lower case
+    sfn words:[string] (query:string) {
+        def out:[string]
+        def parts:[string] (strsplit (to_lowercase query) " ")
+        for parts p:string i {
+            def w:string (trim p)
+            if ((strlen w) > 0) {
+                push out w
+            }
+        }
+        return out
+    }
+
+    ; Where the first of the query's words is in `text`, when every one of
+    ; them is in it (any case); -1 when one is not, or the query has none.
+    sfn find:int (text:string query:string) {
+        def ws:[string] (MdSearchText.words(query))
+        if ((array_length ws) == 0) {
+            return -1
+        }
+        def low:string (to_lowercase text)
+        def first:int -1
+        for ws w:string i {
+            def at:int (indexOf low w)
+            if (at < 0) {
+                return -1
+            }
+            if (i == 0) {
+                first = at
+            }
+        }
+        return first
+    }
+
+    ; The text around the query's first word, about `width` characters on
+    ; one line, "…" where it was cut; "" when the query is not found.
+    sfn snippet:string (text:string query:string width:int) {
+        def at:int (MdSearchText.find(text query))
+        if (at < 0) {
+            return ""
+        }
+        def n:int (strlen text)
+        def from:int (at - (idiv width 3))
+        if (from < 0) {
+            from = 0
+        }
+        def to:int (from + width)
+        if (to > n) {
+            to = n
+            from = (to - width)
+            if (from < 0) {
+                from = 0
+            }
+        }
+        ; whole words: start where a word does
+        if (from > 0) {
+            def k:int from
+            while ((k < at) && ((MdSearchText.blank((charAt text (k - 1)))) == false)) {
+                k = (k + 1)
+            }
+            from = k
+        }
+        if (to < n) {
+            def back:int to
+            while ((back > at) && ((MdSearchText.blank((charAt text back))) == false)) {
+                back = (back - 1)
+            }
+            if (back > at) {
+                to = back
+            }
+        }
+        def mid:string (substring text from to)
+        def flat:string ""
+        def m:int (strlen mid)
+        def j:int 0
+        while (j < m) {
+            def c:int (charAt mid j)
+            if (c == 10) {
+                flat = (flat + " · ")
+            } {
+                flat = (flat + (substring mid j (j + 1)))
+            }
+            j = (j + 1)
+        }
+        if (from > 0) {
+            flat = ("…" + flat)
+        }
+        if (to < n) {
+            flat = (flat + "…")
+        }
+        return flat
+    }
+}

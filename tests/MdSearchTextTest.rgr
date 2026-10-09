@@ -1,0 +1,138 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdSearchTextTest.rgr — a deck's searchable text, its matches and snippets.
+; ============================================================================
+;
+;   npm run markdown:searchtext:test
+; ============================================================================
+
+Import "../src/MdSearchText.rgr"
+
+class SearchCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+
+    fn has:void (name:string text:string part:string) {
+        this.ok((name + ": has " + part) ((indexOf text part) >= 0))
+    }
+
+    fn lacks:void (name:string text:string part:string) {
+        def at:int (indexOf text part)
+        if (at >= 0) {
+            print ("    in [" + (text + "]"))
+        }
+        this.ok((name + ": lacks " + part) (at < 0))
+    }
+}
+
+class MdSearchTextTest {
+    sfn main:void () {
+        def c:SearchCheck (new SearchCheck())
+        print "== MdSearchTextTest =="
+        MdSearchTextTest.syntaxLeftOut(c)
+        MdSearchTextTest.fences(c)
+        MdSearchTextTest.html(c)
+        MdSearchTextTest.finding(c)
+        MdSearchTextTest.snippets(c)
+        print ""
+        print ((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    sfn syntaxLeftOut:void (c:SearchCheck) {
+        def md:string "---\ntheme: aurora\ntransition: fade\n---\n\n# Quarterly *review* {#intro transition=slide}\n\n1. Revenue grew\n2. Costs fell\n{.build anim=rise}\n\nSee [the report](https://example.com/secret-path) and ![a happy cat](media/cat.png).\n\n| Region | Sales |\n| --- | --- |\n| North | 12 |\n\n::: notes\nSpeak slowly here.\n:::\n"
+        def t:string (MdSearchText.of(md))
+        c.has("text" t "Quarterly review")
+        c.has("text" t "Revenue grew")
+        c.has("text" t "Costs fell")
+        c.has("link words" t "the report")
+        c.has("picture alt" t "a happy cat")
+        c.has("table" t "North")
+        c.has("notes" t "Speak slowly here.")
+        c.lacks("front matter key" t "theme")
+        c.lacks("front matter value" t "aurora")
+        c.lacks("heading attrs" t "transition")
+        c.lacks("block attrs" t "anim")
+        c.lacks("block attrs" t ".build")
+        c.lacks("link url" t "example.com")
+        c.lacks("picture url" t "cat.png")
+        c.lacks("container marker" t ":::")
+        c.lacks("list marker" t "1.")
+        c.lacks("emphasis marker" t "*")
+        c.lacks("table rule" t "---")
+        c.lacks("table pipe" t "|")
+    }
+
+    sfn fences:void (c:SearchCheck) {
+        def md:string "## Plan\n\n```process\n- Gather ideas\n- Build **prototype**\n```\n\n```mermaid\nflowchart LR\n  A --> B\n```\n\n```vega-lite\n{\"mark\": \"bar\"}\n```\n\n```css\n.slide h1 { color: red }\n```\n\n```js\nconst answer = 42\n```\n"
+        def t:string (MdSearchText.of(md))
+        c.has("figure list" t "Gather ideas")
+        c.has("figure inline" t "Build prototype")
+        c.lacks("figure marker" t "process")
+        c.lacks("fence marker" t "```")
+        c.lacks("mermaid" t "flowchart")
+        c.lacks("vega" t "mark")
+        c.lacks("css" t "color")
+        c.has("code" t "const answer = 42")
+    }
+
+    sfn html:void (c:SearchCheck) {
+        def md:string "<div class=\"box\">\n<p>Hello <b>there</b></p>\n<!-- hidden note -->\n<style>.box { color: blue }</style>\n</div>\n"
+        def t:string (MdSearchText.of(md))
+        c.has("html text" t "Hello")
+        c.has("html text" t "there")
+        c.lacks("html tag" t "div")
+        c.lacks("html attr" t "class")
+        c.lacks("html comment" t "hidden")
+        c.lacks("style" t "blue")
+    }
+
+    sfn finding:void (c:SearchCheck) {
+        def t:string "Quarterly review\nRevenue grew in Pohjois-Suomi"
+        c.ok("one word" ((MdSearchText.find(t "revenue")) == 17))
+        c.ok("any case" ((MdSearchText.find(t "QUARTERLY")) == 0))
+        c.ok("every word" ((MdSearchText.find(t "grew quarterly")) == 25))
+        c.ok("a word missing" ((MdSearchText.find(t "grew costs")) == -1))
+        c.ok("empty query" ((MdSearchText.find(t "  ")) == -1))
+        c.ok("finnish" ((MdSearchText.find(t "pohjois-suomi")) >= 0))
+    }
+
+    sfn snippets:void (c:SearchCheck) {
+        def t:string "One two three four five six seven eight nine ten\neleven twelve thirteen fourteen fifteen sixteen"
+        c.eqStr("short text whole" (MdSearchText.snippet("Small deck" "deck" 60)) "Small deck")
+        def s:string (MdSearchText.snippet(t "twelve" 40))
+        c.has("snippet" s "twelve")
+        c.ok("cut before" ((indexOf s "…") == 0))
+        c.has("lines joined" s " · ")
+        c.lacks("no newline" s "\n")
+        c.eqStr("not found" (MdSearchText.snippet(t "zebra" 30)) "")
+    }
+}

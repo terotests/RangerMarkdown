@@ -39,6 +39,7 @@
     "markdown:codelines:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdCodeLinesTest.rgr ./gallery/markdown/bin MdCodeLinesTest.js",
     "markdown:container:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdContainerTest.rgr ./gallery/markdown/bin MdContainerTest.js",
     "markdown:plugins:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdPluginsTest.rgr ./gallery/markdown/bin MdPluginsTest.js",
-    "markdown:columns:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdColumnsTest.rgr ./gallery/markdown/bin MdColumnsTest.js"
+    "markdown:columns:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdColumnsTest.rgr ./gallery/markdown/bin MdColumnsTest.js",
+    "markdown:searchtext:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdSearchTextTest.rgr ./gallery/markdown/bin MdSearchTextTest.js"
   }
 }

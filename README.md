@@ -45,6 +45,7 @@ npm run markdown:gallery:test  # ```gallery, {heading=hidden} and @media print
 npm run markdown:celltones:test # {cells="Suuri=red Matala=green"}: table cells tinted by their text
 npm run markdown:meta:test     # `## Revenue {jira=ACME-412}`: a slide's own data, carried and never drawn
 npm run markdown:columns:test  # ::: columns, {layout=…}, {valign=…}, {float=top-right}: where a slide's blocks go
+npm run markdown:searchtext:test # a deck's words for search: no front matter, attributes, addresses, CSS or diagram source
 ```
 
 ## Editing the drawing
