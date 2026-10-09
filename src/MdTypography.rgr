@@ -1389,21 +1389,58 @@ class MdTypography {
     ; A quote into the node that holds offset `at` of the group's text, in
     ; place: one character for one, so every span stays as it was. Not in a
     ; bare address or an attribute block.
+    ;
+    ; `at` counts in the text as parsed. A target whose strings count bytes
+    ; (Go, C++) holds a curly quote in three, so a quote put in before this
+    ; one in the same node has moved what follows it: the place in the node
+    ; is found by walking the text as parsed beside the node as it is now.
     fn setDirect:void (g:MdTypoGroup at:int code:int) {
         if (MdTypography.isFenced(g.text at)) { return }
         def k:int g.first
         def off:int 0
         while (k < (g.first + g.count)) {
             def nd:MdNode (g.parent.childAt(k))
-            def len:int (strlen nd.literal)
+            ; the node's length as parsed: a verbatim node's span
+            def len:int (nd.srcEnd - nd.srcStart)
             if ((at >= off) && (at < (off + len))) {
-                def p:int (at - off)
-                nd.literal = (((substring nd.literal 0 p) + (MdChar.fromCode(code))) + (substring nd.literal (p + 1) len))
+                def was:string (substring g.text off (off + len))
+                def p:int (this.livePos(was nd.literal (at - off)))
+                nd.literal = (((substring nd.literal 0 p) + (MdChar.fromCode(code))) + (substring nd.literal (p + 1) (strlen nd.literal)))
                 return
             }
             off = (off + len)
             k = (k + 1)
         }
+    }
+
+    ; Where offset `p` of `was` (a node's text as parsed) is in `now` (the
+    ; same text with some quotes already curly).
+    fn livePos:int (was:string now:string p:int) {
+        def i:int 0
+        def j:int 0
+        while ((i < p) && (j < (strlen now))) {
+            if ((substring now j (j + 1)) == (substring was i (i + 1))) {
+                i = (i + 1)
+                j = (j + 1)
+            } {
+                j = (j + (this.quoteWidth(now j)))
+                i = (i + 1)
+            }
+        }
+        return j
+    }
+
+    ; how long the curly quote at `j` of `s` is in this target's strings
+    fn quoteWidth:int (s:string j:int) {
+        def codes:[int] ([] _:int (opts.dq1 opts.dq2 opts.sq1 opts.sq2))
+        for codes code:int ci {
+            def q:string (MdChar.fromCode(code))
+            def w:int (strlen q)
+            if (((j + w) <= (strlen s)) && ((substring s j (j + w)) == q)) {
+                return w
+            }
+        }
+        return 1
     }
 
     ; Is offset `at` inside a bare address or an attribute block?
