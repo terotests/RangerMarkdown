@@ -1068,28 +1068,31 @@ class MdVegaRender {
         def fill:boolean ((((spec.has("width")) == false) || ((spec.get("width")).isString())) && ((indexOf text "\"arc\"") < 0))
         def fw:double 1.0
         def f:double 1.0
-        if (viewW < (avail * 0.8)) {
-            fw = ((avail - (viewW - plotW)) / plotW)
-            ; what is not plot is mostly axes, but a legend wider than the
-            ; plot counts too, and a plot grown past it no longer pays for
-            ; it: measured again at the width asked for, once
-            if (fill && ((viewW - plotW) > plotW)) {
-                def p2 (new VlJsonParser())
-                def probe:VlJson (p2.parse(text))
-                probe.setMember("width" (VlJson.numberValue((to_double (to_int (plotW * fw))))))
-                def c2 (new VlCompile())
-                c2.autoLabelAngle = true
-                def rt2 (new VlRuntime())
-                rt2.autoLabelAngle = true
-                rt2.run((c2.compileSpec(probe)))
-                def plot2:double rt2.chartWidth
-                if (plot2 >= 1.0) {
-                    def fw2:double ((avail - ((rt2.viewWidth()) - plot2)) / plotW)
-                    if (fw2 > fw) {
-                        fw = fw2
-                    }
-                }
+        ; What is not plot is mostly axes, but a legend wider than the plot
+        ; counts too, and a plot grown past it no longer pays for it. A
+        ; legend over or under the plot (`"orient": "top"`) made a chart with
+        ; few categories as wide as its column already, and it kept its
+        ; 20-point bars: on a portrait page a stacked bar of seven days was a
+        ; strip at the left under a legend spread across the page. So the
+        ; width beside the plot is measured again with the plot as wide as
+        ; the whole column, where only a legend BESIDE it still counts.
+        def extraW:double (viewW - plotW)
+        if (fill && (extraW > (plotW * 0.5))) {
+            def p2 (new VlJsonParser())
+            def probe:VlJson (p2.parse(text))
+            probe.setMember("width" (VlJson.numberValue((to_double (to_int avail)))))
+            def c2 (new VlCompile())
+            c2.autoLabelAngle = true
+            def rt2 (new VlRuntime())
+            rt2.autoLabelAngle = true
+            rt2.run((c2.compileSpec(probe)))
+            def plot2:double rt2.chartWidth
+            if ((plot2 >= 1.0) && (((rt2.viewWidth()) - plot2) < extraW)) {
+                extraW = ((rt2.viewWidth()) - plot2)
             }
+        }
+        if ((viewW < (avail * 0.8)) || (fill && ((plotW + extraW) < (avail * 0.8)))) {
+            fw = ((avail - extraW) / plotW)
             f = fw
             if (f > most) {
                 f = most

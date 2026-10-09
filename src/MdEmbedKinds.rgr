@@ -159,4 +159,35 @@ class MdEmbedKinds {
         }
         return info
     }
+
+    ; Whether a chart's text states a height of its own: `"height": 300`.
+    ; `"height": "container"` is no height (the chart takes its room, as
+    ; one that says nothing does); read as one, a chart written for a web
+    ; page was never drawn again for the room a slide had under its title.
+    sfn statesHeight:boolean (text:string) {
+        def at:int (indexOf text "\"height\"")
+        while (at >= 0) {
+            def i:int (at + 8)
+            def n:int (strlen text)
+            ; past the colon and the white space round it
+            def going:boolean true
+            while (going && (i < n)) {
+                def c:int (charAt text i)
+                if ((c == 58) || ((c == 32) || ((c == 9) || ((c == 10) || (c == 13))))) {
+                    i = (i + 1)
+                } {
+                    going = false
+                }
+            }
+            if ((i < n) && ((charAt text i) != 34)) {
+                return true
+            }
+            def rest:int (indexOf (substring text (at + 8) n) "\"height\"")
+            if (rest < 0) {
+                return false
+            }
+            at = ((at + 8) + rest)
+        }
+        return false
+    }
 }
