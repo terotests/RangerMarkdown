@@ -1,0 +1,232 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdApp.rgr — a program on a slide: what the ```app fence says.
+; ============================================================================
+;
+; ````markdown
+; ```app
+; src: apps/scaffold.tsx      # a TSX file of the deck; its .tsx.css beside it
+; size: 640x480               # the program's own units, scaled to the box
+; allow: deck.data, slide.nav # what it may ask of the deck
+; ```
+; ````
+;
+; The program itself (TypeScript + JSX run by CErXes, laid out by EVG) is
+; the host's business: here the fence only reserves a box of the program's
+; shape and leaves in it what a printed page, a PowerPoint file or a deck
+; whose host runs no programs shows — a plate with the program's name.
+; The host paints the running program over the same box.
+;
+; The fence's lines are `key: value`; `#` starts a comment. A line that is
+; not a key, or a key this does not know, is said in `warnings` rather than
+; ignored, the way a chart's field that its data does not have is.
+; ============================================================================
+
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGColor.rgr"
+
+class MdAppSpec {
+    ; the program's file, as the deck names it ("apps/scaffold.tsx")
+    def src:string ""
+    ; its stylesheet: `css:`, else the program's name with ".css" after it
+    def css:string ""
+    ; the program's own size, which its view() lays out in
+    def width:double 640.0
+    def height:double 480.0
+    ; what it may ask of the deck ("deck.data", "slide.nav", "slide.style",
+    ; "machine"): anything else it asks is refused and reported
+    def allow:[string]
+    def warnings:[string]
+
+    Constructor () {
+    }
+
+    fn allows:boolean (what:string) {
+        return ((indexOf allow what) >= 0)
+    }
+
+    ; width / height
+    fn aspect:double () {
+        if (height <= 0.0) {
+            return 1.0
+        }
+        return (width / height)
+    }
+
+    ; The name a plate shows: the file's own, without its folder.
+    fn name:string () {
+        def n:int (strlen src)
+        def i:int (n - 1)
+        while (i >= 0) {
+            if ((charAt src i) == 47) {
+                return (substring src (i + 1) n)
+            }
+            i = (i - 1)
+        }
+        return src
+    }
+}
+
+class MdApp {
+    ; The words a program may be allowed, in the order a guide lists them.
+    sfn grants:[string] () {
+        return ([] _:string ("deck.data" "slide.nav" "slide.style" "machine"))
+    }
+
+    sfn read:MdAppSpec (text:string) {
+        def spec:MdAppSpec (new MdAppSpec())
+        def lines:[string] (strsplit text (strfromcode 10))
+        def li:int 0
+        while (li < (array_length lines)) {
+            def line:string (MdApp.uncomment((itemAt lines li)))
+            li = (li + 1)
+            if ((strlen line) == 0) {
+                continue
+            }
+            def c:int (indexOf line ":")
+            if (c <= 0) {
+                push spec.warnings ("app: line " + (to_string li) + " is not \"key: value\": " + line)
+                continue
+            }
+            def key:string (trim (substring line 0 c))
+            def value:string (trim (substring line (c + 1) (strlen line)))
+            if (key == "src") {
+                spec.src = value
+                continue
+            }
+            if (key == "css") {
+                spec.css = value
+                continue
+            }
+            if (key == "size") {
+                MdApp.readSize(spec value)
+                continue
+            }
+            if (key == "allow") {
+                MdApp.readAllow(spec value)
+                continue
+            }
+            push spec.warnings ("app: unknown key \"" + key + "\" (src, css, size, allow)")
+        }
+        if ((strlen spec.src) == 0) {
+            push spec.warnings "app: no src: (the program's .tsx file)"
+        }
+        if (((strlen spec.css) == 0) && ((strlen spec.src) > 0)) {
+            spec.css = (spec.src + ".css")
+        }
+        return spec
+    }
+
+    sfn uncomment:string (line:string) {
+        def h:int (indexOf line "#")
+        if (h >= 0) {
+            return (trim (substring line 0 h))
+        }
+        return (trim line)
+    }
+
+    ; "640x480" (or 640×480, 640 x 480)
+    sfn readSize:void (spec:MdAppSpec value:string) {
+        def v:string (MdApp.replaceAll(value "×" "x"))
+        v = (MdApp.replaceAll(v "X" "x"))
+        def x:int (indexOf v "x")
+        if (x <= 0) {
+            push spec.warnings ("app: size \"" + value + "\" is not WIDTHxHEIGHT")
+            return
+        }
+        def w@(optional):double (str2double (trim (substring v 0 x)))
+        def h@(optional):double (str2double (trim (substring v (x + 1) (strlen v))))
+        def ww:double (?? w 0.0)
+        def hh:double (?? h 0.0)
+        if ((ww < 16.0) || (hh < 16.0)) {
+            push spec.warnings ("app: size \"" + value + "\" is too small (16x16 at least)")
+            return
+        }
+        if ((ww > 4096.0) || (hh > 4096.0)) {
+            push spec.warnings ("app: size \"" + value + "\" is too large (4096 at most)")
+            return
+        }
+        spec.width = ww
+        spec.height = hh
+    }
+
+    sfn readAllow:void (spec:MdAppSpec value:string) {
+        def known:[string] (MdApp.grants())
+        def parts:[string] (strsplit (MdApp.replaceAll(value "," " ")) " ")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (trim (itemAt parts i))
+            i = (i + 1)
+            if ((strlen p) == 0) {
+                continue
+            }
+            if ((indexOf known p) < 0) {
+                push spec.warnings ("app: allow \"" + p + "\" is not one of deck.data, slide.nav, slide.style, machine")
+                continue
+            }
+            if ((indexOf spec.allow p) < 0) {
+                push spec.allow p
+            }
+        }
+    }
+
+    sfn replaceAll:string (text:string what:string with:string) {
+        def out:string ""
+        def rest:string text
+        def wn:int (strlen what)
+        def at:int (indexOf rest what)
+        while (at >= 0) {
+            out = (out + (substring rest 0 at) + with)
+            rest = (substring rest (at + wn) (strlen rest))
+            at = (indexOf rest what)
+        }
+        return (out + rest)
+    }
+
+    ; The box a program takes in a column `width` wide with `room` of height
+    ; (0 for any): its own shape, as large as both allow. [w, h]
+    sfn boxSize:[double] (spec:MdAppSpec width:double room:double) {
+        def w:double width
+        def h:double (w / (spec.aspect()))
+        if ((room > 0.0) && (h > room)) {
+            h = room
+            w = (h * (spec.aspect()))
+        }
+        return ([] _:double (w h))
+    }
+
+    ; What stands in the box where the program does not run: a dark plate,
+    ; a play mark and the program's name.
+    sfn placeholder:EVGElement (spec:MdAppSpec w:double h:double) {
+        def root:EVGElement (EVGElement.createDiv())
+        root.width = (EVGUnit.px(w))
+        root.height = (EVGUnit.px(h))
+        root.pageWidth = w
+        root.pageHeight = h
+        root.position = "relative"
+        root.backgroundColor = (EVGColor.parse("#141a2b"))
+        root.setAttribute("border-radius" "8px")
+        def size:double (h * 0.08)
+        if (size < 10.0) {
+            size = 10.0
+        }
+        if (size > 28.0) {
+            size = 28.0
+        }
+        def t:EVGElement (EVGElement.createSpan())
+        t.tagName = "text"
+        t.position = "absolute"
+        t.left = (EVGUnit.px(0.0))
+        t.top = (EVGUnit.px(((h * 0.5) - (size * 0.7))))
+        t.width = (EVGUnit.px(w))
+        t.textContent = ("▶ " + (spec.name()))
+        t.fontSize = (EVGUnit.px(size))
+        t.lineHeight = 1.25
+        t.color = (EVGColor.parse("#c9d1e6"))
+        t.textAlign = "center"
+        root.addChild(t)
+        return root
+    }
+}

@@ -549,6 +549,12 @@ class MdLayout {
     ; THE DECK'S OWN DATA, from the front matter keys the engine does not
     ; read (`jira: ACME-400`). A slide's own value goes over it.
     def deckMeta:MdSlideMeta (new MdSlideMeta())
+    ; Values a host sets while the deck runs (a program on a slide said
+    ; `deck.set("score", 1200)`): they win over the slide's and the deck's
+    ; own for `{score}`, and are kept across layouts until the host clears
+    ; them.
+    def liveKeys:[string]
+    def liveVals:[string]
     ; GROW: a slide with room to spare is laid out again with everything on
     ; it larger — text, headings, spacing, together, so the title stays the
     ; larger thing — by at most this factor (1.0 = off). A deck has no font
@@ -1481,9 +1487,38 @@ class MdLayout {
         return out
     }
 
+    ; A value the host sets while the deck runs (`liveKeys`); "" as the
+    ; key clears them all. True when it changed anything.
+    fn setLive:boolean (key0:string value:string) {
+        def key:string (MdChar.lower((trim key0)))
+        if ((strlen key) == 0) {
+            def none:boolean ((array_length liveKeys) == 0)
+            def k:[string]
+            def v:[string]
+            liveKeys = k
+            liveVals = v
+            return (none == false)
+        }
+        def i:int (indexOf liveKeys key)
+        if (i >= 0) {
+            if ((itemAt liveVals i) == value) {
+                return false
+            }
+            set_at liveVals i value
+            return true
+        }
+        push liveKeys key
+        push liveVals value
+        return true
+    }
+
     ; The value `{key}` prints on sheet p: the slide's, else the deck's.
     fn dataValue:string (p:int key:string) {
         def want:string (MdChar.lower((trim key)))
+        def li:int (indexOf liveKeys want)
+        if (li >= 0) {
+            return (itemAt liveVals li)
+        }
         if ((this.metaAt(p want)) >= 0) {
             return (this.metaValue(p want))
         }
@@ -1838,6 +1873,11 @@ class MdLayout {
     fn fillMeta:string (text:string p:int) {
         if ((indexOf text "{") < 0) { return text }
         def out:string text
+        def lv:int 0
+        while (lv < (array_length liveKeys)) {
+            out = (MdLayout.replaceAll(out ("{" + (itemAt liveKeys lv) + "}") (itemAt liveVals lv)))
+            lv = (lv + 1)
+        }
         def m:MdSlideMeta (this.slideMeta(p))
         def i:int 0
         while (i < (m.count())) {
@@ -6302,7 +6342,7 @@ class MdLayout {
             ; the box (MdDiagram.refit); one held smaller before and with
             ; more room now is drawn for that.
             def notation:string (MdEmbedKinds.notationOf(kind))
-            if ((drawn && (growTrial == false)) && ((notation == "vega") || (notation == "figure"))) {
+            if ((drawn && (growTrial == false)) && (((notation == "vega") || (notation == "figure")) || (notation == "app"))) {
                 def had:double (embeds.fitFor(kind node.literal useW))
                 if held {
                     embeds.askRoom(kind node.literal useW h)

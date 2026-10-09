@@ -168,6 +168,20 @@ class MetaCheck {
         if ((array_length dw) > 0) {
             this.ok("…naming title" ((indexOf (itemAt dw 0) "Did you mean title?") >= 0))
         }
+        ; a value a running program set wins over the slide's and the deck's
+        def lv:MdLayout (new MdLayout())
+        lv.style = (new MdStyle())
+        def ldoc:MdNode (MdBlock.parseText(fm))
+        this.ok("a live value is new" (lv.setLive("Owner" "Grumble")))
+        this.ok("the same value again changes nothing" ((lv.setLive("owner" "Grumble")) == false))
+        lv.applyMeta(ldoc)
+        lv.applySlideMeta(ldoc)
+        lv.setDocSource(fm)
+        lv.layoutSlides(ldoc)
+        this.eqStr("a live value goes over the deck's" (lv.dataValue(1 "owner")) "Grumble")
+        this.ok("…and prints in the footer" ((indexOf (this.textsOn(lv 1)) "Grumble · 2") >= 0))
+        this.ok("clearing them is a change" (lv.setLive("" "")))
+        this.eqStr("…and the deck's is back" (lv.dataValue(1 "owner")) "Tero")
         this.ok("a deck without front matter has no data" (((this.laid("## A\n\nB\n")).deckMeta.count()) == 0))
 
         print ("  " + (to_string passed) + " passed, " + (to_string failed) + " failed")
