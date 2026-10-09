@@ -5651,11 +5651,6 @@ class MdLayout {
         def shown:int count
         if (shown < 1) { shown = 1 }
         def lh:double (style.codeSize * style.codeLineHeight)
-        def boxH:double ((lh * (to_double shown)) + (style.codePadding * 2.0))
-        def y:double (this.reserve(boxH))
-        this.emit((MdBox.rect(x y w boxH style.codeBackground)))
-        this.emit((MdBox.outline(x y w boxH style.codeBorder 1.0)))
-        def ty:double (y + style.codePadding)
         def lang:MdLanguage (MdCodeHighlight.languageFor(cl.lang))
         def probe:MdRun (new MdRun())
         probe.family = style.monoFamily
@@ -5674,6 +5669,34 @@ class MdLayout {
                 gutter = ((this.measureRun(widest probe)) + style.codePadding)
             }
         }
+        def tx0:double ((x + style.codePadding) + gutter)
+        ; a diff's markers in a column of their own, so the code lines up
+        ; whatever the face's widths of +, - and space are
+        def markCol:double 0.0
+        if cl.diff {
+            markCol = ((this.measureRun("+" probe)) + (this.measureRun(" " probe)))
+            def dw:double ((this.measureRun("-" probe)) + (this.measureRun(" " probe)))
+            if (dw > markCol) {
+                markCol = dw
+            }
+        }
+        ; a line wider than the block goes on under itself (MdCodeWrap), so
+        ; the block is as tall as its rows, not its lines
+        def rowsIn:int 0
+        def i0:int 0
+        while (i0 < count) {
+            def wl:MdCodeLine (itemAt cl.lines i0)
+            this.wrapCodeLine(wl (x + w) tx0 markCol probe)
+            rowsIn = ((rowsIn + 1) + (array_length wl.wraps))
+            i0 = (i0 + 1)
+        }
+        def shownRows:int rowsIn
+        if (shownRows < 1) { shownRows = 1 }
+        def boxH:double ((lh * (to_double shownRows)) + (style.codePadding * 2.0))
+        def y:double (this.reserve(boxH))
+        this.emit((MdBox.rect(x y w boxH style.codeBackground)))
+        this.emit((MdBox.outline(x y w boxH style.codeBorder 1.0)))
+        def ty:double (y + style.codePadding)
         def dark:boolean ((MdLayout.luminance(style.codeBackground)) < 0.25)
         def added:string (MdLayout.tint(style.codeBackground "#2da44e" 0.2))
         def removed:string (MdLayout.tint(style.codeBackground "#cf222e" 0.18))
@@ -5695,30 +5718,21 @@ class MdLayout {
             numInk = "#8b949e"
         }
         def build:boolean ((node.hasClass("build")) && (cl.steps > 0))
-        def tx0:double ((x + style.codePadding) + gutter)
-        ; a diff's markers in a column of their own, so the code lines up
-        ; whatever the face's widths of +, - and space are
-        def markCol:double 0.0
-        if cl.diff {
-            markCol = ((this.measureRun("+" probe)) + (this.measureRun(" " probe)))
-            def dw:double ((this.measureRun("-" probe)) + (this.measureRun(" " probe)))
-            if (dw > markCol) {
-                markCol = dw
-            }
-        }
         def state:int 0
         def i:int 0
         while (i < count) {
             def ln:MdCodeLine (itemAt cl.lines i)
+            ; a wrapped line's bands cover all its rows
+            def lineH:double (lh * (to_double (1 + (array_length ln.wraps))))
             if (ln.kind == 1) {
-                this.emit((MdBox.rect((x + 1.0) ty (w - 2.0) lh added)))
+                this.emit((MdBox.rect((x + 1.0) ty (w - 2.0) lineH added)))
             }
             if (ln.kind == 2) {
-                this.emit((MdBox.rect((x + 1.0) ty (w - 2.0) lh removed)))
+                this.emit((MdBox.rect((x + 1.0) ty (w - 2.0) lineH removed)))
             }
             if (ln.mark > 0) {
-                def band:MdBox (MdBox.rect((x + 1.0) ty (w - 2.0) lh markBand))
-                def bar:MdBox (MdBox.rect((x + 1.0) ty 3.0 lh markBar))
+                def band:MdBox (MdBox.rect((x + 1.0) ty (w - 2.0) lineH markBand))
+                def bar:MdBox (MdBox.rect((x + 1.0) ty 3.0 lineH markBar))
                 if build {
                     band.buildStep = ln.mark
                     bar.buildStep = ln.mark
@@ -5753,30 +5767,90 @@ class MdLayout {
                 }
                 lx = (lx + markCol)
             }
+            def rowW:double ((w - (lx - x)) - style.codePadding)
             if ((ln.kind == 3) || (ln.kind == 4)) {
-                def hb:MdBox (MdBox.text(ln.text lx ty ((w - (lx - x)) - style.codePadding) lh))
-                hb.family = style.monoFamily
-                hb.size = style.codeSize
-                hb.color = style.codeComment
-                hb.bold = (ln.kind == 4)
-                this.emit(hb)
+                this.codeRows(ln ln.text lx ty lh rowW style.codeComment (ln.kind == 4))
             } {
                 if style.highlightCode {
                     def hl:MdHighlightedLine (MdCodeHighlight.line(ln.code lang state))
                     state = hl.state
-                    this.codeLine(hl lx ty lh)
+                    this.codeLine(hl ln lx ty lh)
                 } {
-                    def b:MdBox (MdBox.text(ln.code lx ty ((w - (lx - x)) - style.codePadding) lh))
-                    b.family = style.monoFamily
-                    b.size = style.codeSize
-                    b.color = style.textColor
-                    this.emit(b)
+                    this.codeRows(ln ln.code lx ty lh rowW style.textColor false)
                 }
             }
-            ty = (ty + lh)
+            ty = (ty + lineH)
             i = (i + 1)
         }
         cursorY = ((y + boxH) + style.paraSpacing)
+    }
+
+    ; Where a code line's rows begin when it is wider than the block
+    ; (MdCodeWrap decides, from each character's width): into ln.wraps and
+    ; ln.wrapIndent. right is the block's right edge.
+    fn wrapCodeLine:void (ln:MdCodeLine right:double tx0:double markCol:double probe:MdRun) {
+        clear ln.wraps
+        ln.wrapIndent = 0.0
+        def text:string ln.code
+        def lx:double tx0
+        if ((ln.kind == 3) || (ln.kind == 4)) {
+            text = ln.text
+        } {
+            if ((strlen ln.marker) > 0) {
+                lx = (lx + markCol)
+            }
+        }
+        def avail:double ((right - lx) - style.codePadding)
+        if ((strlen text) == 0) { return }
+        ; most lines fit, and one measure says so
+        if ((this.measureRun(text probe)) <= (avail + 0.01)) { return }
+        def units:[string] (MdCodeWrap.units(text))
+        def widths:[double]
+        for units u:string ui {
+            push widths (this.measureRun(u probe))
+        }
+        def indent:double (MdCodeWrap.indentOf(units widths avail))
+        def rows:[int] (MdCodeWrap.rows(units widths avail (avail - indent)))
+        def offs:[int] (MdCodeWrap.offsets(units rows))
+        for offs o:int oi {
+            push ln.wraps o
+        }
+        ln.wrapIndent = indent
+    }
+
+    ; a line in one colour, row by row as it wraps
+    fn codeRows:void (ln:MdCodeLine text:string lx:double ty:double lh:double rowW:double color:string bold:boolean) {
+        def rws:[int] (MdLayout.rowStarts(ln))
+        def nr:int ((array_length rws) - 1)
+        def r:int 0
+        while (r < nr) {
+            def rx:double lx
+            if (r > 0) {
+                rx = (lx + ln.wrapIndent)
+            }
+            def b:MdBox (MdBox.text((substring text (itemAt rws r) (itemAt rws (r + 1))) rx (ty + (lh * (to_double r))) (rowW - (rx - lx)) lh))
+            b.family = style.monoFamily
+            b.size = style.codeSize
+            b.color = color
+            b.bold = bold
+            this.emit(b)
+            r = (r + 1)
+        }
+    }
+
+    ; 0, each wrap, and the end of the drawn text: row r is [r, r+1)
+    sfn rowStarts:[int] (ln:MdCodeLine) {
+        def out:[int]
+        push out 0
+        for ln.wraps o:int oi {
+            push out o
+        }
+        if ((ln.kind == 3) || (ln.kind == 4)) {
+            push out (strlen ln.text)
+        } {
+            push out (strlen ln.code)
+        }
+        return out
     }
 
     ; a colour t of the way from a to b (a when either does not parse)
@@ -5796,48 +5870,88 @@ class MdLayout {
     ; One line of code, token by token. Each is measured and placed after the
     ; one before it, exactly as a paragraph's segments are — the face is the
     ; same for all of them, so what varies is only the colour, and the run
-    ; still has to be measured because the face is not monospaced.
-    fn codeLine:void (hl:MdHighlightedLine x0:double y:double lh:double) {
+    ; still has to be measured because the face is not monospaced. A token
+    ; that crosses one of the line's wraps is cut there and goes on at the
+    ; start of the next row.
+    fn codeLine:void (hl:MdHighlightedLine ln:MdCodeLine x0:double y0:double lh:double) {
         def probe:MdRun (new MdRun())
         probe.family = style.monoFamily
         probe.size = style.codeSize
         def cx:double x0
+        def y:double y0
+        ; where the next row begins in the line, and where this token is
+        def wi:int 0
+        def nextWrap:int -1
+        if ((array_length ln.wraps) > 0) {
+            nextWrap = (itemAt ln.wraps 0)
+        }
+        def pos:int 0
         def i:int 0
         def n:int (array_length hl.tokens)
         while (i < n) {
             def t:MdToken (itemAt hl.tokens i)
-            def tlen:int (strlen t.text)
-            if (tlen > 0) {
-                ; The whitespace at either end of a token is laid as advance
-                ; rather than as text — the same rule a paragraph's segments
-                ; follow, and for the same reason: a space has no glyph, and a
-                ; consumer that trims the edges of a text run then draws the
-                ; geometry the PDF draws. Without it `const frame` prints
-                ; correctly and previews as `constframe`.
-                def lead:int (MdLayout.leadingSpaces(t.text))
-                def trail:int (MdLayout.trailingSpaces(t.text tlen lead))
-                if (lead > 0) {
-                    def gap:string (substring t.text 0 lead)
-                    cx = (cx + (this.measureRun(gap probe)))
-                }
-                def core:string (substring t.text lead (tlen - trail))
-                def clen:int (strlen core)
-                if (clen > 0) {
-                    def wid:double (this.measureRun(core probe))
-                    def b:MdBox (MdBox.text(core cx y wid lh))
-                    b.family = style.monoFamily
-                    b.size = style.codeSize
-                    b.color = (style.codeColor(t.kind))
-                    this.emit(b)
-                    cx = (cx + wid)
-                }
-                if (trail > 0) {
-                    def tail:string (substring t.text (tlen - trail) tlen)
-                    cx = (cx + (this.measureRun(tail probe)))
+            def rest:string t.text
+            def going:boolean true
+            while going {
+                def rlen:int (strlen rest)
+                if ((nextWrap >= 0) && ((pos + rlen) > nextWrap)) {
+                    def cut:int (nextWrap - pos)
+                    if (cut > 0) {
+                        cx = (this.codeToken((substring rest 0 cut) t.kind cx y probe lh))
+                    }
+                    rest = (substring rest cut rlen)
+                    pos = nextWrap
+                    wi = (wi + 1)
+                    nextWrap = -1
+                    if (wi < (array_length ln.wraps)) {
+                        nextWrap = (itemAt ln.wraps wi)
+                    }
+                    cx = (x0 + ln.wrapIndent)
+                    y = (y + lh)
+                } {
+                    cx = (this.codeToken(rest t.kind cx y probe lh))
+                    pos = (pos + rlen)
+                    going = false
                 }
             }
             i = (i + 1)
         }
+    }
+
+    ; One token (or the part of it on this row) at cx; returns where the next
+    ; one starts.
+    fn codeToken:double (text:string kind:int cx0:double y:double probe:MdRun lh:double) {
+        def cx:double cx0
+        def tlen:int (strlen text)
+        if (tlen == 0) { return cx }
+        ; The whitespace at either end of a token is laid as advance
+        ; rather than as text — the same rule a paragraph's segments
+        ; follow, and for the same reason: a space has no glyph, and a
+        ; consumer that trims the edges of a text run then draws the
+        ; geometry the PDF draws. Without it `const frame` prints
+        ; correctly and previews as `constframe`.
+        def lead:int (MdLayout.leadingSpaces(text))
+        def trail:int (MdLayout.trailingSpaces(text tlen lead))
+        if (lead > 0) {
+            def gap:string (substring text 0 lead)
+            cx = (cx + (this.measureRun(gap probe)))
+        }
+        def core:string (substring text lead (tlen - trail))
+        def clen:int (strlen core)
+        if (clen > 0) {
+            def wid:double (this.measureRun(core probe))
+            def b:MdBox (MdBox.text(core cx y wid lh))
+            b.family = style.monoFamily
+            b.size = style.codeSize
+            b.color = (style.codeColor(kind))
+            this.emit(b)
+            cx = (cx + wid)
+        }
+        if (trail > 0) {
+            def tail:string (substring text (tlen - trail) tlen)
+            cx = (cx + (this.measureRun(tail probe)))
+        }
+        return cx
     }
 
     fn blockQuote:void (node:MdNode x:double w:double) {

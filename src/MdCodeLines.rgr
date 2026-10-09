@@ -35,6 +35,140 @@ class MdCodeLine {
     def number:int -1
     ; 0 not highlighted, k the highlight step (1 = first) it belongs to
     def mark:int 0
+    ; set by the layout: where in the drawn text (code, or text for a
+    ; header) each row after the first begins when the line is wider than
+    ; the block, and how far those rows are indented
+    def wraps:[int]
+    def wrapIndent:double 0.0
+}
+
+; ============================================================================
+; MdCodeWrap — where a code line too wide for its block wraps.
+; ============================================================================
+;
+; A listing keeps its line breaks, and a line wider than the block goes on
+; under itself rather than past the block's (and the slide's) edge: after a
+; space or a , ; ( [ { = where there is one in the row, between two
+; characters where there is not. The rows after the first are indented as
+; far as the line is, so the code still reads as nested. The layout measures,
+; this decides.
+; ============================================================================
+
+class MdCodeWrap {
+
+    ; The line as the pieces a row may end between: one character each, a
+    ; character's UTF-8 continuation bytes (or UTF-16 low surrogate) kept
+    ; with it so a cut never splits one.
+    sfn units:[string] (text:string) {
+        def out:[string]
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            def j:int (i + 1)
+            def going:boolean true
+            while (going && (j < n)) {
+                def c:int (charAt text j)
+                if (((c >= 128) && (c < 192)) || ((c >= 56320) && (c < 57344))) {
+                    j = (j + 1)
+                } {
+                    going = false
+                }
+            }
+            push out (substring text i j)
+            i = j
+        }
+        return out
+    }
+
+    sfn isSpace:boolean (u:string) {
+        return ((u == " ") || (u == (strfromcode 9)))
+    }
+
+    ; a row may end after this piece
+    sfn breaksAfter:boolean (u:string) {
+        if (MdCodeWrap.isSpace(u)) { return true }
+        return ((indexOf ",;([{=" u) >= 0)
+    }
+
+    ; how far the rows after the first are indented: the line's own leading
+    ; whitespace, never more than half the row
+    sfn indentOf:double (units:[string] widths:[double] limit:double) {
+        def w:double 0.0
+        def i:int 0
+        def going:boolean true
+        while (going && (i < (array_length units))) {
+            if (MdCodeWrap.isSpace((itemAt units i))) {
+                w = (w + (itemAt widths i))
+                i = (i + 1)
+            } {
+                going = false
+            }
+        }
+        if (w > (limit * 0.5)) {
+            return 0.0
+        }
+        return w
+    }
+
+    ; The piece each row begins with (the first row at 0): first is the
+    ; first row's width, rest the others'. Spaces at the end of a row hang
+    ; past it, as they do in any text; a piece wider than a row has one to
+    ; itself.
+    sfn rows:[int] (units:[string] widths:[double] first:double rest:double) {
+        def out:[int]
+        push out 0
+        def n:int (array_length units)
+        def start:int 0
+        def x:double 0.0
+        def limit:double first
+        def lastBreak:int -1
+        def i:int 0
+        while (i < n) {
+            def u:string (itemAt units i)
+            def w:double (itemAt widths i)
+            if (((MdCodeWrap.isSpace(u)) == false) && (((x + w) > (limit + 0.01)) && (i > start))) {
+                def cut:int i
+                if (lastBreak >= start) {
+                    cut = (lastBreak + 1)
+                }
+                push out cut
+                start = cut
+                limit = rest
+                lastBreak = -1
+                x = 0.0
+                def k:int cut
+                while (k < i) {
+                    x = (x + (itemAt widths k))
+                    k = (k + 1)
+                }
+            } {
+                x = (x + w)
+                if (MdCodeWrap.breaksAfter(u)) {
+                    lastBreak = i
+                }
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; rows (piece indexes) as offsets into the text the pieces were cut
+    ; from, the first row's 0 left out
+    sfn offsets:[int] (units:[string] rows:[int]) {
+        def out:[int]
+        def at:int 0
+        def r:int 1
+        def i:int 0
+        while ((i < (array_length units)) && (r < (array_length rows))) {
+            if (i == (itemAt rows r)) {
+                push out at
+                r = (r + 1)
+            }
+            at = (at + (strlen (itemAt units i)))
+            i = (i + 1)
+        }
+        return out
+    }
 }
 
 class MdCodeLines {
