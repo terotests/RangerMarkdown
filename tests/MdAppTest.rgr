@@ -85,6 +85,17 @@ class MdAppTest {
         c.ok("known grant kept" (s.allows("slide.nav")))
         c.ok("unknown grant dropped" ((s.allows("network")) == false))
         c.eqStr("no css without src" s.css "")
+        def told:boolean false
+        def wi:int 0
+        while (wi < (array_length s.warnings)) {
+            if ((indexOf (itemAt s.warnings wi) "machine, 3d") > 0) {
+                told = true
+            }
+            wi = (wi + 1)
+        }
+        c.ok("the warning lists every grant" told)
+        def s3:MdAppSpec (MdApp.read(("src: w.tsx" + nl + "allow: 3d" + nl)))
+        c.ok("3d is a grant" ((s3.allows("3d")) && ((array_length s3.warnings) == 0)))
     }
 
     fn boxes:void (c:AppCheck) {

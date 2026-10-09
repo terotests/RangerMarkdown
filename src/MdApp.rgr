@@ -36,7 +36,8 @@ class MdAppSpec {
     def width:double 640.0
     def height:double 480.0
     ; what it may ask of the deck ("deck.data", "slide.nav", "slide.style",
-    ; "machine"): anything else it asks is refused and reported
+    ; "machine", "3d": a 3-D world drawn by the host in a <scene3d> element):
+    ; anything else it asks is refused and reported
     def allow:[string]
     def warnings:[string]
 
@@ -72,7 +73,7 @@ class MdAppSpec {
 class MdApp {
     ; The words a program may be allowed, in the order a guide lists them.
     sfn grants:[string] () {
-        return ([] _:string ("deck.data" "slide.nav" "slide.style" "machine"))
+        return ([] _:string ("deck.data" "slide.nav" "slide.style" "machine" "3d"))
     }
 
     sfn read:MdAppSpec (text:string) {
@@ -163,7 +164,7 @@ class MdApp {
                 continue
             }
             if ((indexOf known p) < 0) {
-                push spec.warnings ("app: allow \"" + p + "\" is not one of deck.data, slide.nav, slide.style, machine")
+                push spec.warnings ("app: allow \"" + p + "\" is not one of " + (join known ", "))
                 continue
             }
             if ((indexOf spec.allow p) < 0) {
