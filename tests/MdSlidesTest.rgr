@@ -1410,6 +1410,7 @@ class MdSlidesTest {
         this.tableSpill(c)
         this.tableWidth(c)
         this.sections(c)
+        this.portraitTitle(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
@@ -1417,5 +1418,66 @@ class MdSlidesTest {
         } {
             print "FAILURES"
         }
+    }
+    ; What a text box's text measures — a retold title's box is the
+    ; column's width whatever it holds.
+    sfn inkWidth:double (l:MdLayout b:MdBox) {
+        def r:MdRun (new MdRun())
+        r.family = b.family
+        r.bold = b.bold
+        r.size = b.size
+        return (l.measureRun(b.text r))
+    }
+
+    ; The rightmost edge any text box with `want` in it reaches, and the
+    ; widest one's size.
+    sfn rightOf:double (l:MdLayout want:string page:int) {
+        def right:double 0.0
+        for l.boxes b:MdBox i {
+            if (((b.kind == 0) && (b.page == page)) && ((indexOf b.text want) >= 0)) {
+                def bw:double (MdSlidesTest.inkWidth(l b))
+                if ((b.x + bw) > right) { right = (b.x + bw) }
+            }
+        }
+        return right
+    }
+
+    ; A portrait slide is narrow: a title that fits across a landscape one
+    ; wraps, and a word wider than the column (a Finnish compound) sets the
+    ; title smaller, on the slide and on every continuation of it.
+    fn portraitTitle:void (c:SlideCheck) {
+        print "-- a long title on a portrait slide --"
+        def css:string "deck { split-level: 2 } page { width: 405pt; height: 720pt; padding: 36pt } document { font-size: 16pt } h2 { font-size: 44pt }"
+        def l:MdLayout (MdSlidesTest.asSlides("## Asiakastyytyväisyyskyselyn tulokset\n\nBody.\n" css))
+        def edge:double (l.contentX + l.contentW)
+        def r:double (MdSlidesTest.rightOf(l "Asiakastyytyväisyyskyselyn" 0))
+        c.ok(("a word wider than the column fits it: " + (to_string r)) ((r > 0.0) && (r <= (edge + 0.5))))
+        def sz:double 0.0
+        for l.boxes b:MdBox i {
+            if ((b.kind == 0) && ((indexOf b.text "Asiakas") >= 0)) { sz = b.size }
+        }
+        c.ok(("…by setting the title smaller, not below the body: " + (to_string sz)) ((sz < 44.0) && (sz >= 16.0)))
+        def body:string ""
+        def k:int 0
+        while (k < 40) {
+            body = (body + (("- item number " + (to_string k)) + "\n"))
+            k = (k + 1)
+        }
+        def l2:MdLayout (MdSlidesTest.asSlides(("## Quarterly revenue overview and outlook\n\n" + body) css))
+        c.ok("the list runs onto a continuation" ((MdSlidesTest.lastSlideOf(l2 "item number 39")) > 0))
+        def over:int 0
+        def lines:int 0
+        for l2.boxes b2:MdBox i2 {
+            if ((b2.kind == 0) && (b2.page == 1) && b2.retold) {
+                lines = (lines + 1)
+                if ((b2.x + (MdSlidesTest.inkWidth(l2 b2))) > (edge + 0.5)) {
+                    over = (over + 1)
+                }
+            }
+        }
+        c.ok(("the continuation says the title again on several lines: " + (to_string lines)) (lines > 1))
+        c.eqInt("…none of them past the slide's edge" over 0)
+        def first:double (MdSlidesTest.yOf(l2 "item number 0"))
+        c.ok("the title on the first slide wraps too" (first > 0.0))
     }
 }

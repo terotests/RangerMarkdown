@@ -2877,19 +2877,50 @@ class MdLayout {
         }
     }
 
+    ; Wrapped to the content width and fitted as `heading` fits it: a title
+    ; said again is no narrower than the first time.
     fn emitRepeatedHeading:void (text:string level:int) {
+        def lines:[MdLine] (this.retoldLines(text level))
+        for lines ln:MdLine li {
+            def t:string ""
+            def size:double (style.headingSize(level))
+            for ln.segs seg:MdSeg si {
+                t = (t + seg.text)
+                size = seg.size
+            }
+            def b:MdBox (MdBox.text(t contentX cursorY contentW ln.height))
+            b.family = style.headingFamily
+            b.size = size
+            b.bold = true
+            ; the heading's own ink: it is the same title, and a dimmed one
+            ; is text a reader at the back cannot make out
+            b.color = (style.headingInk(level))
+            b.retold = true
+            this.emit(b)
+            cursorY = (cursorY + ln.height)
+        }
+        cursorY = (cursorY + style.headingSpaceAfter)
+    }
+
+    fn retoldLines:[MdLine] (text:string level:int) {
         def size:double (style.headingSize(level))
-        def h:double (size * style.lineHeight)
-        def b:MdBox (MdBox.text(text contentX cursorY contentW h))
-        b.family = style.headingFamily
-        b.size = size
-        b.bold = true
-        ; the heading's own ink: it is the same title, and a dimmed one is
-        ; text a reader at the back cannot make out
-        b.color = (style.headingInk(level))
-        b.retold = true
-        this.emit(b)
-        cursorY = ((cursorY + h) + style.headingSpaceAfter)
+        def r:MdRun (new MdRun())
+        r.text = text
+        r.family = style.headingFamily
+        r.size = size
+        r.bold = true
+        def runs:[MdRun]
+        push runs r
+        r.size = (this.wordFitSize(runs size contentW))
+        return (this.breakRuns(runs contentW))
+    }
+
+    fn retoldHeight:double (text:string level:int) {
+        def h:double 0.0
+        for (this.retoldLines(text level)) ln:MdLine li {
+            h = (h + ln.height)
+        }
+        return h
     }
 
     ; How tall what `emitSlideTitle` says is, with the section's heading or
@@ -2898,14 +2929,14 @@ class MdLayout {
         def h:double 0.0
         def said:boolean false
         if (((strlen slideTitle) > 0) && (slideTitleHidden == false)) {
-            h = (((style.headingSize(slideTitleLevel)) * style.lineHeight) + style.headingSpaceAfter)
+            h = ((this.retoldHeight(slideTitle slideTitleLevel)) + style.headingSpaceAfter)
             said = true
         }
         if (withSection && ((strlen sectionTitle) > 0) && (sectionHidden == false)) {
             if said {
                 h = (h + style.headingSpaceBefore)
             }
-            h = ((h + ((style.headingSize(sectionLevel)) * style.lineHeight)) + style.headingSpaceAfter)
+            h = ((h + (this.retoldHeight(sectionTitle sectionLevel))) + style.headingSpaceAfter)
         }
         return h
     }
@@ -5520,15 +5551,21 @@ class MdLayout {
             return
         }
         def size:double (style.headingSize(node.level))
-        def base:MdRun (new MdRun())
-        base.family = style.headingFamily
-        if ((strlen blockFamily) > 0) {
-            base.family = blockFamily
+        def runs:[MdRun] (this.inlineRuns(node (this.headingBase(node.level size))))
+        ; A word wider than the column cannot wrap: the heading is set
+        ; smaller until its widest word fits (a long title on a portrait
+        ; slide, or one long compound word).
+        def tries:int 0
+        while (tries < 4) {
+            def fit:double (this.wordFitSize(runs size w))
+            if (fit < size) {
+                size = fit
+                runs = (this.inlineRuns(node (this.headingBase(node.level size))))
+                tries = (tries + 1)
+            } {
+                tries = 4
+            }
         }
-        base.size = size
-        base.bold = true
-        base.color = (this.headingInkHere(node.level))
-        def runs:[MdRun] (this.inlineRuns(node base))
         cursorY = (cursorY + style.headingSpaceBefore)
         ; Recorded BEFORE the lines are placed, so the page is the page the
         ; heading starts on rather than the one it may have spilled onto.
@@ -5547,6 +5584,51 @@ class MdLayout {
             cursorY = (y + 5.0)
         }
         cursorY = (cursorY + style.headingSpaceAfter)
+    }
+
+    fn headingBase:MdRun (level:int size:double) {
+        def base:MdRun (new MdRun())
+        base.family = style.headingFamily
+        if ((strlen blockFamily) > 0) {
+            base.family = blockFamily
+        }
+        base.size = size
+        base.bold = true
+        base.color = (this.headingInkHere(level))
+        return base
+    }
+
+    ; The size a heading set at `size` takes so that its widest word fits in
+    ; `w`: `size` when it already does. Never below the body size — a word
+    ; that does not fit even there is too long for any heading.
+    fn wordFitSize:double (runs:[MdRun] size:double w:double) {
+        def widest:double 0.0
+        for runs r:MdRun ri {
+            if ((strlen r.math) == 0) {
+                def t:string r.text
+                def n:int (strlen t)
+                def i:int 0
+                while (i < n) {
+                    while ((i < n) && (MdChar.isSpaceOrTab((charAt t i)))) {
+                        i = (i + 1)
+                    }
+                    def start:int i
+                    while ((i < n) && ((MdChar.isSpaceOrTab((charAt t i))) == false)) {
+                        i = (i + 1)
+                    }
+                    if (i > start) {
+                        def ww:double (this.measureRun((substring t start i) r))
+                        if (ww > widest) { widest = ww }
+                    }
+                }
+            }
+        }
+        if ((widest <= w) || (w <= 0.0)) { return size }
+        def floor:double style.bodySize
+        if (floor >= size) { return size }
+        def fit:double ((size * (w / widest)) * 0.98)
+        if (fit < floor) { return floor }
+        return fit
     }
 
     ; A code block: a `diff` block's added and removed lines on green and red
