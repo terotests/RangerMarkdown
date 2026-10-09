@@ -99,6 +99,15 @@ class MetaCheck {
         this.ok("two keys, no more" ((m2.count()) == 2))
         this.ok("an engine key is an engine key" (MdSlideMeta.isEngineKey("bg")))
         this.ok("…and a ticket is not" ((MdSlideMeta.isEngineKey("jira")) == false))
+        ; a slide script (`{script=apps/fx.tsx allow="slide.nav"}`) is the
+        ; deck's, not the slide's data
+        def doc4:MdNode (MdBlock.parseText("## Sales {script=apps/fx.tsx allow=\"slide.nav deck.data\" export-frame=3.5s jira=X-1}\n"))
+        def h4:MdNode (doc4.childAt(0))
+        def m4:MdSlideMeta (MdSlideMeta.of(h4))
+        this.ok("script, allow and export-frame are not data" (((m4.has("script")) == false) && (((m4.has("allow")) == false) && ((m4.has("export-frame")) == false))))
+        this.eqStr("…the script's file is on the heading" (h4.attrValue("script")) "apps/fx.tsx")
+        this.eqStr("…and its grants, quoted" (h4.attrValue("allow")) "slide.nav deck.data")
+        this.ok("…and the rest is still data" ((m4.count()) == 1))
 
         ; ---- a misspelt engine key is named, and still kept -------------
         def doc3:MdNode (MdBlock.parseText("## Slow {transtion=fade}\n"))
