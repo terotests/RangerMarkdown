@@ -49,7 +49,9 @@ class MdContainer {
     def ink:string ""
     def radius:double 0.0
     def padX:double 0.0
+    ; over the text (`padding-top`) and under it (`padding-bottom`)
     def padY:double 0.0
+    def padBottom:double 0.0
     ; a bubble's tail: how far it hangs below the plate, 0 for none
     def tail:double 0.0
     ; …and whether the plate hugs its text rather than filling the column
@@ -152,6 +154,7 @@ class MdContainer {
         if ((strlen fill) == 0) { fill = (MdContainer.defaultFill(paper ink)) }
         p.fill = fill
         p.ink = (MdContainer.inkOnPaper(fill ink paper))
+        p.padBottom = p.padY
         return p
     }
 
@@ -296,6 +299,57 @@ class MdContainer {
         def hi:int (idiv v 16)
         def lo:int (v % 16)
         return (hex + (strfromcode (charAt digits hi)) + (strfromcode (charAt digits lo)))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Fences that closed nothing
+    ; ----------------------------------------------------------------------
+    ;
+    ; A `:::` closes the container it is at least as long as, the OUTER one
+    ; first (as markdown-it-container does). `::: columns` round `::: col`
+    ; blocks with as many colons is closed by the first column's `:::`, and
+    ; the last `:::` is left over as a paragraph — shown on the page as
+    ; colons. The source offsets of the paragraphs (anywhere in `doc`) with
+    ; a line of nothing but three or more colons, for a note to the writer:
+    ; the outer container wants more colons (`:::: columns` … `::::`).
+    sfn strayFences:[int] (doc:MdNode src:string) {
+        def out:[int]
+        MdContainer.collectStray(doc src out)
+        return out
+    }
+
+    sfn collectStray:void (node:MdNode src:string out:[int]) {
+        if (node.kind == "paragraph") {
+            def a:int node.srcStart
+            def b:int node.srcEnd
+            if (b > (strlen src)) { b = (strlen src) }
+            if ((a >= 0) && (a < b)) {
+                def lines:[string] (strsplit (substring src a b) "\n")
+                for lines ln:string li {
+                    if (MdContainer.onlyColons((trim ln))) {
+                        push out a
+                        return
+                    }
+                }
+            }
+            return
+        }
+        def i:int 0
+        while (i < (node.childCount())) {
+            MdContainer.collectStray((node.childAt(i)) src out)
+            i = (i + 1)
+        }
+    }
+
+    sfn onlyColons:boolean (s:string) {
+        def n:int (strlen s)
+        if (n < 3) { return false }
+        def i:int 0
+        while (i < n) {
+            if ((charAt s i) != 58) { return false }
+            i = (i + 1)
+        }
+        return true
     }
 
     sfn lower:string (s:string) {

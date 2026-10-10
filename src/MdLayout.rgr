@@ -2367,6 +2367,7 @@ class MdLayout {
             def fromBox:int (array_length boxes)
             def fromHead:int (array_length headText)
             push blockFirstPage page
+            plateRoomSrc = -1
             this.placeBlock(doc i true)
             if (slides && (child.kind == "heading") && (child.level > splitLevel)) {
                 sectionTitle = (child.plainText())
@@ -2434,6 +2435,11 @@ class MdLayout {
     def slideTitleOnly:boolean false
     ; inside a `{container=…}` plate: a block in it does not get one of its own
     def containerDepth:int 0
+    ; the room over and under the text of the last block put on a plate
+    ; (its padding and a bubble's tail), and that block's source offset:
+    ; `fitSlideTitle` sets the text smaller, which makes no padding smaller
+    def plateRoom:double 0.0
+    def plateRoomSrc:int -1
     ; the plate the block being laid out stands on ("" for none) and the
     ; page under it: a heading's own colour is judged on it, not only the
     ; text's (`## Title {container=box}` kept its light theme colour on a
@@ -2786,6 +2792,16 @@ class MdLayout {
 
     fn fitSlideTitle:void (child:MdNode fromBox:int fromHead:int startPage:int) {
         def cap:double ((contentBottom - contentTop) * slideTitleMax)
+        ; the cap is the text's: a title on a plate (`.cover { padding-top:
+        ; 200pt }`) keeps its padding at every size, so that room is not
+        ; counted, and a padding taller than the slide is no reason to set
+        ; the text smaller — it would only shrink to nothing
+        def fixed:double 0.0
+        if (plateRoomSrc == child.srcStart) {
+            fixed = plateRoom
+        }
+        if (fixed >= (contentBottom - contentTop)) { return }
+        cap = (cap + fixed)
         if ((page == startPage) && ((cursorY - contentTop) <= cap)) { return }
         def saved:[double] (this.styleNumbers())
         def savedOverflows:int slideOverflows
@@ -4086,6 +4102,7 @@ class MdLayout {
         def own:string (MdContainer.fillOf(node))
         def radius:double style.containerRadius
         def shadow:string style.containerShadow
+        ; [top, right, bottom, left], as `padding` lists them
         def pads:[double] ([] _:double (style.containerPadY style.containerPadX style.containerPadY style.containerPadX))
         def border:string style.containerBorder
         def borderW:double style.containerBorderWidth
@@ -4128,7 +4145,10 @@ class MdLayout {
         }
         def p:MdContainer (MdContainer.plan(kind own themeFill radius paper style.textColor style.bodySize))
         p.shadow = shadow
+        ; each side its own: `padding-top` alone moves the text down, it
+        ; does not put as much room under it too
         if ((itemAt pads 0) >= 0.0) { p.padY = (itemAt pads 0) }
+        if ((itemAt pads 2) >= 0.0) { p.padBottom = (itemAt pads 2) }
         if ((itemAt pads 3) >= 0.0) { p.padX = (itemAt pads 3) }
         if (((strlen border) > 0) && (borderW > 0.0)) {
             p.border = border
@@ -4149,6 +4169,7 @@ class MdLayout {
             }
             if ((array_length pv) > 0) {
                 p.padY = (CssValue.fontPoints((itemAt pv 0) p.padY))
+                p.padBottom = p.padY
                 p.padX = p.padY
                 if ((array_length pv) > 1) {
                     p.padX = (CssValue.fontPoints((itemAt pv 1) p.padX))
@@ -4175,6 +4196,8 @@ class MdLayout {
         def before:int (array_length boxes)
         def startPage:int page
         def top:double cursorY
+        plateRoom = ((p.padY + p.padBottom) + p.tail)
+        plateRoomSrc = node.srcStart
         cursorY = (cursorY + p.padY)
         containerDepth = (containerDepth + 1)
         this.blockInner(node (x + p.padX) (w - (p.padX * 2.0)))
@@ -4186,7 +4209,7 @@ class MdLayout {
         if ((array_length plates) == 0) { return }
         def last:MdBox (itemAt plates ((array_length plates) - 1))
         ; the block's own space after it, kept below the plate (and its tail)
-        def inkBottom:double ((last.y + last.h) - p.padY)
+        def inkBottom:double ((last.y + last.h) - p.padBottom)
         def gap:double (cursorY - inkBottom)
         if (gap < 0.0) { gap = 0.0 }
         this.insertBoxes(before plates)
@@ -4242,7 +4265,7 @@ class MdLayout {
                     pw = ((maxX + p.padX) - px)
                     if ((px + pw) > (x + w)) { pw = ((x + w) - px) }
                 }
-                def ph:double ((maxY + p.padY) - pt)
+                def ph:double ((maxY + p.padBottom) - pt)
                 ; a soft shadow (`box-shadow`): three layers under the plate,
                 ; each a little larger, lower and fainter
                 if ((strlen p.shadow) > 0) {

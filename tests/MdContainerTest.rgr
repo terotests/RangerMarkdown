@@ -191,6 +191,37 @@ class MdContainerTest {
         def ok:MdLayout (MdContainerTest.laid("## Levy {container=box}\n" "h2 { color: #102030 } container { background-color: #ffffff }"))
         def hk:MdBox (MdContainerTest.textBox(ok "Levy"))
         c.eqStr("…a heading that reads on its plate keeps its colour" hk.color "#102030")
+        ; `.cover { padding-top }` on a slide's title: the room is over the
+        ; text only, and the title keeps its size — padding is not text, and
+        ; setting the text smaller (fitSlideTitle) makes no padding smaller
+        def page:string "page { width: 13.333in; height: 7.5in; padding: 0.75in } "
+        def padded:MdLayout (MdContainerTest.slidesOf("## Kansi\n{.cover}\n\nUnder\n" (page + ".cover { padding-top: 260pt }")))
+        def bare:MdLayout (MdContainerTest.slidesOf("## Kansi\n\nUnder\n" page))
+        def ppi:int (MdContainerTest.plateIndex(padded))
+        def pt:MdBox (MdContainerTest.textBox(padded "Kansi"))
+        def bt:MdBox (MdContainerTest.textBox(bare "Kansi"))
+        c.ok("padding-top gives a title a plate" (ppi >= 0))
+        if (ppi >= 0) {
+            def pp:MdBox (itemAt padded.boxes ppi)
+            c.ok("…the padding over the text" ((pt.y - pp.y) >= 259.5))
+            c.ok("…and not as much under it" (((pp.y + pp.h) - (pt.y + pt.h)) < 60.0))
+        }
+        c.ok("…the title keeps its size" ((fabs (pt.h - bt.h)) < 1.0))
+        def under:MdBox (MdContainerTest.textBox(padded "Under"))
+        c.ok("…and the text under it its slide" (under.page == pt.page))
+    }
+
+    sfn slidesOf:MdLayout (src:string css:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        def mc:MdCss (new MdCss())
+        mc.addStyleSheet(css)
+        mc.applyTo(l.style)
+        l.setStyleSheet(css)
+        l.setDocSource(src)
+        l.layoutSlides(doc)
+        return l
     }
 
     ; what a sheet says about a block, drawn: a class's box, typography, a
