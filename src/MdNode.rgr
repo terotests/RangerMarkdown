@@ -157,6 +157,9 @@ class MdNode {
     def nodeId:string ""
     def attrKeys:[string]
     def attrVals:[string]
+    ; What could not be read in a heading's `{…}` (MdAttrs.headingAttrs),
+    ; one line per token, for the writer. Empty when all of it was read.
+    def attrNotes:[string]
 
     ; ------------------------------------------------------------------
     ; Parser state. It lives on the node rather than in a table beside it

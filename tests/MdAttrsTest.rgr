@@ -227,6 +227,115 @@ class MdAttrsTest {
     }
 
     ; ----------------------------------------------------------------------
+    ; A heading's `{…}`, the way assistants and people actually write it.
+    ; Each line is "heading" → "[drawn title] what was read", and the notes
+    ; (MdNode.attrNotes) are checked separately: a group that is plainly
+    ; attributes never stays in the title, and what in it could not be read
+    ; is said, not dropped in silence.
+    sfn headingRead:string (src:string) {
+        def doc:MdNode (MdAttrsTest.nodeOf((src + "\n")))
+        def h:MdNode (doc.childAt(0))
+        def out:string ("[" + (MdAttrsTest.textOf(h)) + "]")
+        def i:int 0
+        while (i < (h.classCount())) {
+            out = (out + " ." + (h.classAt(i)))
+            i = (i + 1)
+        }
+        if ((strlen h.nodeId) > 0) {
+            out = (out + " #" + h.nodeId)
+        }
+        def j:int 0
+        while (j < (h.attrCount())) {
+            out = (out + " " + (itemAt h.attrKeys j) + "=<" + (itemAt h.attrVals j) + ">")
+            j = (j + 1)
+        }
+        return out
+    }
+
+    sfn headingNotes:int (src:string) {
+        def doc:MdNode (MdAttrsTest.nodeOf((src + "\n")))
+        def h:MdNode (doc.childAt(0))
+        return (array_length h.attrNotes)
+    }
+
+    sfn headingNote:string (src:string) {
+        def doc:MdNode (MdAttrsTest.nodeOf((src + "\n")))
+        def h:MdNode (doc.childAt(0))
+        if ((array_length h.attrNotes) == 0) { return "" }
+        return (itemAt h.attrNotes 0)
+    }
+
+    fn reads:void (c:AttrCheck label:string src:string want:string) {
+        c.eqStr(label (MdAttrsTest.headingRead(src)) want)
+        c.eqInt((label + ": no notes") (MdAttrsTest.headingNotes(src)) 0)
+    }
+
+    fn headings:void (c:AttrCheck) {
+        print "-- a heading's attributes, as they are written --"
+        this.reads(c "braces inside a quoted value" "## Revenue {title=\"has } brace\"}" "[Revenue] title=<has } brace>")
+        this.reads(c "…an opening one too" "## Revenue {title=\"has { brace\"}" "[Revenue] title=<has { brace>")
+        this.reads(c "…both" "## Revenue {style=\"a{b}\"}" "[Revenue] style=<a{b}>")
+        this.reads(c "spaces around =" "## Revenue {layout = image-right}" "[Revenue] layout=<image-right>")
+        this.reads(c "a space after =" "## Revenue {layout= image-right}" "[Revenue] layout=<image-right>")
+        this.reads(c "spaces inside the braces" "## Revenue { layout=image-right }" "[Revenue] layout=<image-right>")
+        this.reads(c "spaces after the braces" "## Revenue {layout=image-right}   " "[Revenue] layout=<image-right>")
+        this.reads(c "a colour function" "## Revenue {bg=rgba(0,0,0,.5)}" "[Revenue] bg=<rgba(0,0,0,.5)>")
+        this.reads(c "letters ASCII has not" "## Revenue {owner=Väinö}" "[Revenue] owner=<Väinö>")
+        this.reads(c "a plus" "## Revenue {title=Q3+Q4}" "[Revenue] title=<Q3+Q4>")
+        this.reads(c "an address with ? & =" "## Revenue {url=https://x.com/a?b=c&d=e}" "[Revenue] url=<https://x.com/a?b=c&d=e>")
+        this.reads(c "commas between pairs" "## Revenue {a=1, b=2}" "[Revenue] a=<1> b=<2>")
+        this.reads(c "two groups" "## Revenue {transition=fade} {jira=A-1}" "[Revenue] transition=<fade> jira=<A-1>")
+        this.reads(c "two groups touching" "## Revenue {.a}{.b}" "[Revenue] .a .b")
+        this.reads(c "no space before it" "## Revenue{.x}" "[Revenue] .x")
+        this.reads(c "an escaped quote" "## Revenue {title=\"say \\\"hi\\\"\"}" "[Revenue] title=<say \"hi\">")
+        this.reads(c "an apostrophe in a bare value" "## Revenue {title=it's}" "[Revenue] title=<it's>")
+        this.reads(c "an empty quoted value" "## Revenue {alt=\"\"}" "[Revenue] alt=<>")
+        this.reads(c "kramdown's {:" "## Revenue {: .a}" "[Revenue] .a")
+        this.reads(c "everything at once" "## Revenue {.a #b c='d e' f=\"g h\" i=j}" "[Revenue] .a #b c=<d e> f=<g h> i=<j>")
+        this.reads(c "a closing sequence after it" "## Revenue {.x} ##" "[Revenue] .x")
+        this.reads(c "a setext heading" "Revenue {.a}\n---" "[Revenue] .a")
+
+        print "-- braces that are the title's --"
+        this.reads(c "words in braces mid-title" "## Price {in €} today {.x}" "[Price {in €} today] .x")
+        this.reads(c "a set" "## Set {a, b}" "[Set {a, b}]")
+        this.reads(c "one word" "## Revenue {beta}" "[Revenue {beta}]")
+        this.reads(c "a number after #" "## We are {#1}" "[We are {#1}]")
+        this.reads(c "an escaped brace" "## Revenue \\{.x}" "[Revenue {.x}]")
+        this.reads(c "only a brace group" "# {.x}" "[{.x}]")
+
+        print "-- what could not be read is said --"
+        c.eqStr("a stray word: the class is read" (MdAttrsTest.headingRead("## Revenue {.a b}")) "[Revenue] .a")
+        c.eqInt("…and the word is a note" (MdAttrsTest.headingNotes("## Revenue {.a b}")) 1)
+        c.ok("…naming it" (MdAttrsTest.hasSub((MdAttrsTest.headingNote("## Revenue {.a b}")) "\"b\"")))
+        def two:string "## Hinta {owner=Väinö Linna}"
+        c.eqStr("an unquoted value with a space: the first word" (MdAttrsTest.headingRead(two)) "[Hinta] owner=<Väinö>")
+        c.ok("…and the note says how to quote it" (MdAttrsTest.hasSub((MdAttrsTest.headingNote(two)) "owner=\"Väinö Linna\"")))
+        def open:string "## Revenue {transition=fade"
+        c.eqStr("no closing brace: read anyway" (MdAttrsTest.headingRead(open)) "[Revenue] transition=<fade>")
+        c.ok("…and said" (MdAttrsTest.hasSub((MdAttrsTest.headingNote(open)) "no closing }")))
+        def unq:string "## Revenue {key=\"unterminated}"
+        c.eqStr("a quote never closed: out of the title" (MdAttrsTest.headingRead(unq)) "[Revenue]")
+        c.eqInt("…one note" (MdAttrsTest.headingNotes(unq)) 1)
+        c.ok("…about the quote" (MdAttrsTest.hasSub((MdAttrsTest.headingNote(unq)) "never closed")))
+        def novalue:string "## Revenue {.a cols=}"
+        c.eqStr("a key with no value: the rest read" (MdAttrsTest.headingRead(novalue)) "[Revenue] .a")
+        c.ok("…and the key named" (MdAttrsTest.hasSub((MdAttrsTest.headingNote(novalue)) "\"cols=\" has no value")))
+
+        ; a paragraph's attribute line stays strict: half an attribute block
+        ; there is text, and the CommonMark ratchet depends on it
+        this.stays(c "a class and a bare word, under a paragraph" "{.a b}")
+        def spaced:MdNode (MdAttrsTest.nodeOf("Text.\n{cols = 3 title=\"a } b\"}\n"))
+        def sp:MdNode (spaced.childAt(0))
+        c.eqStr("a paragraph's line takes spaces around =" (sp.attrValue("cols")) "3")
+        c.eqStr("…and braces in quotes" (sp.attrValue("title")) "a } b")
+        def fence:MdNode (MdAttrsTest.nodeOf("```mermaid {style = cartoon title=\"A {b}\"}\nflowchart LR\n  A --> B\n```\n"))
+        def f0:MdNode (fence.childAt(0))
+        c.eqStr("a fence's info: spaces around =" (f0.attrValue("style")) "cartoon")
+        c.eqStr("…braces in quotes" (f0.attrValue("title")) "A {b}")
+        c.eqStr("…and the info is the notation" f0.info "mermaid")
+    }
+
+    ; ----------------------------------------------------------------------
     ; The half that keeps the CommonMark ratchet where it is: everything that
     ; is NOT an attribute block has to stay a paragraph, byte for byte.
     fn refusals:void (c:AttrCheck) {
@@ -300,6 +409,7 @@ class MdAttrsTest {
         this.attaching(c)
         this.spellings(c)
         this.refusals(c)
+        this.headings(c)
         this.spans(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))

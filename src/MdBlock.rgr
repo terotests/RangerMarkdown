@@ -1757,10 +1757,8 @@ class MdBlock {
     }
 
     sfn stripHeadingAttrs:void (n:MdNode) {
-        def at:int (MdAttrs.trailingAt(n.literal))
+        def at:int (MdAttrs.headingAttrs(n n.literal n.attrNotes))
         if (at < 0) { return }
-        def tail:string (substring n.literal at (strlen n.literal))
-        if (! (MdAttrs.applyTo(n tail))) { return }
         def cut:int at
         while (cut > 0) {
             if (! (MdAttrs.isSpaceCode((charAt n.literal (cut - 1))))) { break }
