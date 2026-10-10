@@ -60,6 +60,7 @@ class MdCodeLinesTest {
         MdCodeLinesTest.parsed(c)
         MdCodeLinesTest.drawn(c)
         MdCodeLinesTest.focused(c)
+        MdCodeLinesTest.aside(c)
         MdCodeLinesTest.readable(c)
         MdCodeLinesTest.wrapModel(c)
         MdCodeLinesTest.wrapped(c)
@@ -217,6 +218,59 @@ class MdCodeLinesTest {
         c.eqStr("the marked line keeps the block's ink" (itemAt inks 1) (itemAt plain 1))
         def steps:[string] (MdCodeLinesTest.inksOf("```{lines=2 .build}\nalpha\nbeta\ngamma\n```\n"))
         c.eqStr("build steps: nothing fades" (itemAt steps 0) (itemAt plain 0))
+    }
+
+    ; a slide whose source holds an `asideAt` lays its body out narrower by
+    ; `asideFrac`; its title and the other slides keep the full width
+    sfn aside:void (c:CodeCheck) {
+        def body:string "a long paragraph that runs across the whole slide and wraps onto a second line and a third line as well"
+        def src:string (((("# One\n\n" + body) + "\n\nMARK\n\n# Two\n\n") + body) + "\n")
+        def at:int (indexOf src "MARK")
+        def wide:MdLayout (MdCodeLinesTest.slidesWith(src -1))
+        def narrow:MdLayout (MdCodeLinesTest.slidesWith(src at))
+        c.ok("body narrower on the slide with the strip" ((MdCodeLinesTest.rightOf(narrow 0 false)) <= ((960.0 - 48.0) - 300.0)))
+        c.ok("body reaches the column's edge without it" ((MdCodeLinesTest.rightOf(wide 0 false)) > ((960.0 - 48.0) - 300.0)))
+        c.ok("title keeps the full width" ((MdCodeLinesTest.widthOf(narrow 0 true)) == (MdCodeLinesTest.widthOf(wide 0 true))))
+        c.ok("next slide keeps the full width" ((MdCodeLinesTest.rightOf(narrow 1 false)) == (MdCodeLinesTest.rightOf(wide 1 false))))
+    }
+
+    sfn slidesWith:MdLayout (src:string at:int) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        l.style.pageWidth = 960.0
+        l.style.pageHeight = 540.0
+        l.style.margin = 48.0
+        l.style.bodySize = 20.0
+        l.splitLevel = 1
+        l.setDocSource(src)
+        if (at >= 0) {
+            push l.asideAt at
+            l.asideFrac = 0.3125
+        }
+        l.layoutSlides(doc)
+        return l
+    }
+
+    ; the right edge of page `page`'s body text (or the title's width)
+    sfn rightOf:double (l:MdLayout page:int title:boolean) {
+        def r:double 0.0
+        for l.boxes b:MdBox i {
+            if (((b.kind == 0) && (b.page == page)) && ((b.text != "One") && (b.text != "Two"))) {
+                if ((b.x + b.w) > r) { r = (b.x + b.w) }
+            }
+        }
+        return r
+    }
+
+    sfn widthOf:double (l:MdLayout page:int title:boolean) {
+        def r:double 0.0
+        for l.boxes b:MdBox i {
+            if (((b.kind == 0) && (b.page == page)) && ((b.text == "One") || (b.text == "Two"))) {
+                r = b.w
+            }
+        }
+        return r
     }
 
     ; each text box's colour + quiet flag, in order
