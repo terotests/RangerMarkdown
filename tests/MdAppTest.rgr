@@ -97,6 +97,8 @@ class MdAppTest {
         c.ok("the warning lists every grant" told)
         def s3:MdAppSpec (MdApp.read(("src: w.tsx" + nl + "allow: 3d" + nl)))
         c.ok("3d is a grant" ((s3.allows("3d")) && ((array_length s3.warnings) == 0)))
+        def s4:MdAppSpec (MdApp.read(("src: w.tsx" + nl + "allow: code" + nl)))
+        c.ok("code is a grant" ((s4.allows("code")) && ((array_length s4.warnings) == 0)))
     }
 
     fn boxes:void (c:AppCheck) {
