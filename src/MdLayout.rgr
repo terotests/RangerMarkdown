@@ -698,12 +698,12 @@ class MdLayout {
 
     ; A strip at the right of a slide kept for something the host draws
     ; there (a presenter figure and its speech bubble): `asideAt` are the
-    ; source offsets of the blocks that want it, `asideW` its width in page
-    ; units. A slide whose source holds one of the offsets lays its body out
+    ; source offsets of the blocks that want it, `asideFrac` its width as a
+    ; share of the page's width. A slide whose source holds one of the offsets lays its body out
     ; that much narrower; its title keeps the full width, since the strip
     ; is below it.
     def asideAt:[int]
-    def asideW:double 0.0
+    def asideFrac:double 0.0
     def slideAside:boolean false
 
     ; 0 means one page as tall as the document — the screen's mode.
@@ -4730,11 +4730,11 @@ class MdLayout {
         push placeWord word
     }
 
-    ; Slide title `i` opens a slide: its body narrower by `asideW` when the
+    ; Slide title `i` opens a slide: its body narrower by `asideFrac` when the
     ; slide's source, up to the next slide's title, holds an `asideAt`.
     fn noteAside:void (doc:MdNode i:int) {
         slideAside = false
-        if ((asideW <= 0.0) || (fullContentW <= 0.0)) {
+        if ((asideFrac <= 0.0) || (fullContentW <= 0.0)) {
             return
         }
         def title:MdNode (doc.childAt(i))
@@ -4748,7 +4748,7 @@ class MdLayout {
         contentW = fullContentW
         if slideAside {
             ; never narrower than half the column
-            contentW = (fullContentW - asideW)
+            contentW = (fullContentW - (asideFrac * style.pageWidth))
             if (contentW < (fullContentW * 0.5)) {
                 contentW = (fullContentW * 0.5)
             }

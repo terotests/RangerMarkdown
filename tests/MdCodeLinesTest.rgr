@@ -221,7 +221,7 @@ class MdCodeLinesTest {
     }
 
     ; a slide whose source holds an `asideAt` lays its body out narrower by
-    ; `asideW`; its title and the other slides keep the full width
+    ; `asideFrac`; its title and the other slides keep the full width
     sfn aside:void (c:CodeCheck) {
         def body:string "a long paragraph that runs across the whole slide and wraps onto a second line and a third line as well"
         def src:string (((("# One\n\n" + body) + "\n\nMARK\n\n# Two\n\n") + body) + "\n")
@@ -246,7 +246,7 @@ class MdCodeLinesTest {
         l.setDocSource(src)
         if (at >= 0) {
             push l.asideAt at
-            l.asideW = 300.0
+            l.asideFrac = 0.3125
         }
         l.layoutSlides(doc)
         return l
