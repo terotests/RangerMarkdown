@@ -321,6 +321,10 @@ class MarkdownEdit {
             layout.applySlideMeta(doc)
             layout.embeds.splitLevel = layout.splitLevel
         }
+        ; a slide that keeps a strip at its side draws its diagrams for the
+        ; narrower column it lays them out in
+        layout.embeds.asideAt = layout.asideAt
+        layout.embeds.asideCut = (layout.asideFrac * layout.style.pageWidth)
         MdDiagram.prepare(doc layout.embeds (this.contentWidth()) styleName)
         diagrams = (layout.embeds.count())
         layout.setDocSource(source)

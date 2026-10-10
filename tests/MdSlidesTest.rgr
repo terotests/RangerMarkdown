@@ -364,6 +364,56 @@ class MdSlidesTest {
         c.ok("a title alone on its slide keeps its size" ((MdSlidesTest.biggestTextOn(sl 0)) > 89.0))
     }
 
+    ; A slide that keeps a strip at its side (a presenter, `asideAt`) lays
+    ; its body out narrower, and its diagram was drawn for the full column:
+    ; the layout asked the cache at the narrower width, found nothing, and
+    ; drew "mermaid — no handler prepared this one" over an empty slot.
+    fn asideDiagram:void (c:SlideCheck) {
+        print "-- a diagram on a slide with a strip at its side is drawn --"
+        def dia:string "```mermaid\nflowchart LR\n  A[Kirjoita] --> B[Lue]\n```\n"
+        def src:string ((("## Yksi\n\n" + dia) + "\nMERKKI\n\n## Kaksi\n\n") + dia)
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        def css:string "deck { split-level: 2 } page { width: 960pt; height: 540pt; padding: 48pt }"
+        def cc:MdCss (new MdCss())
+        cc.addStyleSheet(css)
+        cc.applyTo(l.style)
+        l.setStyleSheet(css)
+        l.applyMeta(doc)
+        l.applySlideMeta(doc)
+        l.setDocSource(src)
+        push l.asideAt (indexOf src "MERKKI")
+        l.asideFrac = 0.3
+        l.embeds.splitLevel = l.splitLevel
+        l.embeds.asideAt = l.asideAt
+        l.embeds.asideCut = (l.asideFrac * l.style.pageWidth)
+        def cw:double (l.style.pageWidth - (l.style.margin * 2.0))
+        MdDiagram.prepare(doc l.embeds cw "default")
+        l.layoutSlides(doc)
+        def drawn:int 0
+        def slots:int 0
+        def w0:double 0.0
+        def w1:double 0.0
+        for l.boxes b:MdBox i {
+            if (b.kind == 3) {
+                slots = (slots + 1)
+                if ((l.embeds.heightFor(b.embedKind b.embedSource b.w)) > 0.0) {
+                    drawn = (drawn + 1)
+                }
+                if (b.page == 0) {
+                    w0 = b.w
+                }
+                if (b.page == 1) {
+                    w1 = b.w
+                }
+            }
+        }
+        c.eqInt("two diagrams" slots 2)
+        c.eqInt("…both drawn" drawn 2)
+        c.ok("the one beside the strip is narrower" ((w0 > 0.0) && (w0 < w1)))
+    }
+
     ; A diagram taller than the room under its title is given exactly that
     ; room: its height is `contentBottom - cursorY`. `reserve` then asked
     ; whether `cursorY + h` ran past `contentBottom`, and for some paddings
@@ -1411,6 +1461,7 @@ class MdSlidesTest {
         this.breaks(c)
         this.keepWithNext(c)
         this.bigTitle(c)
+        this.asideDiagram(c)
         this.exactFit(c)
         this.overflow(c)
         this.wholeItems(c)

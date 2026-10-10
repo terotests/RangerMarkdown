@@ -127,12 +127,61 @@ class MdDiagram {
             cache.markStale("figure")
         }
         cache.resetHeadings()
-        MdDiagram.walk(doc cache width styleName)
+        MdDiagram.walkSlides(doc cache width styleName)
         ; What this document no longer has a fence for goes. The store is
         ; keyed by the fence's TEXT, so without this every keystroke inside a
         ; diagram left its half-typed predecessor behind, element tree and
         ; all.
         cache.endPass()
+    }
+
+    ; The document's blocks, each at the width the layout gives it: a slide
+    ; that keeps a strip at its side (`cache.asideAt`) is narrower, as
+    ; MdLayout.noteAside works it out, and a diagram drawn for the full
+    ; column was a slot the layout could not find on it.
+    sfn walkSlides:void (doc:MdNode cache:MdEmbedCache width:double styleName:string) {
+        if (((cache.asideCut <= 0.0) || (cache.splitLevel <= 0)) || ((array_length cache.asideAt) == 0)) {
+            MdDiagram.walk(doc cache width styleName)
+            return
+        }
+        def narrow:double (width - cache.asideCut)
+        if (narrow < (width * 0.5)) {
+            narrow = (width * 0.5)
+        }
+        def useW:double width
+        def n:int (doc.childCount())
+        def i:int 0
+        while (i < n) {
+            def c:MdNode (doc.childAt(i))
+            if ((c.kind == "heading") && (c.level <= cache.splitLevel)) {
+                useW = width
+                def upto:int (MdDiagram.slideEnd(doc i cache.splitLevel))
+                for cache.asideAt at:int k {
+                    if ((at >= c.srcStart) && ((upto < 0) || (at < upto))) {
+                        useW = narrow
+                    }
+                }
+            }
+            MdDiagram.walk(c cache useW styleName)
+            i = (i + 1)
+        }
+    }
+
+    ; where the slide that block `i` opens ends in the source, -1 at the
+    ; end (MdLayout.slideEndSrc, which this file cannot import)
+    sfn slideEnd:int (doc:MdNode i:int splitLevel:int) {
+        def j:int (i + 1)
+        def n:int (doc.childCount())
+        while (j < n) {
+            def c:MdNode (doc.childAt(j))
+            if ((c.hasClass("no-break")) == false) {
+                if ((c.hasClass("slide")) || ((c.kind == "heading") && (c.level <= splitLevel))) {
+                    return c.srcStart
+                }
+            }
+            j = (j + 1)
+        }
+        return -1
     }
 
     sfn walk:void (node:MdNode cache:MdEmbedCache width:double styleName:string) {
