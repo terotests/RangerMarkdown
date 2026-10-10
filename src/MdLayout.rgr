@@ -2562,7 +2562,7 @@ class MdLayout {
     sfn besideable:boolean (node:MdNode splitLevel:int) {
         if ((node.kind == "paragraph") && ((MdLayout.loneImage(node)).kind != "image")) { return true }
         if (node.kind == "list") { return true }
-        if (node.kind == "blockquote") { return true }
+        if (node.kind == "block_quote") { return true }
         ; a heading starts something new: under the figure, full width
         return false
     }
