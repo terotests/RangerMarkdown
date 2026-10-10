@@ -434,6 +434,8 @@ class MdContinuations {
 
 class MdLayout {
     def style:MdStyle (new MdStyle())
+    ; while a code line outside the `lines=` marks is laid: its text fades
+    def codeDim:boolean false
     ; Built once per layout by `buildBoxIndex`: the first box of each block,
     ; by that block's source offset.
     def boxIndexAt:[string:int]
@@ -5931,6 +5933,10 @@ class MdLayout {
             numInk = "#8b949e"
         }
         def build:boolean ((node.hasClass("build")) && (cl.steps > 0))
+        ; `lines=` without build steps: the marked lines are what the block is
+        ; shown for, so the rest of it fades and the eye goes to them instead
+        ; of reading the whole block
+        def dimRest:boolean ((cl.steps > 0) && (build == false))
         def state:int 0
         def i:int 0
         while (i < count) {
@@ -5953,13 +5959,14 @@ class MdLayout {
                 this.emit(band)
                 this.emit(bar)
             }
+            codeDim = (dimRest && (ln.mark == 0))
             if ((cl.numbers && (ln.number >= 0)) && (gutter > 0.0)) {
                 def nt2:string (to_string ln.number)
                 def nw:double (this.measureRun(nt2 probe))
                 def nb:MdBox (MdBox.text(nt2 ((x + style.codePadding) + ((gutter - style.codePadding) - nw)) ty nw lh))
                 nb.family = style.monoFamily
                 nb.size = style.codeSize
-                nb.color = numInk
+                nb.color = (this.codeInk(numInk))
                 ; a gutter number is drawn dim on purpose and read with its
                 ; line: not the text a contrast check is for
                 nb.quiet = true
@@ -5976,6 +5983,7 @@ class MdLayout {
                     if (ln.kind == 2) {
                         mb.color = delInk
                     }
+                    mb.color = (this.codeInk(mb.color))
                     this.emit(mb)
                 }
                 lx = (lx + markCol)
@@ -5995,7 +6003,17 @@ class MdLayout {
             ty = (ty + lineH)
             i = (i + 1)
         }
+        codeDim = false
         cursorY = ((y + boxH) + style.paraSpacing)
+    }
+
+    ; a code line's ink: as given, or faded toward the block's background on
+    ; a line outside the marks (codeDim)
+    fn codeInk:string (color:string) {
+        if codeDim {
+            return (MdLayout.tint(color style.codeBackground 0.62))
+        }
+        return color
     }
 
     ; Where a code line's rows begin when it is wider than the block
@@ -6044,7 +6062,8 @@ class MdLayout {
             def b:MdBox (MdBox.text((substring text (itemAt rws r) (itemAt rws (r + 1))) rx (ty + (lh * (to_double r))) (rowW - (rx - lx)) lh))
             b.family = style.monoFamily
             b.size = style.codeSize
-            b.color = color
+            b.color = (this.codeInk(color))
+            b.quiet = codeDim
             b.bold = bold
             this.emit(b)
             r = (r + 1)
@@ -6156,7 +6175,8 @@ class MdLayout {
             def b:MdBox (MdBox.text(core cx y wid lh))
             b.family = style.monoFamily
             b.size = style.codeSize
-            b.color = (style.codeColor(kind))
+            b.color = (this.codeInk((style.codeColor(kind))))
+            b.quiet = codeDim
             this.emit(b)
             cx = (cx + wid)
         }
