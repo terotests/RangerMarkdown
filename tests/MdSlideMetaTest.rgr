@@ -192,6 +192,8 @@ class MetaCheck {
         this.ok("clearing them is a change" (lv.setLive("" "")))
         this.eqStr("…and the deck's is back" (lv.dataValue(1 "owner")) "Tero")
         this.ok("a deck without front matter has no data" (((this.laid("## A\n\nB\n")).deckMeta.count()) == 0))
+        ; the host's (Sliqtly: whether the slides' text can be selected)
+        this.ok("select-text is the host's, not the deck's data" (((this.laid("---\nselect-text: off\n---\n\n## A\n\nB\n")).deckMeta.has("select-text")) == false))
 
         print ("  " + (to_string passed) + " passed, " + (to_string failed) + " failed")
         if (failed > 0) {

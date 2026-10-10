@@ -208,7 +208,7 @@ class MdSlideMeta {
     ; it has none.
 
     sfn frontMatterKeys:[string] () {
-        return ([] _:string ("art" "art-seed" "book-start" "breakonh1" "chart-style" "diagram-style" "footer" "fx" "header" "highlight" "hold" "lang" "margin" "margin-bottom" "margin-inside" "margin-outside" "margin-top" "mode" "orientation" "page" "pagenumbers" "render" "runninghead" "seconds" "slide-grow" "slide-overflow" "slide-split-level" "step" "style" "theme" "title" "toc" "transition" "typographer" "valign"))
+        return ([] _:string ("art" "art-seed" "book-start" "breakonh1" "chart-style" "diagram-style" "footer" "fx" "header" "highlight" "hold" "lang" "margin" "margin-bottom" "margin-inside" "margin-outside" "margin-top" "mode" "orientation" "page" "pagenumbers" "render" "runninghead" "seconds" "select-text" "slide-grow" "slide-overflow" "slide-split-level" "step" "style" "theme" "title" "toc" "transition" "typographer" "valign"))
     }
 
     sfn isFrontMatterKey:boolean (k0:string) {
