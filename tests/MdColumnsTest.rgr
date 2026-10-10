@@ -282,6 +282,19 @@ class MdColumnsTest {
         c.eqInt("…its source from its first block" box.srcStart first.srcStart)
         def bare:MdNode (MdBlock.parseText("::: col\nA\n:::\n::: col\nB\n:::\n\nAfter\n"))
         c.eqStr("side-by-side ::: col blocks are a row" (MdColumnsTest.kids(bare)) "container:columns paragraph")
+        ; `::: columns` round `::: col` blocks with as many colons: the first
+        ; `:::` closes the outer one (as markdown-it), and the last is left
+        ; over as text, which strayFences finds for a note to the writer
+        def same:string "::: columns\n::: col A\nx\n:::\n::: col B\ny\n:::\n:::\n"
+        def sf:[int] (MdContainer.strayFences((MdBlock.parseText(same)) same))
+        c.eqInt("a ::: that closes nothing is found" (array_length sf) 1)
+        if ((array_length sf) == 1) {
+            c.eqInt("…at its line" (itemAt sf 0) ((strlen same) - 4))
+        }
+        def four:string ":::: columns\n::: col A\nx\n:::\n::: col B\ny\n:::\n::::\n"
+        c.eqInt("…none with more colons outside" (array_length (MdContainer.strayFences((MdBlock.parseText(four)) four))) 0)
+        def code:string "```\n:::\n```\n\nText\n"
+        c.eqInt("…nor in code" (array_length (MdContainer.strayFences((MdBlock.parseText(code)) code))) 0)
         def plain:MdNode (MdBlock.parseText("## T\n\nA\n"))
         c.eqStr("a heading without a layout is left alone" (MdColumnsTest.kids(plain)) "heading paragraph")
     }
