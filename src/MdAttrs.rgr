@@ -35,6 +35,11 @@
 ; attribute}` is a paragraph, `{}` is a paragraph, `{.a b}` is a paragraph —
 ; EVERY token must be a class, an id or a key=value pair, and there must be at
 ; least one. A line that is nearly an attribute block is text.
+;
+; A heading's own `{…}` is read more forgivingly (`headingAttrs`): a group
+; that starts like attributes never stays in the title, the parts that read
+; are applied, and each part that does not is a note on the node
+; (`MdNode.attrNotes`) for the writer to see.
 ; ============================================================================
 
 Import "MdNode.rgr"
@@ -100,31 +105,130 @@ class MdAttrs {
         if ((b - a) < 3) { return -1 }
         if ((charAt text a) != 123) { return -1 }
         if ((charAt text (b - 1)) != 125) { return -1 }
-        ; A second `}` inside would mean this is not one block but two things
-        ; with text between them, which is a paragraph.
-        def scan:int (a + 1)
-        while (scan < (b - 1)) {
-            def sc:int (charAt text scan)
-            if (sc == 125) { return -1 }
-            if (sc == 123) { return -1 }
-            scan = (scan + 1)
-        }
+        ; The `}` that closes it has to be the last character. One earlier
+        ; would mean this is not one block but two things with text between
+        ; them, which is a paragraph. A brace inside a quoted value is the
+        ; value's: `{title="a {b}"}` is one block.
+        if ((MdAttrs.closeAt(text a b)) != (b - 1)) { return -1 }
+        def none:[string]
+        return (MdAttrs.tokens(n text (a + 1) (b - 1) write false none))
+    }
 
-        def i:int (a + 1)
-        def stop:int (b - 1)
+    ; The tokens between a group's braces, from `i` to `stop`. Strict (`loose`
+    ; false): the count, or -1 at the first that is not a token, having
+    ; written nothing. Loose — a heading's, where the group has already been
+    ; recognised as attributes — writes the good tokens, skips a bad one and
+    ; says why in `notes`, and the count is of the good ones.
+    sfn tokens:int (n:MdNode text:string i0:int stop:int write:boolean loose:boolean notes:[string]) {
+        def i:int i0
+        ; kramdown writes the same block `{: .lead}`
+        if ((i < stop) && ((charAt text i) == 58)) {
+            def after:int (i + 1)
+            if (after >= stop) {
+                i = after
+            } {
+                def ac:int (charAt text after)
+                if ((MdAttrs.isSpaceCode(ac)) || ((ac == 46) || (ac == 35))) {
+                    i = after
+                }
+            }
+        }
+        if ((loose == false) && write) {
+            ; all or nothing: check first, then write
+            if ((MdAttrs.tokens(n text i stop false false notes)) < 0) { return -1 }
+        }
         def found:int 0
+        ; the last good token, when it was a bare key=value: a word after it
+        ; is most likely the rest of its value
+        def bareFrom:int -1
+        def bareTo:int -1
         while (i < stop) {
             if (MdAttrs.isSpaceCode((charAt text i))) {
                 i = (i + 1)
             } {
                 def taken:int (MdAttrs.token(n text i stop write))
-                if (taken < 0) { return -1 }
-                i = taken
-                found = (found + 1)
+                if (taken < 0) {
+                    if (loose == false) { return -1 }
+                    def skip:int (MdAttrs.badEnd(text i stop))
+                    def frag:string (substring text i skip)
+                    if ((bareFrom >= 0) && ((indexOf frag "=") < 0)) {
+                        def pair:string (substring text bareFrom bareTo)
+                        def eq:int (indexOf pair "=")
+                        def key:string (trim (substring pair 0 eq))
+                        def val:string (trim (substring pair (eq + 1) (strlen pair)))
+                        push notes ("\"" + frag + "\" is not a .class, an #id or key=value. If it is part of " + key + ", quote the value: " + key + "=\"" + val + " " + frag + "\"")
+                        bareTo = skip
+                    } {
+                        push notes (MdAttrs.whyNot(frag))
+                        bareFrom = -1
+                    }
+                    i = skip
+                } {
+                    bareFrom = -1
+                    if (MdAttrs.isBarePair(text i taken)) {
+                        bareFrom = i
+                        bareTo = taken
+                    }
+                    i = taken
+                    found = (found + 1)
+                }
             }
         }
-        if (found == 0) { return -1 }
+        if ((found == 0) && (loose == false)) { return -1 }
         return found
+    }
+
+    ; Is the token from `i` to `e` a key with an unquoted value?
+    sfn isBarePair:boolean (text:string i:int e:int) {
+        def t:string (substring text i e)
+        def eq:int (indexOf t "=")
+        if (eq <= 0) { return false }
+        def v:string (trim (substring t (eq + 1) (strlen t)))
+        if ((strlen v) == 0) { return false }
+        def q:int (charAt v 0)
+        return ((q != 34) && (q != 39))
+    }
+
+    ; Where a token that could not be read ends: at the next space, or past a
+    ; quoted value that has spaces in it.
+    sfn badEnd:int (text:string i:int stop:int) {
+        def e:int i
+        def q:int 0
+        while (e < stop) {
+            def c:int (charAt text e)
+            if (q != 0) {
+                if (c == 92) {
+                    e = (e + 1)
+                } {
+                    if (c == q) { q = 0 }
+                }
+            } {
+                if (MdAttrs.isSpaceCode(c)) { return e }
+                if ((c == 34) || (c == 39)) {
+                    if (MdAttrs.afterEquals(text i e)) { q = c }
+                }
+            }
+            e = (e + 1)
+        }
+        if (e > stop) { return stop }
+        return e
+    }
+
+    ; What to tell the writer about a token that was left out.
+    sfn whyNot:string (frag:string) {
+        def eq:int (indexOf frag "=")
+        if (eq > 0) {
+            def v:string (trim (substring frag (eq + 1) (strlen frag)))
+            if ((strlen v) == 0) {
+                return ("\"" + frag + "\" has no value; write " + frag + "something, or quote an empty one: " + frag + "\"\"")
+            }
+            def q:int (charAt v 0)
+            if ((q == 34) || (q == 39)) {
+                return ("the quote in \"" + frag + "\" is never closed")
+            }
+            return ("\"" + frag + "\" could not be read; a key is letters, digits, - _ : and . — put a value with spaces in quotes")
+        }
+        return ("\"" + frag + "\" is not a .class, an #id or key=value; a value with spaces goes in quotes: key=\"two words\"")
     }
 
     ; One token, from `i`. Returns where it ended, or -1 when it is not one.
@@ -133,6 +237,7 @@ class MdAttrs {
         if (c == 46) {
             def e:int (MdAttrs.name(text (i + 1) stop))
             if (e < 0) { return -1 }
+            if (! (MdAttrs.endsToken(text e stop))) { return -1 }
             if write {
                 n.addClass((substring text (i + 1) e))
             }
@@ -141,48 +246,87 @@ class MdAttrs {
         if (c == 35) {
             def e2:int (MdAttrs.name(text (i + 1) stop))
             if (e2 < 0) { return -1 }
+            if (! (MdAttrs.endsToken(text e2 stop))) { return -1 }
             if write {
                 n.nodeId = (substring text (i + 1) e2)
             }
             return e2
         }
-        ; key=value, quoted or bare
+        ; key=value, quoted or bare; `key = value` is the same
         def k:int (MdAttrs.name(text i stop))
         if (k < 0) { return -1 }
-        if (k >= stop) { return -1 }
-        if ((charAt text k) != 61) { return -1 }
         def key:string (substring text i k)
-        def v:int (k + 1)
+        def eqAt:int (MdAttrs.skipSpace(text k stop))
+        if (eqAt >= stop) { return -1 }
+        if ((charAt text eqAt) != 61) { return -1 }
+        def v:int (MdAttrs.skipSpace(text (eqAt + 1) stop))
         if (v >= stop) { return -1 }
         def q:int (charAt text v)
         if ((q == 34) || (q == 39)) {
+            ; `\"` inside is a quote, `\\` a backslash
+            def parts:[string]
+            def from:int (v + 1)
             def e3:int (v + 1)
             while (e3 < stop) {
-                if ((charAt text e3) == q) {
-                    if write {
-                        n.setAttr(key (substring text (v + 1) e3))
+                def ec:int (charAt text e3)
+                if ((ec == 92) && ((e3 + 1) < stop)) {
+                    def nx:int (charAt text (e3 + 1))
+                    if ((nx == q) || (nx == 92)) {
+                        push parts (substring text from e3)
+                        from = (e3 + 1)
+                        e3 = (e3 + 1)
                     }
-                    return (e3 + 1)
+                } {
+                    if (ec == q) {
+                        def after:int (e3 + 1)
+                        def ends:boolean (MdAttrs.endsToken(text after stop))
+                        if (ends == false) { return -1 }
+                        if write {
+                            push parts (substring text from e3)
+                            n.setAttr(key (join parts ""))
+                        }
+                        return (e3 + 1)
+                    }
                 }
                 e3 = (e3 + 1)
             }
             return -1
         }
+        ; A bare value is everything to the next space: a path or a share
+        ; (`bg=media/kansi.jpg`, `width=60%`), a code block's `lines=3-5,8|10`,
+        ; a colour (`background=#fff8`, `rgba(0,0,0,.5)`), a name with
+        ; letters ASCII does not have (`owner=Väinö`).
         def e4:int v
         while (e4 < stop) {
             def vc:int (charAt text e4)
             if (MdAttrs.isSpaceCode(vc)) { break }
-            ; a bare VALUE may also be a path or a share — `bg=media/kansi.jpg`,
-            ; `width=60%` — which are what people type without quotes
-            ; and a code block's `lines=3-5,8|10`, and a colour, `background=#fff8`
-            if (! ((MdAttrs.isNameCode(vc)) || ((vc == 47) || ((vc == 37) || ((vc == 44) || ((vc == 124) || (vc == 35))))))) { return -1 }
+            if ((vc == 123) || (vc == 125)) { return -1 }
             e4 = (e4 + 1)
         }
-        if (e4 == v) { return -1 }
+        def ve:int e4
+        ; `{a=1, b=2}`: the comma between pairs is not the value's
+        if (((ve - v) > 1) && ((charAt text (ve - 1)) == 44)) {
+            ve = (ve - 1)
+        }
         if write {
-            n.setAttr(key (substring text v e4))
+            n.setAttr(key (substring text v ve))
         }
         return e4
+    }
+
+    ; A token ends at a space or at the end; `.a.b` or `#x"y` is not one.
+    sfn endsToken:boolean (text:string e:int stop:int) {
+        if (e >= stop) { return true }
+        return (MdAttrs.isSpaceCode((charAt text e)))
+    }
+
+    sfn skipSpace:int (text:string i:int stop:int) {
+        def e:int i
+        while (e < stop) {
+            if (! (MdAttrs.isSpaceCode((charAt text e)))) { break }
+            e = (e + 1)
+        }
+        return e
     }
 
     ; The end of a name starting at `i`, or -1 when there is not one there.
@@ -196,22 +340,81 @@ class MdAttrs {
         return e
     }
 
+    ; Is the quote at `at` a value's opening quote — after `=`, spaces
+    ; allowed — rather than an apostrophe in a bare value (`it's`)?
+    sfn afterEquals:boolean (text:string from:int at:int) {
+        def k:int (at - 1)
+        while (k >= from) {
+            def c:int (charAt text k)
+            if (! (MdAttrs.isSpaceCode(c))) {
+                return (c == 61)
+            }
+            k = (k - 1)
+        }
+        return false
+    }
+
+    ; Where the group opened by the `{` at `open` closes: the first `}` that is
+    ; not inside a quoted value. -1 when nothing closes it before `stop`, -2
+    ; when another `{` opens first.
+    sfn closeAt:int (text:string open:int stop:int) {
+        def i:int (open + 1)
+        def q:int 0
+        while (i < stop) {
+            def c:int (charAt text i)
+            if (q != 0) {
+                if (c == 92) {
+                    i = (i + 1)
+                } {
+                    if (c == q) { q = 0 }
+                }
+            } {
+                if (c == 125) { return i }
+                if (c == 123) { return -2 }
+                if ((c == 34) || (c == 39)) {
+                    if (MdAttrs.afterEquals(text (open + 1) i)) { q = c }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; `\{` is a brace the writer wanted drawn.
+    sfn escapedAt:boolean (text:string i:int) {
+        if (i <= 0) { return false }
+        return ((charAt text (i - 1)) == 92)
+    }
+
+    ; The `{` of the group that closes exactly at `close`, or -1: the first
+    ; one from the left that does, so a `{` inside a quoted value
+    ; (`{title="a { b"}`) is the value's and not the group's start.
+    sfn openOf:int (text:string close:int) {
+        def j:int 0
+        while (j < close) {
+            if (((charAt text j) == 123) && (! (MdAttrs.escapedAt(text j)))) {
+                def stopAt:int (close + 1)
+                if ((MdAttrs.closeAt(text j stopAt)) == close) { return j }
+            }
+            j = (j + 1)
+        }
+        return -1
+    }
+
     ; ----------------------------------------------------------------------
     ; …and the one on the end of a heading
     ; ----------------------------------------------------------------------
     ;
     ; `## Revenue {.section-title}` — the block is the tail of the line, with
     ; whitespace before it. Returns where it starts, or -1. The caller trims
-    ; `literal` there, so the heading's own text is what is drawn.
+    ; `literal` there, so the heading's own text is what is drawn. This is
+    ; the strict reading a code block's info string and a gallery cell use;
+    ; a heading has `headingAttrs`, below.
     sfn trailingAt:int (text:string) {
         def n:int (strlen text)
         if (n < 4) { return -1 }
         if ((charAt text (n - 1)) != 125) { return -1 }
-        def i:int (n - 1)
-        while (i > 0) {
-            if ((charAt text i) == 123) { break }
-            i = (i - 1)
-        }
+        def i:int (MdAttrs.openOf(text (n - 1)))
         if (i <= 0) { return -1 }
         if (! (MdAttrs.isSpaceCode((charAt text (i - 1))))) { return -1 }
         if (! (MdAttrs.isBlock((substring text i n)))) { return -1 }
@@ -225,6 +428,135 @@ class MdAttrs {
         }
         if (head == 0) { return -1 }
         return i
+    }
+
+    ; Does the group from `i` to `stop` read as attributes, by its first
+    ; token? `.name`, `#name` (a letter first: `{#1 seller}` is words) or
+    ; `key=`. `{in €}`, `{a, b}` and `{beta}` are words in braces.
+    sfn attrLike:boolean (text:string i0:int stop:int) {
+        def i:int (MdAttrs.skipSpace(text i0 stop))
+        if ((i < stop) && ((charAt text i) == 58)) {
+            i = (MdAttrs.skipSpace(text (i + 1) stop))
+        }
+        if (i >= stop) { return false }
+        def c:int (charAt text i)
+        if ((c == 46) || (c == 35)) {
+            if ((i + 1) >= stop) { return false }
+            def f:int (charAt text (i + 1))
+            if ((f >= 97) && (f <= 122)) { return true }
+            if ((f >= 65) && (f <= 90)) { return true }
+            return ((f == 95) || (f == 45))
+        }
+        def k:int (MdAttrs.name(text i stop))
+        if (k < 0) { return false }
+        def eqAt:int (MdAttrs.skipSpace(text k stop))
+        if (eqAt >= stop) { return false }
+        return ((charAt text eqAt) == 61)
+    }
+
+    ; The attributes closing a heading's text, as forgiving as the title is
+    ; worth: the title is what the audience sees, so a group that is plainly
+    ; attributes never stays in it. Returns where the attributes start (the
+    ; caller cuts the text there), or -1 when the heading has none.
+    ;
+    ;   ## Revenue {.a #b key=v}            one group
+    ;   ## Revenue {transition=fade} {.a}   several, all read
+    ;   ## Revenue{.a}                      no space before it
+    ;   ## Revenue {title="a {b}"}          braces inside quotes are the value's
+    ;   ## Revenue {.a b}                   .a read, `b` left out and said so
+    ;   ## Revenue {transition=fade         no `}`: read, and said so
+    ;   ## Price {in €} today               words in braces, the title's
+    ;
+    ; Every token that could not be read is a line in `notes`; the good ones
+    ; are written onto `n`.
+    sfn headingAttrs:int (n:MdNode text:string notes:[string]) {
+        def b:int (strlen text)
+        while (b > 0) {
+            if (! (MdAttrs.isSpaceCode((charAt text (b - 1))))) { break }
+            b = (b - 1)
+        }
+        if (b < 3) { return -1 }
+        def cut:int -1
+        def end:int b
+        ; closed groups, from the right
+        while (end > 0) {
+            if ((charAt text (end - 1)) != 125) { break }
+            def open:int (MdAttrs.openOf(text (end - 1)))
+            if (open < 0) { break }
+            def inner:int (open + 1)
+            def last:int (end - 1)
+            def like:boolean (MdAttrs.attrLike(text inner last))
+            if (like == false) { break }
+            cut = open
+            end = open
+            while (end > 0) {
+                if (! (MdAttrs.isSpaceCode((charAt text (end - 1))))) { break }
+                end = (end - 1)
+            }
+        }
+        ; …or one never closed, at the very end: `{transition=fade`
+        def openEnd:boolean false
+        if (cut < 0) {
+            def j:int (b - 1)
+            while (j >= 0) {
+                if (((charAt text j) == 123) && (! (MdAttrs.escapedAt(text j)))) {
+                    if (((MdAttrs.closeAt(text j b)) == -1) && (MdAttrs.attrLike(text (j + 1) b))) {
+                        cut = j
+                        end = j
+                        openEnd = true
+                        while (end > 0) {
+                            if (! (MdAttrs.isSpaceCode((charAt text (end - 1))))) { break }
+                            end = (end - 1)
+                        }
+                    }
+                    j = -1
+                }
+                j = (j - 1)
+            }
+        }
+        if (cut < 0) { return -1 }
+        ; `# {.a}` — nothing before it — is a heading with that text in it
+        if (end == 0) { return -1 }
+        if openEnd {
+            def body:string (substring text cut b)
+            def had:int (array_length notes)
+            MdAttrs.tokens(n text (cut + 1) b true true notes)
+            ; a `}` inside a quote that never closed has its own note
+            if (((array_length notes) == had) || ((charAt text (b - 1)) != 125)) {
+                push notes ("\"" + body + "\" has no closing }; it was read as attributes")
+            }
+            return cut
+        }
+        def g:int cut
+        while (g < b) {
+            if ((charAt text g) == 123) {
+                def close:int (MdAttrs.closeAt(text g b))
+                MdAttrs.tokens(n text (g + 1) close true true notes)
+                g = (close + 1)
+            } {
+                g = (g + 1)
+            }
+        }
+        return cut
+    }
+
+    ; The headings anywhere in `doc` whose `{…}` had something that could not
+    ; be read (MdNode.attrNotes), in document order, for a note to the writer.
+    sfn notedHeadings:[MdNode] (doc:MdNode) {
+        def out:[MdNode]
+        MdAttrs.collectNoted(doc out)
+        return out
+    }
+
+    sfn collectNoted:void (node:MdNode out:[MdNode]) {
+        if ((node.kind == "heading") && ((array_length node.attrNotes) > 0)) {
+            push out node
+        }
+        def i:int 0
+        while (i < (node.childCount())) {
+            MdAttrs.collectNoted((node.childAt(i)) out)
+            i = (i + 1)
+        }
     }
 
     ; `{heading=hidden}` (or `none` / `off`) on a heading: it names its
