@@ -1093,6 +1093,8 @@ class MdLayout {
                 if (gd >= 1.0) { slideGrow = gd }
             }
         }
+        ; a heading's `layout=` holds its slide only, not the slides after it
+        MdColumns.endAtSlides(doc splitLevel)
     }
 
     ; Sheets of a stated size, with the breaks decided here. What is printed.
@@ -2318,6 +2320,8 @@ class MdLayout {
 
     fn bodyPass:void (doc:MdNode mode:int) {
         floatOn = false
+        cornerOn = false
+        openPad = 0.0
         ; a full-page gallery ending the last layout must not break this one
         fullPageDone = false
         def placed:boolean (mode == 0)
@@ -2433,10 +2437,25 @@ class MdLayout {
     def floatBottom:double 0.0
     def floatX:double 0.0
     def floatW:double 0.0
+    ; A picture pinned in a BOTTOM corner (pinPicture): the slide it is on,
+    ; the top of the room it keeps (its top less a gap), its left and right
+    ; edge, and the column beside it. A block after it that would reach down
+    ; into that room is set in the column beside it instead (placeBlock).
+    def cornerOn:boolean false
+    def cornerPage:int 0
+    def cornerTop:double 0.0
+    def cornerLeft:double 0.0
+    def cornerRight:double 0.0
+    def cornerX:double 0.0
+    def cornerW:double 0.0
     ; The slide so far holds its title and nothing else.
     def slideTitleOnly:boolean false
     ; inside a `{container=…}` plate: a block in it does not get one of its own
     def containerDepth:int 0
+    ; the padding at the top of the plates and quotes the cursor is inside,
+    ; added under the title said again when one of them runs onto the next
+    ; slide (emitSlideTitle): their text starts inside them there too
+    def openPad:double 0.0
     ; the room over and under the text of the last block put on a plate
     ; (its padding and a bubble's tail), and that block's source offset:
     ; `fitSlideTitle` sets the text smaller, which makes no padding smaller
@@ -2557,14 +2576,28 @@ class MdLayout {
                 this.endFloat()
             }
         } {
-            if cached {
-                this.blockCached(child docSource contentX contentW)
+            if (this.besideCorner(doc i)) {
+                this.block(child cornerX cornerW)
             } {
-                this.block(child contentX contentW)
+                if cached {
+                    this.blockCached(child docSource contentX contentW)
+                } {
+                    this.block(child contentX contentW)
+                }
+                this.startFloat(doc i fromBox)
             }
-            this.startFloat(doc i fromBox)
         }
         followH = 0.0
+    }
+
+    ; Whether block `i` goes beside the picture pinned in a bottom corner of
+    ; its slide: text that, set across, would reach down into its room.
+    fn besideCorner:boolean (doc:MdNode i:int) {
+        if (! (slides && (paginate && cornerOn))) { return false }
+        if (page != cornerPage) { return false }
+        if (! (MdLayout.besideable((doc.childAt(i)) splitLevel))) { return false }
+        def h:double (this.measureUpTo(doc i 0 i))
+        return ((cursorY + h) > cornerTop)
     }
 
     sfn besideable:boolean (node:MdNode splitLevel:int) {
@@ -2713,6 +2746,11 @@ class MdLayout {
     ; Nothing it laid out is left behind: boxes, headings, the slide count and
     ; what a full-page gallery noted for the slides it would have opened.
     fn measureBlocks:double (doc:MdNode from:int level:int) {
+        return this.measureUpTo(doc from level -1)
+    }
+
+    ; …and stopping after block `last` when it is not -1
+    fn measureUpTo:double (doc:MdNode from:int level:int last:int) {
         def n:int (doc.childCount())
         if (from >= n) { return 0.0 }
         def savedBoxes:int (array_length boxes)
@@ -2736,6 +2774,7 @@ class MdLayout {
         while (going && (j < n)) {
             this.block((doc.childAt(j)) contentX contentW)
             going = (MdLayout.bodyFollows(doc j splitLevel))
+            if (j == last) { going = false }
             if (going && (level > 0) && ((j + 1) < n)) {
                 def next:MdNode (doc.childAt((j + 1)))
                 if ((next.kind == "heading") && (next.level <= level)) {
@@ -2819,6 +2858,7 @@ class MdLayout {
             this.scaleStyle(saved sc)
             page = startPage
             pageCount = (page + 1)
+            this.forgetPagesAfter(page)
             slideOverflows = savedOverflows
             cursorY = contentTop
             this.block(child contentX contentW)
@@ -2969,6 +3009,7 @@ class MdLayout {
             }
             this.emitRepeatedHeading(sectionTitle sectionLevel)
         }
+        cursorY = (cursorY + openPad)
     }
 
     ; Wrapped to the content width and fitted as `heading` fits it: a title
@@ -3093,6 +3134,35 @@ class MdLayout {
 
     ; Slide `p` went (shrunk into the one before it): its record goes and
     ; every later slide's moves up one.
+    ; A layout taken back to page `p` (a block tried on the next slide and
+    ; laid out again where it was): the slides after it it had opened are
+    ; gone, and so are their notes. A note left behind made the next slide
+    ; that came to have that number a continuation, its title said again
+    ; over that slide's own (resumeContinuation).
+    fn forgetPagesAfter:void (p:int) {
+        def keepP:[int]
+        def keepT:[string]
+        def keepTL:[int]
+        def keepS:[string]
+        def keepSL:[int]
+        def i:int 0
+        while (i < (array_length contPage)) {
+            if ((itemAt contPage i) <= p) {
+                push keepP (itemAt contPage i)
+                push keepT (itemAt contTitle i)
+                push keepTL (itemAt contTitleLevel i)
+                push keepS (itemAt contSection i)
+                push keepSL (itemAt contSectionLevel i)
+            }
+            i = (i + 1)
+        }
+        contPage = keepP
+        contTitle = keepT
+        contTitleLevel = keepTL
+        contSection = keepS
+        contSectionLevel = keepSL
+    }
+
     fn dropContinuation:void (p:int) {
         def keepP:[int]
         def keepT:[string]
@@ -3287,12 +3357,12 @@ class MdLayout {
                     ; a later column running onto the slide an earlier one
                     ; already ran onto: under the title said there, once
                     if ((columnsOn > 0) && (page == colSpillPage)) {
-                        cursorY = colSpillTop
+                        cursorY = (colSpillTop + openPad)
                     } {
                         this.emitSlideTitle()
                         if (columnsOn > 0) {
                             colSpillPage = page
-                            colSpillTop = cursorY
+                            colSpillTop = (cursorY - openPad)
                         }
                     }
                 }
@@ -4202,7 +4272,9 @@ class MdLayout {
         plateRoomSrc = node.srcStart
         cursorY = (cursorY + p.padY)
         containerDepth = (containerDepth + 1)
+        openPad = (openPad + p.padY)
         this.blockInner(node (x + p.padX) (w - (p.padX * 2.0)))
+        openPad = (openPad - p.padY)
         containerDepth = (containerDepth - 1)
         style.textColor = savedInk
         plateFill = savedPlate
@@ -4558,6 +4630,7 @@ class MdLayout {
             this.truncate(from)
             page = startPage
             pageCount = (page + 1)
+            this.forgetPagesAfter(page)
             slideOverflows = overflows
             cursorY = contentTop
             this.nextSlide()
@@ -4571,6 +4644,7 @@ class MdLayout {
                 this.truncate(from)
                 page = startPage
                 pageCount = (page + 1)
+                this.forgetPagesAfter(page)
                 slideOverflows = overflows
                 cursorY = top
                 this.columnsPass(node plan x w top)
@@ -4808,6 +4882,7 @@ class MdLayout {
         if (! any) { return }
         def foot:double (contentBottom - (this.noteRoomOn(p)))
         def d:double (MdSlideLayout.shift(w top bottom contentTop foot))
+        d = (this.clearOfCorners(p w title d))
         if (d < 0.5) { return }
         def k:int 0
         while (k < (array_length boxes)) {
@@ -4821,6 +4896,35 @@ class MdLayout {
         }
     }
 
+    ; How far the blocks of page `p` may move down (`d` asked) and stay
+    ; above a picture pinned in a bottom corner, beside which they were not
+    ; set: a centred slide does not push its text into the picture.
+    fn clearOfCorners:double (p:int w:string title:int d0:double) {
+        def d:double d0
+        def whole:boolean (MdSlideLayout.whole(w))
+        def i:int 0
+        while (i < (array_length boxes)) {
+            def pic:MdBox (itemAt boxes i)
+            if (((pic.page == p) && pic.pinned) && ((pic.y > (contentTop + 0.5)) && (pic.kind == 4))) {
+                def gap:double (style.bodySize * 0.6)
+                def k:int 0
+                while (k < (array_length boxes)) {
+                    def b:MdBox (itemAt boxes k)
+                    if ((this.movable(b p)) && (whole || (b.srcStart != title))) {
+                        if (((b.x + b.w) > pic.x) && (b.x < (pic.x + pic.w))) {
+                            def room:double ((pic.y - gap) - (b.y + b.h))
+                            if (room < d) { d = room }
+                        }
+                    }
+                    k = (k + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if (d < 0.0) { return 0.0 }
+        return d
+    }
+
     ; ----------------------------------------------------------------------
     ; A picture in a corner of the slide (`{float=top-right width=8%}`)
     ; ----------------------------------------------------------------------
@@ -4830,20 +4934,36 @@ class MdLayout {
     ; slide's title is set narrower (`cornerInset`) and the text after it
     ; beside it, down to its foot, as beside any narrow picture (FLOAT).
     fn pinPicture:void (node:MdNode corner:string path:string img:MdNode st:VfsStat) {
+        def wAttr:string (trim (node.attrValue("width")))
+        def hAttr:string (trim (node.attrValue("height")))
+        def full:double (contentBottom - contentTop)
         def fw:double ((MdSlideLayout.topCornerShare(node)) * contentW)
         if ((indexOf corner "bottom") == 0) {
-            def v:string (trim (node.attrValue("width")))
-            fw = (MdEmbedKinds.widthOf(v contentW))
-            if ((strlen v) == 0) { fw = (contentW * 0.12) }
+            fw = (MdEmbedKinds.widthOf(wAttr contentW))
+            if ((strlen wAttr) == 0) { fw = (contentW * 0.12) }
         }
         def fh:double (fw * 0.5)
         if ((st.pixelW > 0) && (st.pixelH > 0)) {
             fh = (fw * ((to_double st.pixelH) / (to_double st.pixelW)))
         }
-        def most:double ((contentBottom - contentTop) * 0.3)
+        ; A picture that says no size takes a corner's worth: at most 30%
+        ; of the height. One that says `width=` is that wide, and `height=`
+        ; (of the content height, as under any picture) is as high as it
+        ; may be; neither is held to the corner's worth.
+        def most:double (full * 0.3)
+        if (((strlen wAttr) > 0) || ((strlen hAttr) > 0)) { most = full }
+        if ((strlen hAttr) > 0) { most = (MdEmbedKinds.widthOf(hAttr full)) }
         if (fh > most) {
             fw = (fw * (most / fh))
             fh = most
+        }
+        ; a bottom corner's `height=` without a `width=`: that high, as wide
+        ; as that makes it (a top corner's width is the title's inset)
+        if ((((indexOf corner "bottom") == 0) && ((strlen hAttr) > 0)) && (((strlen wAttr) == 0) && (fh > 0.0))) {
+            def k:double (most / fh)
+            if ((fw * k) > contentW) { k = (contentW / fw) }
+            fw = (fw * k)
+            fh = (fh * k)
         }
         def px:double contentX
         if ((indexOf corner "right") > 0) {
@@ -4865,9 +4985,23 @@ class MdLayout {
         b.imageNaturalH = st.pixelH
         b.pinned = true
         this.emit(b)
+        def gap:double (style.bodySize * 1.2)
+        ; in a bottom corner: the text after it that would reach down to it
+        ; goes beside it (besideCorner)
+        if ((indexOf corner "bottom") == 0) {
+            cornerOn = true
+            cornerPage = page
+            cornerTop = (py - (gap * 0.5))
+            cornerLeft = px
+            cornerRight = (px + fw)
+            cornerW = ((contentW - fw) - gap)
+            cornerX = contentX
+            if ((indexOf corner "left") > 0) {
+                cornerX = ((contentX + fw) + gap)
+            }
+        }
         ; the text after it, beside it while it is above its foot
         if (((indexOf corner "top") == 0) && (cursorY < (py + fh))) {
-            def gap:double (style.bodySize * 1.2)
             floatOn = true
             floatPage = page
             floatBottom = (py + fh)
@@ -6196,12 +6330,14 @@ class MdLayout {
         def before:int (array_length boxes)
         cursorY = (cursorY + pad)
         quoteDepth = (quoteDepth + 1)
+        openPad = (openPad + pad)
         ; A quote is a block with paragraphs in it wherever it stands, even
         ; inside a tight list item.
         def wasTight:boolean inTightItem
         inTightItem = false
         this.blocks(node innerX innerW)
         inTightItem = wasTight
+        openPad = (openPad - pad)
         quoteDepth = (quoteDepth - 1)
         ; Where the CONTENT ended, which is not where the cursor is: `blocks`
         ; leaves the cursor past the last child's own trailing space, and that
@@ -6209,29 +6345,40 @@ class MdLayout {
         ; just emitted works whatever the last child turned out to be — a
         ; paragraph, a list, a table, a nested quote, a drawing — where
         ; subtracting a paragraph's spacing would only work for a paragraph.
+        ; (on a sheet after the one it began on, from that sheet's top: `top`
+        ; is a place on the first one)
+        ; On a sheet after the one it began on, its part there begins at its
+        ; first box (under the title said again, `retold`), not at the top.
         def inkBottom:double (top + pad)
+        def partTop:double top
+        if (page != startPage) {
+            inkBottom = contentTop
+            partTop = contentBottom
+        }
         def i:int before
         def n:int (array_length boxes)
         while (i < n) {
             def b:MdBox (itemAt boxes i)
             ; On this sheet only. A quote that crossed a break has boxes whose
             ; y is measured from the top of another page.
-            if (b.page == page) {
+            if ((b.page == page) && (b.retold == false)) {
                 def edge:double (b.y + b.h)
                 if (edge > inkBottom) {
                     inkBottom = edge
                 }
+                if ((page != startPage) && ((b.y - pad) < partTop)) {
+                    partTop = (b.y - pad)
+                }
             }
             i = (i + 1)
         }
+        if (partTop < contentTop) { partTop = contentTop }
+        if (partTop > inkBottom) { partTop = inkBottom }
         def bottom:double (inkBottom + pad)
         ; `blockquote { background-color }`: a band under the quote on its
         ; last page, put before its boxes so it is painted first
         if ((strlen style.quoteBackground) > 0) {
-            def bandTop:double top
-            if (page != startPage) {
-                bandTop = contentTop
-            }
+            def bandTop:double partTop
             def band:MdBox (MdBox.rect(x bandTop w (bottom - bandTop) style.quoteBackground))
             band.page = page
             band.srcStart = currentSrc
@@ -6253,7 +6400,7 @@ class MdLayout {
         if (page == startPage) {
             this.emit((MdBox.rect(x top style.quoteBarWidth (bottom - top) style.quoteBarColor)))
         } {
-            this.emit((MdBox.rect(x contentTop style.quoteBarWidth (bottom - contentTop) style.quoteBarColor)))
+            this.emit((MdBox.rect(x partTop style.quoteBarWidth (bottom - partTop) style.quoteBarColor)))
         }
         cursorY = (bottom + style.paraSpacing)
     }
@@ -6324,6 +6471,7 @@ class MdLayout {
                     this.truncate(firstBox)
                     page = startPage
                     pageCount = (page + 1)
+                    this.forgetPagesAfter(page)
                     slideOverflows = startOverflows
                     ; the next reserve starts the next slide, with its title
                     cursorY = contentBottom

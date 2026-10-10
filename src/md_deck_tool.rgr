@@ -184,11 +184,12 @@ class MdDeckTool {
         }
         deck.applyMeta(doc)
 
-        ; The diagrams, drawn before the slides are broken: a drawing's height
+        ; The diagrams, drawn before the slides are broken (and after
+        ; applySlideMeta, which ends a heading's columns at its slide): a drawing's height
         ; is what decides whether the slide it is on still fits.
         def cw:double (deck.style.pageWidth - (deck.style.margin * 2.0))
-        MdDiagram.prepare(doc deck.embeds cw styleName)
         deck.applySlideMeta(doc)
+        MdDiagram.prepare(doc deck.embeds cw styleName)
         deck.layoutSlides(doc)
         if (MdDiagram.refit(doc deck.embeds cw styleName)) {
             deck.layoutSlides(doc)
