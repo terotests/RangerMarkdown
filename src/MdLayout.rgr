@@ -211,7 +211,8 @@ class MdSlotPic {
 class MdBox {
     ; 0 text, 1 filled rectangle, 2 rectangle outline, 3 an embed's slot,
     ; 4 a picture, 5 a TeX formula: `embedSource` its source, `embedKind`
-    ; "math" or "math-display", `size` the pixels per em it is set at
+    ; "math" or "math-display", `size` the pixels per em it is set at; 6 an
+    ; effect over a block (`fxNames`)
     def kind:int 0
     def x:double 0.0
     def y:double 0.0
@@ -307,6 +308,10 @@ class MdBox {
     def pinned:boolean false
     ; a text box: the right edge of the column it was set in (0: not known)
     def colRight:double 0.0
+    ; AN EFFECT (kind 6, `{fx=…}` under a block): `embedKind` its name, these
+    ; its `fx-<name>=<number>` parameters
+    def fxNames:[string]
+    def fxValues:[double]
 
     Constructor () {
     }
@@ -358,6 +363,8 @@ class MdBox {
         b.noteRef = noteRef
         b.pinned = pinned
         b.colRight = colRight
+        b.fxNames = fxNames
+        b.fxValues = fxValues
         return b
     }
 
@@ -3945,11 +3952,13 @@ class MdLayout {
         }
         ; a `::: container` is a plate wherever it is — they nest, with more
         ; colons outside; a block INSIDE a `{container=…}` plate gets none
+        def fxFrom:int (array_length boxes)
         if (((strlen plate) > 0) && ((containerDepth == 0) || (node.kind == "container"))) {
             this.containerBlock(node x w plate)
         } {
             this.blockInner(node x w)
         }
+        this.blockEffect(node fxFrom)
         typoDepth = (typoDepth - 1)
         typo = savedTypo
         blockFamily = savedFamily
@@ -3963,6 +3972,93 @@ class MdLayout {
             align = savedAlign
         }
         currentSrc = outerSrc
+    }
+
+    ; `{fx=neon fx-power=2}` under a block: the effect over the block's
+    ; boxes, as a box of kind 6 put before them, so a painter draws a source
+    ; effect under the block and a filter or backdrop over what is there
+    ; (MdToEvg makes it an effect instance). The box spans what the block
+    ; drew on the page it began on; `fx=none` and an empty name give none.
+    ; On a heading `fx=` is the slide's (`## Title {fx=starfield}`), not a
+    ; block's.
+    fn blockEffect:void (node:MdNode from:int) {
+        if (((node.hasAttr("fx")) == false) || (node.kind == "heading")) {
+            return
+        }
+        def name:string (trim (node.attrValue("fx")))
+        if (((strlen name) == 0) || (name == "none")) {
+            return
+        }
+        def n:int (array_length boxes)
+        if (from >= n) {
+            return
+        }
+        def first:MdBox (itemAt boxes from)
+        def x0:double 0.0
+        def y0:double 0.0
+        def x1:double 0.0
+        def y1:double 0.0
+        def any:boolean false
+        def i:int from
+        while (i < n) {
+            def b:MdBox (itemAt boxes i)
+            if (((b.page == first.page) && (b.retold == false)) && ((b.furniture == 0) && ((b.w > 0.0) && (b.h > 0.0)))) {
+                if (any == false) {
+                    x0 = b.x
+                    y0 = b.y
+                    x1 = (b.x + b.w)
+                    y1 = (b.y + b.h)
+                    any = true
+                } {
+                    x0 = (MdLayout.minD(x0 b.x))
+                    y0 = (MdLayout.minD(y0 b.y))
+                    x1 = (MdLayout.maxD(x1 (b.x + b.w)))
+                    y1 = (MdLayout.maxD(y1 (b.y + b.h)))
+                }
+            }
+            i = (i + 1)
+        }
+        if (any == false) {
+            return
+        }
+        def fb (new MdBox())
+        fb.kind = 6
+        fb.x = x0
+        fb.y = y0
+        fb.w = (x1 - x0)
+        fb.h = (y1 - y0)
+        fb.page = first.page
+        fb.srcStart = node.srcStart
+        fb.embedKind = name
+        def k:int 0
+        while (k < (array_length node.attrKeys)) {
+            def key:string (itemAt node.attrKeys k)
+            if (((strlen key) > 3) && ((substring key 0 3) == "fx-")) {
+                def v@(optional):double (str2double (trim (itemAt node.attrVals k)))
+                if (!null? v) {
+                    push fb.fxNames (substring key 3 (strlen key))
+                    push fb.fxValues (unwrap v)
+                }
+            }
+            k = (k + 1)
+        }
+        def out:[MdBox]
+        i = 0
+        while (i < n) {
+            if (i == from) {
+                push out fb
+            }
+            push out (itemAt boxes i)
+            i = (i + 1)
+        }
+        boxes = out
+    }
+
+    sfn maxD:double (a:double b:double) {
+        if (a > b) {
+            return a
+        }
+        return b
     }
 
     ; Whether a rule gives its block a box: a solid background, a border or
