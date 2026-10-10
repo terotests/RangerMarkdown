@@ -396,6 +396,35 @@ class MdBox {
     }
 }
 
+; What the continuation slides said again at their tops (`MdLayout.contPage`
+; and its four companions), kept while a slide is laid out again on trial.
+; A trial that runs over notes the slide after it as a continuation of this
+; one; a trial that is then thrown away has to take that note with it, or the
+; next slide, laid out again later, says this one's title over its own.
+class MdContinuations {
+    def page:[int]
+    def title:[string]
+    def titleLevel:[int]
+    def section:[string]
+    def sectionLevel:[int]
+
+    sfn ints:[int] (from:[int]) {
+        def out:[int]
+        for from v:int i {
+            push out v
+        }
+        return out
+    }
+
+    sfn strs:[string] (from:[string]) {
+        def out:[string]
+        for from v:string i {
+            push out v
+        }
+        return out
+    }
+}
+
 class MdLayout {
     def style:MdStyle (new MdStyle())
     ; Built once per layout by `buildBoxIndex`: the first box of each block,
@@ -3016,6 +3045,27 @@ class MdLayout {
         this.emitSlideTitle()
     }
 
+    ; The continuation records as they are, to put back after a trial
+    ; layout (`shrinkSlide`, `growSlide`) — copies, so one kept record can be
+    ; put back after each of several trials.
+    fn takeContinuations:MdContinuations () {
+        def c:MdContinuations (new MdContinuations())
+        c.page = (MdContinuations.ints(contPage))
+        c.title = (MdContinuations.strs(contTitle))
+        c.titleLevel = (MdContinuations.ints(contTitleLevel))
+        c.section = (MdContinuations.strs(contSection))
+        c.sectionLevel = (MdContinuations.ints(contSectionLevel))
+        return c
+    }
+
+    fn putContinuations:void (c:MdContinuations) {
+        contPage = (MdContinuations.ints(c.page))
+        contTitle = (MdContinuations.strs(c.title))
+        contTitleLevel = (MdContinuations.ints(c.titleLevel))
+        contSection = (MdContinuations.strs(c.section))
+        contSectionLevel = (MdContinuations.ints(c.sectionLevel))
+    }
+
     ; Slide `p` went (shrunk into the one before it): its record goes and
     ; every later slide's moves up one.
     fn dropContinuation:void (p:int) {
@@ -4880,6 +4930,7 @@ class MdLayout {
         def savedPageCount:int pageCount
         def savedCursor:double cursorY
         def savedOverflows:int slideOverflows
+        def savedCont:MdContinuations (this.takeContinuations())
         def sc:double 0.95
         while (sc >= (least - 0.001)) {
             this.truncate(b0)
@@ -4901,6 +4952,7 @@ class MdLayout {
             this.endFloat()
             def fits:boolean (page == p)
             this.restoreStyle(saved)
+            this.putContinuations(savedCont)
             if fits {
                 ; the continuation is gone: every later slide moves up one
                 def t:int 0
@@ -5080,6 +5132,7 @@ class MdLayout {
         def savedPageCount:int pageCount
         def savedCursor:double cursorY
         def savedOverflows:int slideOverflows
+        def savedCont:MdContinuations (this.takeContinuations())
         while (s > 1.04) {
             this.truncate(b0)
             this.growStyle(saved s)
@@ -5105,6 +5158,7 @@ class MdLayout {
                 fits = (this.mediaKept(b0 p mediaW mediaH))
             }
             this.restoreStyle(saved)
+            this.putContinuations(savedCont)
             page = savedPage
             pageCount = savedPageCount
             cursorY = savedCursor

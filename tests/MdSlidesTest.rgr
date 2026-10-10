@@ -733,6 +733,21 @@ class MdSlidesTest {
         c.eqInt("the title stays one line" (MdLayout.headingLines(tl.boxes 0 (array_length tl.boxes) 27.0)) 1)
     }
 
+    ; A grown slide is tried larger first, and a try that runs over notes
+    ; the slide after it as its continuation. Thrown away, the try took its
+    ; note with it only by luck: the next slide, grown in turn, said the
+    ; slide before's title over its own ("Ehdotukset" over "Päätös").
+    fn growTrialSpill:void (c:SlideCheck) {
+        print "-- a grow that ran over leaves no title behind --"
+        def css:string "deck { split-level: 2 } page { width: 720pt; height: 405pt; padding: 36pt } document { font-size: 16pt } h2 { font-size: 28pt }"
+        def src:string "---\nslide-grow: 1.6\n---\n\n## Ehdotukset\n\n- Piirrä filter myös lohkoille, joilla on `fx=`, ja lisää testi kaavion alle\n- Tarkista `parseFxPrograms`issa kaikki `args < regs` ja `10 + len(params) <= regs`\n- Käännä op-merkkijonot kokonaisluvuiksi parsinnassa ja tarkista `h.ctx.Err()` rivi kerrallaan\n- Check-varoitus backdropille, jonka alpha voi olla < 1, kun deck on tehty ennen #390:aa\n\n## Päätös\n\n- **Request changes:** löydös 1 rikkoo dokumentoidun filter-kerroksen\n- Muut voi tehdä jatko-PR:ssä\n"
+        def l:MdLayout (MdSlidesTest.asSlides(src css))
+        c.eqInt("two slides" l.pageCount 2)
+        c.ok("both slides grew" (l.slidesGrown == 2))
+        c.eqInt("the first title is on its own slide only" (MdSlidesTest.lastSlideOf(l "Ehdotukset")) 0)
+        c.eqInt("no continuation is noted" (array_length l.contPage) 0)
+    }
+
     ; The header's and the footer's box with this text on slide p, or null.
     sfn edgeBox@(optional):MdBox (l:MdLayout want:string p:int) {
         def i:int 0
@@ -1403,6 +1418,7 @@ class MdSlidesTest {
         this.tableShrinks(c)
         this.oneDocument(c)
         this.grow(c)
+        this.growTrialSpill(c)
         this.edges(c)
         this.pictures(c)
         this.overlays(c)
