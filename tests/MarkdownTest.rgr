@@ -214,6 +214,21 @@ class MarkdownTest {
         def e1:MdEmbedEntry (l.embeds.entryAt(0))
         def after:int (this.treeSize((unwrap e1.root)))
         this.ok("a chart on a file draws its marks once the file is there" (after >= (before + 2)))
+        ; the file read again with other numbers of the same length (a live
+        ; source, a questionnaire's counts): drawn again
+        def keyBefore:string (l.embeds.chartKey())
+        def texts2:[string]
+        push texts2 "name,value,date\n\"A, b\",4,2012-01-01\nC,4.5,2012-02-01\n"
+        push texts2 "[{\"x\": 1}]"
+        this.ok("same length" ((strlen (itemAt texts2 0)) == (strlen (itemAt texts 0))))
+        l.embeds.dataTexts = texts2
+        this.ok("a file's new text of the same length is another chart key" ((l.embeds.chartKey()) != keyBefore))
+        l.embeds.dataTexts = texts
+        this.ok("the same text is the same key" ((l.embeds.chartKey()) == keyBefore))
+        MdDiagram.prepare(doc l.embeds 500.0 "default")
+        l.embeds.dataTexts = texts2
+        MdDiagram.prepare(doc l.embeds 500.0 "default")
+        this.ok("and the chart is drawn for it" (l.embeds.chartKeyDrawn == (l.embeds.chartKey())))
     }
 
     fn treeSize:int (el:EVGElement) {
