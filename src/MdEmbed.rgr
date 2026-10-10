@@ -214,6 +214,10 @@ class MdEmbedCache {
     ; again.
     def dataUrls:[string]
     def dataTexts:[string]
+    ; each data text as chartKey last saw it, and its digest: a text the
+    ; host hands over again unchanged is not read through again
+    def sigTexts:[string]
+    def sigs:[string]
     ; A list drawn as a figure: `{list-style=swot}` under it, or a rule of
     ; the layout's sheet (`.swot { list-style: swot }`, `ul { … }`), or the
     ; host's per-heading word — `listScopes[i]` an anchor (MdAnchor.slug),
@@ -290,11 +294,52 @@ class MdEmbedCache {
         }
     }
 
+    ; The digest of data text `f`: a file read again (a live source, a
+    ; questionnaire's counts) whose length stayed the same still draws its
+    ; charts again.
+    fn dataSig:string (f:int) {
+        def text:string (itemAt dataTexts f)
+        def i:int 0
+        while (i < (array_length sigTexts)) {
+            if ((itemAt sigTexts i) == text) {
+                return (itemAt sigs i)
+            }
+            i = (i + 1)
+        }
+        def sig:string (MdEmbedCache.textSig(text))
+        ; the texts of the last few calls only
+        if ((array_length sigTexts) >= 64) {
+            def none1:[string]
+            def none2:[string]
+            sigTexts = none1
+            sigs = none2
+        }
+        push sigTexts text
+        push sigs sig
+        return sig
+    }
+
+    ; Two polynomial hashes over the text's units and its length; each
+    ; stays below 2^53, so every target computes the same digits.
+    sfn textSig:string (s:string) {
+        def a:int 7
+        def b:int 11
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            a = (((a * 31) + c) % 1000000007)
+            b = (((b * 131) + c) % 998244353)
+            i = (i + 1)
+        }
+        return ((((to_string n) + "-") + (to_string a)) + ("-" + (to_string b)))
+    }
+
     fn chartKey:string () {
         def k:string (chartConfig + "|grow:" + (to_string chartGrow) + "/" + (to_string chartMaxH))
         def f:int 0
         while (f < (array_length dataUrls)) {
-            k = (k + "|file:" + (itemAt dataUrls f) + ":" + (to_string (strlen (itemAt dataTexts f))))
+            k = (k + "|file:" + (itemAt dataUrls f) + ":" + (this.dataSig(f)))
             f = (f + 1)
         }
         def i:int 0
