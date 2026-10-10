@@ -418,6 +418,10 @@ class MdColumnsTest {
         c.near("code width=55%" code.w (864.0 * 0.55) 1.0)
         c.ok("…the list beside it" (r18.x > (code.x + code.w)))
         c.ok("…not under it" (r18.y < (code.y + code.h)))
+        def lq:MdLayout (MdColumnsTest.deck("## LQ\n\n```ts\nfunction sum(a) {\n  return 1;\n}\n```\n{width=55%}\n\n> Lainaus vieressä\n" ""))
+        def qcode:MdBox (MdColumnsTest.codeBox(lq))
+        def rq:MdBox (MdColumnsTest.boxOf(lq "Lainaus vieressä"))
+        c.ok("…a quote beside it too" ((rq.x > (qcode.x + qcode.w)) && (rq.y < (qcode.y + qcode.h))))
     
         print "-- a picture in a corner --"
         def lg:MdLayout (MdColumnsTest.deck("## L21 Logo nurkassa ja pitkähkö otsikko\n\n![Logo](media/logo.png)\n{float=top-right width=10%}\n\n- Sisältöä logon vieressä\n- Toinen kohta\n" ""))
