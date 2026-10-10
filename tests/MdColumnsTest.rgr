@@ -79,6 +79,7 @@ class MdColumnsTest {
         MdColumnsTest.charts(c)
         MdColumnsTest.places(c)
         MdColumnsTest.exports(c)
+        MdColumnsTest.kikigo(c)
         print ""
         print (((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed)))
         if (c.failed == 0) {
@@ -167,6 +168,32 @@ class MdColumnsTest {
         def none:MdBox (new MdBox())
         none.kind = -1
         none.page = -1
+        return none
+    }
+
+    ; the title said again at the top of slide `page`
+    sfn retoldOn:MdBox (l:MdLayout page:int) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (((b.kind == 0) && b.retold) && (b.page == page)) { return b }
+            i = (i + 1)
+        }
+        def none:MdBox (new MdBox())
+        none.kind = -1
+        return none
+    }
+
+    ; a quote's bar (a thin rule) on slide `page`
+    sfn barOn:MdBox (l:MdLayout page:int) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (((b.kind == 1) && (b.page == page)) && (b.w < 8.0)) { return b }
+            i = (i + 1)
+        }
+        def none:MdBox (new MdBox())
+        none.kind = -1
         return none
     }
 
@@ -516,4 +543,75 @@ class MdColumnsTest {
         c.ok("PPTX: both columns' text there" ((leftW > 0.0) && (rightX > 0.0)))
         c.ok("…the left one's box ends before the right one starts" (leftW <= rightX))
     }
+    ; Found converting a pitch deck (Kikigo) through MCP
+    sfn kikigo:void (c:ColCheck) {
+        print "-- a cover's layout= ends at the next slide --"
+        def cv:MdLayout (MdColumnsTest.deck("# Kansi {layout=image-right}\n\nAlaotsikko\n\n![Kiki](media/tall.png)\n\n## Ongelma\n\nTeksti yksi\n\n## Ratkaisu\n\nTeksti kaksi\n" ""))
+        def k1:MdBox (MdColumnsTest.boxOf(cv "Kansi"))
+        def o1:MdBox (MdColumnsTest.boxOf(cv "Ongelma"))
+        def r1:MdBox (MdColumnsTest.boxOf(cv "Ratkaisu"))
+        c.ok("the next slides open their own pages" ((o1.page > k1.page) && (r1.page > o1.page)))
+        def n:int 0
+        def i:int 0
+        while (i < (array_length cv.boxes)) {
+            def b:MdBox (itemAt cv.boxes i)
+            if ((b.kind == 0) && (b.text == "Kansi")) { n = (n + 1) }
+            i = (i + 1)
+        }
+        c.eqInt("…the cover's title drawn once" n 1)
+
+        print "-- quotes on plates running onto the next slide --"
+        def ql:MdLayout (MdColumnsTest.deck("## B {layout=image-left}\n\nFree to start. Subscriptions and team seats.\n{.headline}\n\n![Kiki](media/logo.png)\n\n> ### Kikigo\n> Monthly or annual subscription\n>\n> - 500 free exercises to start\n> - Speaking and listening practice\n> - Learn from your own material\n{.plan}\n\n> ### Kikigo Pro\n> Monthly or annual subscription\n>\n> - 500 free exercises to start\n> - Speaking and listening practice\n> - Learn from your own material\n{.plan}\n\n## End\n\nx\n" ".headline { font-size: 38pt; font-weight: 800; }\n.plan { background-color: #fdfbf7; border: 1.5px solid #d9d3c7; border-radius: 10pt; padding: 12pt 18pt; font-size: 16pt; }\nh2 { font-size: 14pt; }\nh3 { font-size: 22pt; }"))
+        def qe:MdBox (MdColumnsTest.boxOf(ql "End"))
+        def stray:boolean false
+        def qi:int 0
+        while (qi < (array_length ql.boxes)) {
+            def qb:MdBox (itemAt ql.boxes qi)
+            if (((qb.kind == 0) && (qb.text == "B")) && (qb.page == qe.page)) { stray = true }
+            qi = (qi + 1)
+        }
+        c.ok("columns tried on the next slide and put back: no title said again over the next slide's" (stray == false))
+        def qt:MdBox (MdColumnsTest.retoldOn(ql 1))
+        def qp:MdBox (MdColumnsTest.kindOn(ql 2 1))
+        c.ok("…the plate on the continuation under the title said again" (qp.y >= (qt.y + qt.h)))
+        c.ok("…and no taller than what is on it" ((qp.y + qp.h) < 300.0))
+        def qq:MdLayout (MdColumnsTest.deck("## A\n\nFree to start. Subscriptions and team seats.\n{.headline}\n\n> ### Kikigo\n> Monthly or annual subscription\n>\n> - 500 free exercises to start\n> - Speaking and listening practice\n> - Learn from your own material\n\n> ### Kikigo Pro\n> Monthly or annual subscription\n>\n> - 500 free exercises to start\n> - Speaking and listening practice\n> - Learn from your own material\n\n## End\n\nx\n" ""))
+        def bar:MdBox (MdColumnsTest.barOn(qq 1))
+        def last:MdBox (MdColumnsTest.boxOf(qq "Learn from your own material"))
+        def qt2:MdBox (MdColumnsTest.retoldOn(qq 1))
+        c.ok("a quote cut in two: its bar on the next slide under the title" (bar.y >= (qt2.y + qt2.h)))
+        c.ok("…down to its last line, not past it" ((bar.y + bar.h) < ((last.y + last.h) + 20.0)))
+        print "-- a corner picture as large as asked --"
+        def fl:MdLayout (MdColumnsTest.deck("# Kansi\n\n![Kiki](media/tall.png)\n{float=bottom-right width=30% height=70%}\n\nAlaotsikko\n" ""))
+        def fp:MdBox (MdColumnsTest.kindOn(fl 4 0))
+        c.near("width=30% height=70%: 70% of the room high" fp.h (444.0 * 0.7) 1.0)
+        def ft:MdLayout (MdColumnsTest.deck("# Kansi\n\n![Kiki](media/tall.png)\n{float=bottom-right width=30% height=70%}\n\nEnsimmäinen kappale on pitkä ja jatkuu monta riviä alaspäin, niin että se ulottuisi kuvan kohdalle asti jos se olisi koko levyinen.\n\nToinen kappale jatkuu samaan tapaan, ja se on myös niin pitkä että se ulottuu kuvan viereen ja menee alas asti.\n\nKolmas kappale vielä tähän.\n" ""))
+        def tp:MdBox (MdColumnsTest.kindOn(ft 4 0))
+        def clear:boolean true
+        def i2:int 0
+        while (i2 < (array_length ft.boxes)) {
+            def b2:MdBox (itemAt ft.boxes i2)
+            if ((b2.kind == 0) && (b2.page == 0)) {
+                if (((b2.y + b2.h) > tp.y) && ((b2.x + b2.w) > tp.x)) { clear = false }
+            }
+            i2 = (i2 + 1)
+        }
+        c.ok("…the text after it beside it, not over it" clear)
+        def fv:MdLayout (MdColumnsTest.deck("## Kansi {valign=bottom}\n\n![Kiki](media/tall.png)\n{float=bottom-right width=30% height=50%}\n\nPitkä alaotsikko joka on hyvin leveä rivi tekstiä ja ulottuu yli koko dian leveyden kahdelle riville asti kun sitä on tarpeeksi paljon\n" ""))
+        def vp:MdBox (MdColumnsTest.kindOn(fv 4 0))
+        def vclear:boolean true
+        def i3:int 0
+        while (i3 < (array_length fv.boxes)) {
+            def b3:MdBox (itemAt fv.boxes i3)
+            if (((b3.kind == 0) && (b3.page == 0)) && ((b3.srcStart > 20) && ((b3.y + b3.h) > vp.y))) {
+                if ((b3.x + b3.w) > vp.x) { vclear = false }
+            }
+            i3 = (i3 + 1)
+        }
+        c.ok("…valign=bottom keeps the text above the picture" vclear)
+        def fw:MdLayout (MdColumnsTest.deck("# Kansi\n\n![Kiki](media/wide.png)\n{float=bottom-right width=40%}\n\nAlaotsikko\n" ""))
+        def fq:MdBox (MdColumnsTest.kindOn(fw 4 0))
+        c.near("width=40% of a wide picture: 40% wide" fq.w (864.0 * 0.4) 1.0)
+    }
+
 }

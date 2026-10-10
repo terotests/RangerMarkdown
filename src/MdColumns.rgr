@@ -247,6 +247,68 @@ class MdColumns {
         }
     }
 
+    ; In a deck, a heading's section ends where the next slide opens. A
+    ; `# Cover {layout=image-right}` read as a document owns every `##`
+    ; under it (wrapLayouts), but with `##` opening slides that is the whole
+    ; deck in two columns, its title over every slide. Run once the split
+    ; level is known (MdLayout.applySlideMeta): a section wrapped for a
+    ; heading's `layout=` is cut at its first heading that opens a slide, and
+    ; the rest goes back to the document after it. A `::: columns` the deck
+    ; wrote itself is kept as written.
+    sfn endAtSlides:void (doc:MdNode splitLevel:int) {
+        def n:int (doc.childCount())
+        def kept:[MdNode]
+        def cut:boolean false
+        def i:int 0
+        while (i < n) {
+            def c:MdNode (doc.childAt(i))
+            push kept c
+            if ((MdColumns.isRow(c)) && (c.hasAttr("layout")) && (i > 0)) {
+                def h:MdNode (doc.childAt((i - 1)))
+                if ((h.kind == "heading") && ((MdColumns.columnLayout(h)) == (c.attrValue("layout")))) {
+                    def m:int (c.childCount())
+                    def at:int -1
+                    def k:int 0
+                    while ((k < m) && (at < 0)) {
+                        def d:MdNode (c.childAt(k))
+                        if ((d.kind == "heading") && (d.level <= splitLevel)) { at = k }
+                        k = (k + 1)
+                    }
+                    if (at >= 0) {
+                        cut = true
+                        def own:[MdNode]
+                        def rest:[MdNode]
+                        def j:int 0
+                        while (j < m) {
+                            def d2:MdNode (c.childAt(j))
+                            if (j < at) { push own d2 } { push rest d2 }
+                            j = (j + 1)
+                        }
+                        if ((array_length own) > 0) {
+                            c.children = own
+                            def lastOwn:MdNode (itemAt own ((array_length own) - 1))
+                            c.srcEnd = lastOwn.srcEnd
+                        } {
+                            ; nothing of its own left: no container
+                            removeLast kept
+                        }
+                        def r:int 0
+                        while (r < (array_length rest)) {
+                            push kept (itemAt rest r)
+                            r = (r + 1)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if cut {
+            doc.children = kept
+            ; what came back may hold a cut of its own
+            MdColumns.endAtSlides(doc splitLevel)
+        }
+    }
+
     ; children from..to-1 of `parent` in a new `columns` container
     sfn wrapper:MdNode (from:int to:int parent:MdNode) {
         def box:MdNode (MdNode.create("container"))
