@@ -59,6 +59,7 @@ class MdCodeLinesTest {
         MdCodeLinesTest.model(c)
         MdCodeLinesTest.parsed(c)
         MdCodeLinesTest.drawn(c)
+        MdCodeLinesTest.focused(c)
         MdCodeLinesTest.readable(c)
         MdCodeLinesTest.wrapModel(c)
         MdCodeLinesTest.wrapped(c)
@@ -202,6 +203,38 @@ class MdCodeLinesTest {
         c.eqInt("bands" bands 7)
         c.eqStr("highlights revealed one step each" (join steps ",") "1,1,2,2")
         c.eqStr("markers drawn, context's space not" (join texts "|") "context|-|old|+|new|+|more")
+    }
+
+    ; `lines=` without `.build`: the marked lines keep their ink, the rest
+    ; fades toward the background (and is left out of the contrast check);
+    ; with `.build` nothing fades
+    sfn focused:void (c:CodeCheck) {
+        def inks:[string] (MdCodeLinesTest.inksOf("```{lines=2}\nalpha\nbeta\ngamma\n```\n"))
+        c.eqInt("three lines drawn" (array_length inks) 3)
+        c.ok("unmarked line fades" ((itemAt inks 0) != (itemAt inks 1)))
+        c.eqStr("both unmarked lines fade alike" (itemAt inks 0) (itemAt inks 2))
+        def plain:[string] (MdCodeLinesTest.inksOf("```\nalpha\nbeta\ngamma\n```\n"))
+        c.eqStr("the marked line keeps the block's ink" (itemAt inks 1) (itemAt plain 1))
+        def steps:[string] (MdCodeLinesTest.inksOf("```{lines=2 .build}\nalpha\nbeta\ngamma\n```\n"))
+        c.eqStr("build steps: nothing fades" (itemAt steps 0) (itemAt plain 0))
+    }
+
+    ; each text box's colour + quiet flag, in order
+    sfn inksOf:[string] (src:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        l.setDocSource(src)
+        l.layoutContinuous(doc 600.0)
+        def out:[string]
+        for l.boxes b:MdBox i {
+            if ((b.kind == 0) && ((strlen b.text) > 0)) {
+                def q:string ""
+                if b.quiet { q = " quiet" }
+                push out (b.color + q)
+            }
+        }
+        return out
     }
 
     ; every piece 10 wide: rows end after a space or , ; ( [ { = in the row,
