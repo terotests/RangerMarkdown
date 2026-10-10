@@ -356,6 +356,12 @@ class MdEmbedCache {
     ; that lays the document out as slides; 0: not known, and every figure's
     ; room is the page's (`chartMaxH`).
     def splitLevel:int 0
+    ; The slides that keep a strip at their side (MdLayout.asideAt, the
+    ; source offsets of the blocks that want it) lay their body out
+    ; `asideCut` narrower, and a diagram on one is drawn for that width
+    ; (MdDiagram.prepare). Set by the host from the layout's own.
+    def asideAt:[int]
+    def asideCut:double 0.0
     ; the level of the heading the walk is under, 0: none yet
     def headLevel:int 0
 
