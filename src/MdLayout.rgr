@@ -693,6 +693,18 @@ class MdLayout {
     def contentW:double 0.0
     def contentTop:double 0.0
     def contentBottom:double 0.0
+    ; the column's width with nothing at the slide's side (see noteAside)
+    def fullContentW:double 0.0
+
+    ; A strip at the right of a slide kept for something the host draws
+    ; there (a presenter figure and its speech bubble): `asideAt` are the
+    ; source offsets of the blocks that want it, `asideFrac` its width as a
+    ; share of the page's width. A slide whose source holds one of the offsets lays its body out
+    ; that much narrower; its title keeps the full width, since the strip
+    ; is below it.
+    def asideAt:[int]
+    def asideFrac:double 0.0
+    def slideAside:boolean false
 
     ; 0 means one page as tall as the document — the screen's mode.
     def paginate:boolean false
@@ -1123,6 +1135,8 @@ class MdLayout {
         clear metaVal
         clear metaSuspect
         this.makeEdgeRoom()
+        fullContentW = contentW
+        slideAside = false
         cursorY = contentTop
         clear blockFirstPage
         clear blockLastPage
@@ -2355,6 +2369,7 @@ class MdLayout {
                         slideTitleLevel = child.level
                         slideTitleHidden = (MdLayout.hiddenHeading(child))
                         this.notePlace(child (MdLayout.bodyFollows(doc i splitLevel)))
+                        this.noteAside(doc i)
                     }
                 }
             }
@@ -2529,6 +2544,15 @@ class MdLayout {
                 bw = (bw - gap)
                 if (bx > contentX) { bx = (bx + gap) }
                 this.block(child bx bw)
+                followH = 0.0
+                return
+            }
+        }
+        ; a slide with a strip at its side: the title above it keeps the
+        ; full width (noteAside)
+        if ((slideAside && (child.kind == "heading")) && (child.level <= splitLevel)) {
+            if (floatOn == false) {
+                this.block(child contentX fullContentW)
                 followH = 0.0
                 return
             }
@@ -4706,6 +4730,48 @@ class MdLayout {
         push placeWord word
     }
 
+    ; Slide title `i` opens a slide: its body narrower by `asideFrac` when the
+    ; slide's source, up to the next slide's title, holds an `asideAt`.
+    fn noteAside:void (doc:MdNode i:int) {
+        slideAside = false
+        if ((asideFrac <= 0.0) || (fullContentW <= 0.0)) {
+            return
+        }
+        def title:MdNode (doc.childAt(i))
+        def from:int title.srcStart
+        def upto:int (MdLayout.slideEndSrc(doc i splitLevel))
+        for asideAt at:int k {
+            if ((at >= from) && ((upto < 0) || (at < upto))) {
+                slideAside = true
+            }
+        }
+        contentW = fullContentW
+        if slideAside {
+            ; never narrower than half the column
+            contentW = (fullContentW - (asideFrac * style.pageWidth))
+            if (contentW < (fullContentW * 0.5)) {
+                contentW = (fullContentW * 0.5)
+            }
+        }
+    }
+
+    ; where the slide that title `i` opens ends in the source: the next
+    ; slide title's start, -1 at the end of the document
+    sfn slideEndSrc:int (doc:MdNode i:int splitLevel:int) {
+        def j:int (i + 1)
+        def n:int (doc.childCount())
+        while (j < n) {
+            def c:MdNode (doc.childAt(j))
+            if ((c.hasClass("no-break")) == false) {
+                if ((c.hasClass("slide")) || ((c.kind == "heading") && (c.level <= splitLevel))) {
+                    return c.srcStart
+                }
+            }
+            j = (j + 1)
+        }
+        return -1
+    }
+
     ; how much larger block `node` is set on a statement slide
     fn statementRatio:double (node:MdNode) {
         if (! slideStatement) { return 1.0 }
@@ -5142,6 +5208,7 @@ class MdLayout {
                 slideTitleLevel = child.level
                 slideTitleHidden = (MdLayout.hiddenHeading(child))
                 this.notePlace(child (MdLayout.bodyFollows(doc i splitLevel)))
+                this.noteAside(doc i)
             }
         }
         this.placeBlock(doc i false)
