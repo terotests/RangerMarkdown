@@ -149,6 +149,40 @@ class MdToEvg {
         push out.cmds c
     }
 
+    ; An effect over a block (`{fx=…}`, MdLayout.blockEffect): what EVG makes
+    ; of an element with `evg-surface-effect` — an instance in the list and a
+    ; transparent rectangle that carries it, so a painter without effects
+    ; draws nothing. Its id is its place among the list's instances.
+    fn effect:void (out:EVGDisplayList box:MdBox y:double) {
+        def id:string ("fx-b" + (to_string (array_length out.fxIds)))
+        push out.fxIds id
+        push out.fxKinds box.embedKind
+        push out.fxTriggers "always"
+        push out.fxX box.x
+        push out.fxY y
+        push out.fxW box.w
+        push out.fxH box.h
+        push out.fxRadius box.radius
+        push out.fxParamStart (array_length out.fxParamNames)
+        def i:int 0
+        while (i < (array_length box.fxNames)) {
+            push out.fxParamNames (itemAt box.fxNames i)
+            push out.fxParamValues (itemAt box.fxValues i)
+            i = (i + 1)
+        }
+        push out.fxParamCount (array_length box.fxNames)
+        def c:EVGDrawCmd (new EVGDrawCmd())
+        c.kind = 0
+        c.x = box.x
+        c.y = y
+        c.w = box.w
+        c.h = box.h
+        c.radius = box.radius
+        c.a = 0.0
+        c.effectId = id
+        push out.cmds c
+    }
+
     fn paintBox:void (out:EVGDisplayList layout:MdLayout box:MdBox dy:double) {
         def y:double (box.y + dy)
         if (box.kind == 1) {
@@ -221,6 +255,10 @@ class MdToEvg {
             t.letterSpacing = box.spacing
             this.tint(t box.color)
             push out.cmds t
+            return
+        }
+        if (box.kind == 6) {
+            this.effect(out box y)
             return
         }
         if (box.kind == 5) {

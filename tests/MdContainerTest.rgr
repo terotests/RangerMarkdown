@@ -58,6 +58,7 @@ class MdContainerTest {
         MdContainerTest.headings(c)
         MdContainerTest.shadows(c)
         MdContainerTest.sheetBlocks(c)
+        MdContainerTest.effects(c)
         MdContainerTest.slideScopes(c)
         MdContainerTest.charts(c)
         print ""
@@ -401,6 +402,49 @@ class MdContainerTest {
         def own:MdLayout (MdContainerTest.laid("Inside\n{container=box background=#ffffff}\n" "container { background-color: #ffeecc }"))
         def ownPlate:MdBox (itemAt own.boxes (MdContainerTest.plateIndex(own)))
         c.eqStr("the block's own colour over the theme's" ownPlate.fill "#FFFFFF")
+    }
+
+    ; `{fx=…}` under a block: an effect box (kind 6) over what the block
+    ; drew, before its text, with the effect's parameters; MdToEvg makes it
+    ; an instance carried by a transparent rectangle. A heading's `fx=` is
+    ; the slide's, and `fx=none` is none.
+    sfn effects:void (c:ContainerCheck) {
+        def l:MdLayout (MdContainerTest.laid("Before\n\nInside\n{fx=neon fx-power=2 fx-word=x}\n\nAfter\n" ""))
+        def fi:int -1
+        for l.boxes b:MdBox i {
+            if ((b.kind == 6) && (fi < 0)) { fi = i }
+        }
+        c.ok("an effect box is laid" (fi >= 0))
+        if (fi < 0) { return }
+        def fb:MdBox (itemAt l.boxes fi)
+        def t:MdBox (MdContainerTest.textBox(l "Inside"))
+        c.ok("…before the block's text" (fi < (MdContainerTest.indexOfText(l "Inside"))))
+        c.ok("…after the block above" (fi > (MdContainerTest.indexOfText(l "Before"))))
+        c.ok("…over the text" ((((t.x >= fb.x) && (t.y >= fb.y)) && ((t.x + t.w) <= (fb.x + fb.w + 0.01))) && ((t.y + t.h) <= (fb.y + fb.h + 0.01))))
+        def after:MdBox (MdContainerTest.textBox(l "After"))
+        c.ok("…and not over the next block" (after.y >= (fb.y + fb.h)))
+        c.eqStr("its name" fb.embedKind "neon")
+        c.eqStr("its numbers, not its words" (join fb.fxNames ",") "power")
+        c.ok("…as numbers" (((array_length fb.fxValues) == 1) && ((itemAt fb.fxValues 0) == 2.0)))
+        c.eqStr("it belongs to its block" (to_string fb.srcStart) (to_string t.srcStart))
+        def painter:MdToEvg (new MdToEvg())
+        def dl:EVGDisplayList (new EVGDisplayList())
+        painter.paintBox(dl l fb 0.0)
+        c.ok("one instance" ((array_length dl.fxIds) == 1))
+        c.ok("…of the effect, in its box" (((itemAt dl.fxKinds 0) == "neon") && ((itemAt dl.fxW 0) == fb.w)))
+        c.ok("…with its parameter" ((((itemAt dl.fxParamCount 0) == 1) && ((itemAt dl.fxParamNames 0) == "power")) && ((itemAt dl.fxParamValues 0) == 2.0)))
+        def r:EVGDrawCmd (itemAt dl.cmds 0)
+        c.ok("a transparent rectangle carries it" ((((array_length dl.cmds) == 1) && (r.kind == 0)) && ((r.a == 0.0) && (r.effectId == (itemAt dl.fxIds 0)))))
+        def h:MdLayout (MdContainerTest.laid("## Title {fx=starfield}\n\nText\n" ""))
+        def none:MdLayout (MdContainerTest.laid("Text\n{fx=none}\n" ""))
+        def hn:int 0
+        for h.boxes hb:MdBox hi {
+            if (hb.kind == 6) { hn = (hn + 1) }
+        }
+        for none.boxes nb:MdBox ni {
+            if (nb.kind == 6) { hn = (hn + 1) }
+        }
+        c.ok("a heading's fx is the slide's, fx=none is none" (hn == 0))
     }
 
     sfn painting:void (c:ContainerCheck) {
