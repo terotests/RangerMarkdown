@@ -6118,9 +6118,13 @@ class MdLayout {
         def removed:string (MdLayout.tint(style.codeBackground "#cf222e" 0.18))
         def addInk:string "#1a7f37"
         def delInk:string "#cf222e"
+        def addSpan:string (MdLayout.tint(style.codeBackground "#2da44e" 0.42))
+        def delSpan:string (MdLayout.tint(style.codeBackground "#cf222e" 0.36))
         if dark {
             added = (MdLayout.tint(style.codeBackground "#2ea043" 0.3))
             removed = (MdLayout.tint(style.codeBackground "#f85149" 0.26))
+            addSpan = (MdLayout.tint(style.codeBackground "#2ea043" 0.58))
+            delSpan = (MdLayout.tint(style.codeBackground "#f85149" 0.5))
             addInk = "#3fb950"
             delInk = "#f85149"
         }
@@ -6151,7 +6155,16 @@ class MdLayout {
                 this.emit((MdBox.rect((x + 1.0) ty (w - 2.0) lineH removed)))
             }
             if (ln.mark > 0) {
-                def band:MdBox (MdBox.rect((x + 1.0) ty (w - 2.0) lineH markBand))
+                ; on a changed line the highlight keeps the line's green
+                ; (red), a shade deeper, so it still reads as added (removed)
+                def bandInk:string markBand
+                if (ln.kind == 1) {
+                    bandInk = (MdLayout.tint(added markBar 0.12))
+                }
+                if (ln.kind == 2) {
+                    bandInk = (MdLayout.tint(removed markBar 0.12))
+                }
+                def band:MdBox (MdBox.rect((x + 1.0) ty (w - 2.0) lineH bandInk))
                 def bar:MdBox (MdBox.rect((x + 1.0) ty 3.0 lineH markBar))
                 if build {
                     band.buildStep = ln.mark
@@ -6160,7 +6173,9 @@ class MdLayout {
                 this.emit(band)
                 this.emit(bar)
             }
-            codeDim = (dimRest && (ln.mark == 0))
+            ; a diff's added and removed lines are the change: they keep
+            ; their ink when lines= points at a few of them
+            codeDim = ((dimRest && (ln.mark == 0)) && ((ln.kind != 1) && (ln.kind != 2)))
             if ((cl.numbers && (ln.number >= 0)) && (gutter > 0.0)) {
                 def nt2:string (to_string ln.number)
                 def nw:double (this.measureRun(nt2 probe))
@@ -6188,6 +6203,15 @@ class MdLayout {
                     this.emit(mb)
                 }
                 lx = (lx + markCol)
+            }
+            ; what changed inside a changed line, a stronger band behind
+            ; just those characters (MdCodeLines.changeOf)
+            if ((ln.changeFrom >= 0) && ((ln.kind == 1) || (ln.kind == 2))) {
+                def sc:string addSpan
+                if (ln.kind == 2) {
+                    sc = delSpan
+                }
+                this.changeSpans(ln lx ty lh (this.codeInk(sc)) probe)
             }
             def rowW:double ((w - (lx - x)) - style.codePadding)
             if ((ln.kind == 3) || (ln.kind == 4)) {
@@ -6248,6 +6272,31 @@ class MdLayout {
             push ln.wraps o
         }
         ln.wrapIndent = indent
+    }
+
+    ; the band behind a line's changed characters, cut where the line wraps
+    fn changeSpans:void (ln:MdCodeLine lx:double ty:double lh:double color:string probe:MdRun) {
+        def rws:[int] (MdLayout.rowStarts(ln))
+        def nr:int ((array_length rws) - 1)
+        def r:int 0
+        while (r < nr) {
+            def a:int (itemAt rws r)
+            def e:int (itemAt rws (r + 1))
+            def s0:int a
+            if (ln.changeFrom > s0) { s0 = ln.changeFrom }
+            def e0:int e
+            if (ln.changeTo < e0) { e0 = ln.changeTo }
+            if (s0 < e0) {
+                def rx:double lx
+                if (r > 0) {
+                    rx = (lx + ln.wrapIndent)
+                }
+                def sx:double (rx + (this.measureRun((substring ln.code a s0) probe)))
+                def sw:double (this.measureRun((substring ln.code s0 e0) probe))
+                this.emit((MdBox.rect(sx ((ty + (lh * (to_double r))) + 1.0) sw (lh - 2.0) color)))
+            }
+            r = (r + 1)
+        }
     }
 
     ; a line in one colour, row by row as it wraps
