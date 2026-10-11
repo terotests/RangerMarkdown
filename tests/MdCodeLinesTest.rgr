@@ -64,6 +64,8 @@ class MdCodeLinesTest {
         MdCodeLinesTest.readable(c)
         MdCodeLinesTest.wrapModel(c)
         MdCodeLinesTest.wrapped(c)
+        MdCodeLinesTest.changes(c)
+        MdCodeLinesTest.changeDrawn(c)
         print ""
         print ((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed))
         if (c.failed == 0) {
@@ -218,6 +220,21 @@ class MdCodeLinesTest {
         c.eqStr("the marked line keeps the block's ink" (itemAt inks 1) (itemAt plain 1))
         def steps:[string] (MdCodeLinesTest.inksOf("```{lines=2 .build}\nalpha\nbeta\ngamma\n```\n"))
         c.eqStr("build steps: nothing fades" (itemAt steps 0) (itemAt plain 0))
+        ; in a diff the changed lines are what it shows: lines= fades only
+        ; the context around them
+        def d:[string] (MdCodeLinesTest.inksOf("```diff {.numbers lines=2}\n@@ -1,3 +1,3 @@\n ctx\n-gone\n+here\n tail\n```\n"))
+        def dp:[string] (MdCodeLinesTest.inksOf("```diff {.numbers}\n@@ -1,3 +1,3 @@\n ctx\n-gone\n+here\n tail\n```\n"))
+        c.eqInt("same boxes" (array_length d) (array_length dp))
+        def k:int 0
+        def faded:[string]
+        while ((k < (array_length d)) && (k < (array_length dp))) {
+            if ((itemAt d k) != (itemAt dp k)) {
+                push faded (to_string k)
+            }
+            k = (k + 1)
+        }
+        c.ok("the context fades" ((array_length faded) > 0))
+        c.ok("not every box fades" ((array_length faded) < ((array_length d) - 3)))
     }
 
     ; a slide whose source holds an `asideAt` lays its body out narrower by
@@ -396,5 +413,61 @@ class MdCodeLinesTest {
             i = (i + 1)
         }
         return out
+    }
+
+    ; the changed part of a line, "old→new" ("" when nothing is marked)
+    sfn changed:string (literal:string) {
+        def cl:MdCodeLines (MdCodeLines.read(literal "diff js" "" ""))
+        def parts:[string]
+        for cl.lines l:MdCodeLine i {
+            if (l.changeFrom >= 0) {
+                push parts (l.marker + (substring l.code l.changeFrom l.changeTo))
+            }
+        }
+        return (join parts " ")
+    }
+
+    sfn changes:void (c:CodeCheck) {
+        c.eqStr("a value" (MdCodeLinesTest.changed("-const b = 2\n+const b = 3\n")) "-2 +3")
+        c.eqStr("a renamed word whole" (MdCodeLinesTest.changed("-run(fetchUser, id)\n+run(fetchUsers, id)\n")) "-fetchUser +fetchUsers")
+        c.eqStr("an argument added: only the new line has a span" (MdCodeLinesTest.changed("-f(a)\n+f(a, b)\n")) "+, b")
+        c.eqStr("paired in order across runs" (MdCodeLinesTest.changed("-x = 1\n-y = 2\n+x = 10\n+y = 20\n z\n")) "-1 -2 +10 +20")
+        c.eqStr("lines with little in common: no span" (MdCodeLinesTest.changed("-return a\n+throw new Error(msg)\n")) "")
+        c.eqStr("an added line alone: no span" (MdCodeLinesTest.changed(" a\n+b = 1\n")) "")
+        c.eqStr("a removed line not followed by an added one" (MdCodeLinesTest.changed("-a = 1\n b\n+a = 2\n")) "")
+        c.eqStr("characters kept whole" (MdCodeLinesTest.changed("-s = \"ä\"\n+s = \"ö\"\n")) "-ä +ö")
+        def plain:MdCodeLines (MdCodeLines.read("-a = 1\n+a = 2\n" "js" "" ""))
+        def p0:MdCodeLine (itemAt plain.lines 0)
+        c.eqInt("not a diff: nothing marked" p0.changeFrom -1)
+    }
+
+    ; the span's band sits over the changed characters only, after the
+    ; line's own band
+    sfn changeDrawn:void (c:CodeCheck) {
+        def src:string "```diff js\n-const total = price\n+const total = price * qty\n```\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        l.setDocSource(src)
+        l.layoutContinuous(doc 600.0)
+        def narrow:int 0
+        def spanX:double 0.0
+        def spanW:double 0.0
+        def priceRight:double 0.0
+        for l.boxes b:MdBox i {
+            if ((b.kind == 1) && ((b.h < 30.0) && (b.w < 200.0))) {
+                if (b.w > 5.0) {
+                    narrow = (narrow + 1)
+                    spanX = b.x
+                    spanW = b.w
+                }
+            }
+            if ((b.kind == 0) && (b.text == "price")) {
+                priceRight = (b.x + b.w)
+            }
+        }
+        c.eqInt("one span, on the added line" narrow 1)
+        c.ok("it starts after price" (spanX >= (priceRight - 0.5)))
+        c.ok("and covers \" * qty\"" (spanW > 20.0))
     }
 }

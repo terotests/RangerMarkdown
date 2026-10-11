@@ -20,6 +20,15 @@
 ; there are none): `12-14,20` together, `12-14|20` as steps one after the
 ; other, which `{.build}` reveals one per build step.
 ;
+; In a diff, lines= fades only the context: the added and removed lines are
+; the change and keep their colours.
+;
+; A run of removed lines followed by a run of added lines is a change: the
+; i-th removed line is paired with the i-th added one, and where the two
+; still read alike (they share at least half of the longer one, counted
+; from both ends) the part between their common start and end, widened to
+; whole words, is what changed in the line: changeFrom..changeTo on each.
+;
 ; The layout draws what this says; it reads characters only.
 ; ============================================================================
 
@@ -35,6 +44,10 @@ class MdCodeLine {
     def number:int -1
     ; 0 not highlighted, k the highlight step (1 = first) it belongs to
     def mark:int 0
+    ; on a paired added/removed line: the bytes of code [changeFrom,
+    ; changeTo) that differ from its pair; -1 when nothing is marked
+    def changeFrom:int -1
+    def changeTo:int -1
     ; set by the layout: where in the drawn text (code, or text for a
     ; header) each row after the first begins when the line is wider than
     ; the block, and how far those rows are indented
@@ -289,6 +302,9 @@ class MdCodeLines {
                 k = (k + 1)
             }
         }
+        if out.diff {
+            out.pairChanges()
+        }
         out.mark(marks)
         if (out.numbers == false) {
             for out.lines ln:MdCodeLine li {
@@ -296,6 +312,104 @@ class MdCodeLines {
             }
         }
         return out
+    }
+
+    ; each run of removed lines and the run of added lines right after it,
+    ; paired line by line
+    fn pairChanges:void () {
+        def n:int (array_length lines)
+        def i:int 0
+        while (i < n) {
+            def li:MdCodeLine (itemAt lines i)
+            if (li.kind != 2) {
+                i = (i + 1)
+                continue
+            }
+            def r0:int i
+            while ((i < n) && ((this.kindAt(i)) == 2)) {
+                i = (i + 1)
+            }
+            def a0:int i
+            while ((i < n) && ((this.kindAt(i)) == 1)) {
+                i = (i + 1)
+            }
+            def k:int 0
+            while (((r0 + k) < a0) && ((a0 + k) < i)) {
+                MdCodeLines.changeOf((itemAt lines (r0 + k)) (itemAt lines (a0 + k)))
+                k = (k + 1)
+            }
+        }
+    }
+
+    fn kindAt:int (i:int) {
+        def l:MdCodeLine (itemAt lines i)
+        return l.kind
+    }
+
+    ; a byte that continues a character (UTF-8 continuation, UTF-16 low
+    ; surrogate): a span never begins or ends before one
+    sfn inChar:boolean (t:string at:int) {
+        if ((at <= 0) || (at >= (strlen t))) {
+            return false
+        }
+        def c:int (charAt t at)
+        return (((c >= 128) && (c < 192)) || ((c >= 56320) && (c < 57344)))
+    }
+
+    sfn isWord:boolean (c:int) {
+        if ((c >= 48) && (c <= 57)) { return true }
+        if ((c >= 65) && (c <= 90)) { return true }
+        if ((c >= 97) && (c <= 122)) { return true }
+        return ((c == 95) || (c >= 128))
+    }
+
+    ; what differs between a removed line and the added line it became
+    sfn changeOf:void (old:MdCodeLine now:MdCodeLine) {
+        def a:string old.code
+        def b:string now.code
+        def la:int (strlen a)
+        def lb:int (strlen b)
+        def most:int la
+        if (lb < most) { most = lb }
+        def pre:int 0
+        while ((pre < most) && ((charAt a pre) == (charAt b pre))) {
+            pre = (pre + 1)
+        }
+        def suf:int 0
+        while (((suf < (most - pre)) && ((charAt a ((la - 1) - suf)) == (charAt b ((lb - 1) - suf))))) {
+            suf = (suf + 1)
+        }
+        ; the same line, or one with nothing in common worth pointing at
+        if ((pre == la) && (pre == lb)) {
+            return
+        }
+        def longer:int la
+        if (lb > longer) { longer = lb }
+        if (((pre + suf) * 2) < longer) {
+            return
+        }
+        while (MdCodeLines.inChar(a pre)) {
+            pre = (pre - 1)
+        }
+        while ((suf > 0) && ((MdCodeLines.inChar(a (la - suf))) || (MdCodeLines.inChar(b (lb - suf))))) {
+            suf = (suf - 1)
+        }
+        ; whole words: a renamed identifier is marked whole, not its last
+        ; letters
+        while ((pre > 0) && ((MdCodeLines.isWord((charAt a (pre - 1)))) && (((pre < la) && (MdCodeLines.isWord((charAt a pre)))) || ((pre < lb) && (MdCodeLines.isWord((charAt b pre))))))) {
+            pre = (pre - 1)
+        }
+        while ((suf > 0) && ((MdCodeLines.isWord((charAt a (la - suf)))) && ((((la - suf) > pre) && (MdCodeLines.isWord((charAt a ((la - suf) - 1))))) || (((lb - suf) > pre) && (MdCodeLines.isWord((charAt b ((lb - suf) - 1)))))))) {
+            suf = (suf - 1)
+        }
+        if ((la - suf) > pre) {
+            old.changeFrom = pre
+            old.changeTo = (la - suf)
+        }
+        if ((lb - suf) > pre) {
+            now.changeFrom = pre
+            now.changeTo = (lb - suf)
+        }
     }
 
     ; lines= : "12-14,20" one step, "12-14|20" two
