@@ -37,7 +37,8 @@ class MdAppSpec {
     def height:double 480.0
     ; what it may ask of the deck ("deck.data", "slide.nav", "slide.style",
     ; "machine", "3d": a 3-D world drawn by the host in a <scene3d> element,
-    ; "code": the host's source code viewer while presenting):
+    ; "code": the host's source code viewer while presenting, "sound": sounds
+    ; the host synthesizes):
     ; anything else it asks is refused and reported
     def allow:[string]
     def warnings:[string]
@@ -74,7 +75,7 @@ class MdAppSpec {
 class MdApp {
     ; The words a program may be allowed, in the order a guide lists them.
     sfn grants:[string] () {
-        return ([] _:string ("deck.data" "slide.nav" "slide.style" "machine" "3d" "code"))
+        return ([] _:string ("deck.data" "slide.nav" "slide.style" "machine" "3d" "code" "sound"))
     }
 
     sfn read:MdAppSpec (text:string) {
