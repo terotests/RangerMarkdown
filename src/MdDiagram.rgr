@@ -353,6 +353,7 @@ class MdDiagram {
                 }
             }
             text = (MdVegaRender.limitsByFont(text))
+            text = (MdVegaRender.pointsByFont(text))
         }
         ; A program: a box of its own shape, as large as the column and the
         ; slide's room allow, with a plate in it the host paints over.

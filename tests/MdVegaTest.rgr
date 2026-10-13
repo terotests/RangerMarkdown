@@ -383,6 +383,16 @@ class MdVegaTest {
         def whole:SceneItem (MdVegaTest.textStarting(dl.scene "Vuosinel"))
         c.eqStr("…and the whole title is drawn" whole.text "Vuosineljännes")
         c.eqStr("a stated limit stays" (MdVegaRender.limitsByFont("{\"config\": {\"legend\": {\"titleFontSize\": 24, \"titleLimit\": 50}}}")) "{\"config\": {\"legend\": {\"titleFontSize\": 24, \"titleLimit\": 50}}}")
+        ; a point area the chart states grows with the slide's label type:
+        ; 100 px² beside 15 pt labels came out smaller than the host's own
+        ; default for points no size was given (Tero 2026-10-13)
+        def pts:string "{\"config\": {\"axis\": {\"labelFontSize\": 15}}, \"layer\": [{\"mark\": {\"type\": \"point\", \"size\": 100}}, {\"mark\": \"circle\", \"encoding\": {\"size\": {\"value\": 40}}}, {\"mark\": {\"type\": \"bar\", \"size\": 20}}]}"
+        def gp:string (MdVegaRender.pointsByFont(pts))
+        c.ok("a stated point area grows with the type" ((indexOf gp "\"size\":225") >= 0))
+        c.ok("…a stated size value too" ((indexOf gp "\"value\":90") >= 0))
+        c.ok("…a bar's width stays" ((indexOf gp "\"size\":20") >= 0))
+        def small:string "{\"config\": {\"axis\": {\"labelFontSize\": 10}}, \"mark\": {\"type\": \"point\", \"size\": 100}}"
+        c.eqStr("at Vega's own label size it stays" (MdVegaRender.pointsByFont(small)) small)
         ; a long y title in a slide's large type is no longer than the plot
         ; is high: it made the drawing as tall as the title, and fitting
         ; that into the room squashed the plot to its floor

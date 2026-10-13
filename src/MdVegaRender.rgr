@@ -1247,6 +1247,102 @@ class MdVegaRender {
         return (w.write(spec))
     }
 
+    ; A point's area the chart states (`"mark": {"type": "point", "size":
+    ; 100}`, or `"size": {"value": 100}`) is written against Vega's own
+    ; 10-point axis labels. A theme or a grown chart sets the labels larger,
+    ; and the stated points then came out smaller beside them than the
+    ; host's own default for a chart that states none (Tero 2026-10-13): a
+    ; stated area grows with the square of the label size, as the words do.
+    sfn pointsByFont:string (text:string) {
+        if ((indexOf text "\"size\"") < 0) {
+            return text
+        }
+        def p (new VlJsonParser())
+        def spec:VlJson (p.parse(text))
+        if ((p.ok == false) || ((spec.isObject()) == false)) {
+            return text
+        }
+        def cfg:VlJson (spec.get("config"))
+        if ((cfg.isObject()) == false) {
+            return text
+        }
+        def ax:VlJson (cfg.get("axis"))
+        if ((ax.isObject()) == false) {
+            return text
+        }
+        def f:VlJson (ax.get("labelFontSize"))
+        if (((f.isNumber()) == false) || (f.num <= 10.0)) {
+            return text
+        }
+        def k:double ((f.num / 10.0) * (f.num / 10.0))
+        if ((MdVegaRender.growPoints(spec k)) == false) {
+            return text
+        }
+        def w (new VlJsonWriter())
+        return (w.write(spec))
+    }
+
+    ; The stated point areas in a view and the views inside it (layers,
+    ; facets, repeats, concatenations), k times larger. True when one was.
+    sfn growPoints:boolean (v:VlJson k:double) {
+        if ((v.isObject()) == false) {
+            return false
+        }
+        def changed:boolean false
+        def m:VlJson (v.get("mark"))
+        def kind:string ""
+        if (m.isString()) {
+            kind = m.str
+        }
+        if (m.isObject()) {
+            kind = (m.stringOr("type" ""))
+        }
+        if (((kind == "point") || (kind == "circle")) || (kind == "square")) {
+            if (m.isObject()) {
+                if (MdVegaRender.growArea(m "size" k)) {
+                    changed = true
+                }
+            }
+            def enc:VlJson (v.get("encoding"))
+            if (enc.isObject()) {
+                def sz:VlJson (enc.get("size"))
+                if (sz.isObject()) {
+                    if (MdVegaRender.growArea(sz "value" k)) {
+                        changed = true
+                    }
+                }
+            }
+        }
+        if (MdVegaRender.growPoints((v.get("spec")) k)) {
+            changed = true
+        }
+        def lists:[string] (strsplit "layer concat hconcat vconcat" " ")
+        def i:int 0
+        while (i < (array_length lists)) {
+            def arr:VlJson (v.get((itemAt lists i)))
+            if (arr.isArray()) {
+                def j:int 0
+                while (j < (arr.count())) {
+                    if (MdVegaRender.growPoints((arr.at(j)) k)) {
+                        changed = true
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return changed
+    }
+
+    sfn growArea:boolean (g:VlJson key:string k:double) {
+        def got:VlJson (g.get(key))
+        if ((got.isNumber()) == false) {
+            return false
+        }
+        g.setMember(key (VlJson.numberValue((to_double (to_int ((got.num * k) + 0.5))))))
+        return true
+    }
+
     sfn limitByFont:boolean (g:VlJson limitKey:string limit:double fontKey:string font:double) {
         if (g.has(limitKey)) {
             return false
