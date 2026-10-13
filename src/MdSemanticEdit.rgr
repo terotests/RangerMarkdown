@@ -160,6 +160,8 @@ class MdSemanticEdit {
         if (c == 42) { return true }
         if (c == 95) { return true }
         if (c == 126) { return true }
+        ; `++ins++`, drawn underlined
+        if (c == 43) { return true }
         return false
     }
 
@@ -167,6 +169,7 @@ class MdSemanticEdit {
         if (k == "strong") { return true }
         if (k == "emph") { return true }
         if (k == "strike") { return true }
+        if (k == "ins") { return true }
         return false
     }
 
@@ -574,6 +577,7 @@ class MdSemanticEdit {
         if (what == "bold") { return "strong" }
         if (what == "italic") { return "emph" }
         if (what == "strike") { return "strike" }
+        if (what == "underline") { return "ins" }
         if (what == "code") { return "code" }
         return ""
     }
@@ -582,6 +586,7 @@ class MdSemanticEdit {
         if (what == "bold") { return "**" }
         if (what == "italic") { return "*" }
         if (what == "strike") { return "~~" }
+        if (what == "underline") { return "++" }
         if (what == "code") { return "`" }
         return ""
     }
@@ -635,7 +640,8 @@ class MdSemanticEdit {
         return ""
     }
 
-    ; Bold / italic / strike / code, on or off, as one patch.
+    ; Bold / italic / strike / underline (`++ins++`) / code, on or off, as
+    ; one patch.
     sfn toggleWrap:MdEditOp (src:string doc:MdNode what:string a:int b:int) {
         def none:MdEditOp (new MdEditOp())
         def kind:string (MdSemanticEdit.kindFor(what))
