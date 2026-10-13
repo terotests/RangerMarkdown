@@ -103,6 +103,12 @@ class MdSemanticTest {
         this.twice(c "italic" "plain words here\n" "italic" 6 11)
         this.twice(c "code" "plain words here\n" "code" 6 11)
         this.twice(c "strike" "plain words here\n" "strike" 6 11)
+        this.twice(c "underline" "plain words here\n" "underline" 6 11)
+        this.twice(c "underline, whole heading text" "# Plain words\n" "underline" 2 13)
+        def u:MdEditController (MdSemanticTest.on("a ++under++ b\n"))
+        u.setCaret(5)
+        c.ok("a caret inside ++ins++ turns underline off" (u.toggleWrap("underline")))
+        c.eqStr("the ++ markers are gone" (u.text()) "a under b\n")
         ; A whole line, and a word at the very start and the very end.
         this.twice(c "whole line" "plain words here\n" "bold" 0 16)
         this.twice(c "first word" "plain words here\n" "bold" 0 5)
