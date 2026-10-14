@@ -527,6 +527,18 @@ class MdCssTest {
         c.eqStr("th wins over table" both.tableHeadBackground "#222222")
     }
 
+    ; comments as spaces, the same length, line breaks and letters kept
+    fn blanked:void (c:CssCheck) {
+        c.eqStr("no comment" (MdCssSupport.blankComments("a { b: c }")) "a { b: c }")
+        c.eqStr("a comment" (MdCssSupport.blankComments("a /* xy */ b")) "a          b")
+        c.eqStr("lines kept" (MdCssSupport.blankComments("a/*x\ny*/é")) "a   \n   é")
+        c.eqStr("unclosed" (MdCssSupport.blankComments("ä { } /* never")) "ä { }         ")
+        def css:string ".é { content: \"→\" } /* o */ .ö {}"
+        def got:string (MdCssSupport.blankComments(css))
+        c.eqStr("letters beyond ASCII" got ".é { content: \"→\" }         .ö {}")
+        c.ok("same length" ((strlen got) == (strlen css)))
+    }
+
     fn run:void () {
         def c:CssCheck (new CssCheck())
         print "== MdCssTest =="
@@ -541,6 +553,7 @@ class MdCssTest {
         this.variables(c)
         this.typography(c)
         this.plates(c)
+        this.blanked(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
