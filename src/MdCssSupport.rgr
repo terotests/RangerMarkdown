@@ -741,42 +741,65 @@ class MdCssSupport {
     }
 
     ; comments turned to spaces (newlines kept), so offsets still point
-    ; into the text the author wrote
+    ; into the text the author wrote. The text between comments is copied a
+    ; run at a time: a character appended per step is quadratic, and on Go
+    ; `charAt` is a byte that `strfromcode` would make a character of its own.
     sfn blankComments:string (css:string) {
         if ((indexOf css "/*") < 0) {
             return css
         }
-        def out:string ""
+        def parts:[string]
         def n:int (strlen css)
+        def from:int 0
         def i:int 0
-        def inC:boolean false
         while (i < n) {
-            def c:int (charAt css i)
-            if inC {
-                if ((c == 42) && (((i + 1) < n) && ((charAt css (i + 1)) == 47))) {
-                    out = (out + "  ")
-                    i = (i + 2)
-                    inC = false
-                } {
-                    if (c == 10) {
-                        out = (out + "\n")
+            if (((charAt css i) == 47) && (((i + 1) < n) && ((charAt css (i + 1)) == 42))) {
+                push parts (substring css from i)
+                def j:int (i + 2)
+                def end:int (0 - 1)
+                while ((j < n) && (end < 0)) {
+                    if (((charAt css j) == 42) && (((j + 1) < n) && ((charAt css (j + 1)) == 47))) {
+                        end = j
                     } {
-                        out = (out + " ")
+                        j = (j + 1)
                     }
-                    i = (i + 1)
                 }
+                def bodyEnd:int end
+                if (end < 0) {
+                    bodyEnd = n
+                }
+                push parts "  "
+                push parts (MdCssSupport.blank((substring css (i + 2) bodyEnd)))
+                if (end < 0) {
+                    return (join parts "")
+                }
+                push parts "  "
+                i = (end + 2)
+                from = i
             } {
-                if ((c == 47) && (((i + 1) < n) && ((charAt css (i + 1)) == 42))) {
-                    out = (out + "  ")
-                    i = (i + 2)
-                    inC = true
-                } {
-                    out = (out + (strfromcode c))
-                    i = (i + 1)
-                }
+                i = (i + 1)
             }
         }
-        return out
+        push parts (substring css from n)
+        return (join parts "")
+    }
+
+    ; as many spaces as text has, its line breaks kept
+    sfn blank:string (text:string) {
+        def lines:[string] (strsplit text "\n")
+        def out:[string]
+        for lines ln:string li {
+            push out (MdCssSupport.spaces((strlen ln)))
+        }
+        return (join out "\n")
+    }
+
+    sfn spaces:string (n:int) {
+        def s:string " "
+        while ((strlen s) < n) {
+            s = (s + s)
+        }
+        return (substring s 0 n)
     }
 
     sfn findIn:int (s:string from:int to:int ch:int) {
