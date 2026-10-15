@@ -312,6 +312,59 @@ class MdSrcMapTest {
         def code:string "say `x + 1` please\n"
         c.eqStr("the span is the backticks and their contents"
             (MdSrcMapTest.spanOfFirst(code "code")) "`x + 1`")
+        ; …and its words on the page stand for its words in the file, not
+        ; for the backticks before them
+        def cdoc:MdNode (MdBlock.parseText(code))
+        def clay:MdLayout (new MdLayout())
+        clay.layoutContinuous(cdoc 900.0)
+        def cAt:int -1
+        def cLen:int -1
+        def ci:int 0
+        while (ci < (array_length clay.boxes)) {
+            def cb2:MdBox (itemAt clay.boxes ci)
+            if ((cb2.kind == 0) && (cb2.text == "x + 1")) {
+                cAt = cb2.segSrc
+                cLen = cb2.segLen
+            }
+            ci = (ci + 1)
+        }
+        c.eqInt("the code's box starts at its first letter" cAt 5)
+        c.eqInt("…and is as long as its words" cLen 5)
+        def wide:string "a `` `b` `` c\n"
+        def wdoc:MdNode (MdBlock.parseText(wide))
+        def wlay:MdLayout (new MdLayout())
+        wlay.layoutContinuous(wdoc 900.0)
+        def wAt:int -1
+        def wi:int 0
+        while (wi < (array_length wlay.boxes)) {
+            def wb:MdBox (itemAt wlay.boxes wi)
+            if ((wb.kind == 0) && (wb.text == "`b`")) {
+                wAt = wb.segSrc
+            }
+            wi = (wi + 1)
+        }
+        c.eqInt("two backticks and a stripped space: past all three" wAt 5)
+        ; a picture the layout has no bytes for shows "[alt]", which is not
+        ; its source spelled out: the box stands for all of `![alt](p.png)`
+        def gdoc:MdNode (MdBlock.parseText(img))
+        def glay:MdLayout (new MdLayout())
+        glay.layoutContinuous(gdoc 900.0)
+        def gAt:int -1
+        def gLen:int -1
+        def gAtom:boolean false
+        def gi:int 0
+        while (gi < (array_length glay.boxes)) {
+            def gb:MdBox (itemAt glay.boxes gi)
+            if ((gb.kind == 0) && (gb.text == "[alt]")) {
+                gAt = gb.segSrc
+                gLen = gb.segLen
+                gAtom = gb.segAtom
+            }
+            gi = (gi + 1)
+        }
+        c.eqInt("a missing picture's words start at its bang" gAt 3)
+        c.eqInt("…and stand for the whole picture" gLen 13)
+        c.ok("…as one stop" gAtom)
 
         print "-- a reference definition moves the text that follows it --"
         def refd:string "[a]: /url\nhello [a]\n"
