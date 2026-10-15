@@ -6976,6 +6976,15 @@ class MdLayout {
                 cr.text = c.literal
                 cr.srcStart = c.srcStart
                 cr.srcEnd = c.srcEnd
+                ; the node spans its backticks; the run is the words between
+                ; them, so a character's offset is that character's. The
+                ; backticks and the one space each side a span may strip
+                ; come in equal numbers on both sides.
+                def around:int ((c.srcEnd - c.srcStart) - (strlen c.literal))
+                if ((c.srcStart >= 0) && ((around >= 2) && ((around % 2) == 0))) {
+                    cr.srcStart = (c.srcStart + (idiv around 2))
+                    cr.srcEnd = (cr.srcStart + (strlen c.literal))
+                }
                 push out cr
             }
             if (kind == "math") {
@@ -7107,6 +7116,8 @@ class MdLayout {
                 fr.noteRef = c.noteNumber
                 fr.srcStart = c.srcStart
                 fr.srcEnd = c.srcEnd
+                ; the number is not its source `[^x]`: one stop on each side
+                fr.atom = true
                 push out fr
             }
             if (kind == "image") {
@@ -7119,6 +7130,8 @@ class MdLayout {
                 ir.text = (("[" + alt) + "]")
                 ir.srcStart = c.srcStart
                 ir.srcEnd = c.srcEnd
+                ; "[alt]" stands for the whole `![alt](url)`, not its first letters
+                ir.atom = true
                 push out ir
             }
             i = (i + 1)
