@@ -200,62 +200,194 @@ class MdApp {
         return ([] _:double (w h))
     }
 
-    ; What stands in the box where the program does not run: a dark plate,
-    ; a play mark and the program's name.
+    ; What stands in the box where the program does not run: a quiet plate
+    ; with a play mark and the program's name.
     sfn placeholder:EVGElement (spec:MdAppSpec w:double h:double) {
-        return (MdApp.plate(spec w h ""))
+        return (MdApp.plateIn(spec w h (new MdAppPlate())))
     }
 
     ; The plate with why the program is not running under its name (its
     ; syntax error, what it threw, a frame that was no element tree), ""
     ; for none: said where the program was to be, not only in a console.
     sfn plate:EVGElement (spec:MdAppSpec w:double h:double note:string) {
+        def look (new MdAppPlate())
+        look.note = note
+        return (MdApp.plateIn(spec w h look))
+    }
+
+    ; The plate as `look` says: drawn in its ink (the slide's text colour,
+    ; so it reads on a light slide and on a dark one alike), a round badge
+    ; with a play mark — or "!" when there is a note — the program's name,
+    ; the caption under it and the note in a warning colour. A box too small
+    ; for the badge keeps the name with "▶" before it.
+    sfn plateIn:EVGElement (spec:MdAppSpec w:double h:double look:MdAppPlate) {
+        def ink:EVGColor (EVGColor.parse((look.inkOr())))
+        def alert:EVGColor (EVGColor.parse((look.alertOr())))
+        def stopped:boolean ((strlen look.note) > 0)
         def root:EVGElement (EVGElement.createDiv())
         root.width = (EVGUnit.px(w))
         root.height = (EVGUnit.px(h))
         root.pageWidth = w
         root.pageHeight = h
         root.position = "relative"
-        root.backgroundColor = (EVGColor.parse("#141a2b"))
-        root.setAttribute("border-radius" "8px")
-        def size:double (h * 0.08)
-        if (size < 10.0) {
-            size = 10.0
-        }
-        if (size > 28.0) {
-            size = 28.0
-        }
-        def t:EVGElement (EVGElement.createSpan())
-        t.tagName = "text"
-        t.position = "absolute"
-        t.left = (EVGUnit.px(0.0))
-        t.top = (EVGUnit.px(((h * 0.5) - (size * 0.7))))
-        t.width = (EVGUnit.px(w))
-        t.textContent = ("▶ " + (spec.name()))
-        t.fontSize = (EVGUnit.px(size))
-        t.lineHeight = 1.25
-        t.color = (EVGColor.parse("#c9d1e6"))
-        t.textAlign = "center"
-        root.addChild(t)
-        if ((strlen note) > 0) {
-            t.top = (EVGUnit.px(((h * 0.5) - (size * 1.8))))
-            def small:double (size * 0.6)
-            if (small < 9.0) {
-                small = 9.0
+        root.backgroundColor = (ink.withAlpha(0.06))
+        root.setAttribute("border-width" "1px")
+        root.borderColor = (ink.withAlpha(0.22))
+        root.setAttribute("border-radius" "10px")
+        def nameSize:double (MdApp.clampTo((h * 0.07) 10.0 20.0))
+        def small:double (MdApp.most(9.0 (nameSize * 0.72)))
+        def badge:boolean ((h >= 90.0) && (w >= 120.0))
+        def d:double (MdApp.clampTo(((MdApp.least(w h)) * 0.2) 28.0 64.0))
+        def note:string (MdApp.shortNote(look.note))
+        def noteLines:int 0
+        if stopped {
+            def perLine:double (MdApp.most(1.0 ((w * 0.84) / (small * 0.55))))
+            noteLines = (ceil ((to_double (strlen note)) / perLine))
+            if (noteLines > 3) {
+                noteLines = 3
             }
-            def n:EVGElement (EVGElement.createSpan())
-            n.tagName = "text"
-            n.position = "absolute"
+            if (noteLines < 1) {
+                noteLines = 1
+            }
+        }
+        def total:double (nameSize * 1.25)
+        if badge {
+            total = (total + d + (nameSize * 0.6))
+        }
+        if ((strlen look.caption) > 0) {
+            total = (total + (small * 1.8))
+        }
+        if stopped {
+            total = (total + (small * 0.5) + ((to_double noteLines) * small * 1.3))
+        }
+        def y:double ((h - total) * 0.5)
+        if badge {
+            def tint:EVGColor ink
+            if stopped {
+                tint = alert
+            }
+            def b:EVGElement (EVGElement.createDiv())
+            b.position = "absolute"
+            b.left = (EVGUnit.px(((w - d) * 0.5)))
+            b.top = (EVGUnit.px(y))
+            b.width = (EVGUnit.px(d))
+            b.height = (EVGUnit.px(d))
+            b.backgroundColor = (tint.withAlpha(0.1))
+            b.setAttribute("border-width" "1.5px")
+            b.borderColor = (tint.withAlpha(0.4))
+            b.setAttribute("border-radius" ((to_string (d * 0.5)) + "px"))
+            root.addChild(b)
+            def markSize:double (d * 0.42)
+            def m:EVGElement (MdApp.line((? stopped "!" "▶") markSize (tint.withAlpha(0.85))))
+            ; the triangle's weight sits left of its box: moved a little right
+            def nudge:double (? stopped 0.0 (d * 0.05))
+            m.left = (EVGUnit.px(((w - d) * 0.5) + nudge))
+            m.top = (EVGUnit.px((y + ((d - (markSize * 1.25)) * 0.5))))
+            m.width = (EVGUnit.px(d))
+            root.addChild(m)
+            y = (y + d + (nameSize * 0.6))
+        }
+        def name:string (spec.name())
+        if (badge == false) {
+            name = ("▶ " + name)
+        }
+        def t:EVGElement (MdApp.line(name nameSize (ink.withAlpha(0.88))))
+        t.top = (EVGUnit.px(y))
+        t.left = (EVGUnit.px((w * 0.05)))
+        t.width = (EVGUnit.px((w * 0.9)))
+        root.addChild(t)
+        y = (y + (nameSize * 1.25))
+        if ((strlen look.caption) > 0) {
+            y = (y + (small * 0.5))
+            def c:EVGElement (MdApp.line(look.caption small (ink.withAlpha(0.6))))
+            c.top = (EVGUnit.px(y))
+            c.left = (EVGUnit.px((w * 0.05)))
+            c.width = (EVGUnit.px((w * 0.9)))
+            root.addChild(c)
+            y = (y + (small * 1.3))
+        }
+        if stopped {
+            y = (y + (small * 0.5))
+            def n:EVGElement (MdApp.line(note small alert))
+            n.top = (EVGUnit.px(y))
             n.left = (EVGUnit.px((w * 0.08)))
-            n.top = (EVGUnit.px(((h * 0.5) - (size * 0.2))))
             n.width = (EVGUnit.px((w * 0.84)))
-            n.textContent = note
-            n.fontSize = (EVGUnit.px(small))
             n.lineHeight = 1.3
-            n.color = (EVGColor.parse("#ff9b8a"))
-            n.textAlign = "center"
             root.addChild(n)
         }
         return root
+    }
+
+    ; A centred line of text at `size` in `colour`, placed by the caller.
+    sfn line:EVGElement (text:string size:double colour:EVGColor) {
+        def t:EVGElement (EVGElement.createSpan())
+        t.tagName = "text"
+        t.position = "absolute"
+        t.textContent = text
+        t.fontSize = (EVGUnit.px(size))
+        t.lineHeight = 1.25
+        t.color = colour
+        t.textAlign = "center"
+        return t
+    }
+
+    ; A note kept to what a plate can show: its first line, 140 characters.
+    sfn shortNote:string (note:string) {
+        def s:string (trim note)
+        def nl:int (indexOf s (strfromcode 10))
+        if (nl > 0) {
+            s = (trim (substring s 0 nl))
+        }
+        if ((strlen s) > 140) {
+            s = ((substring s 0 139) + "…")
+        }
+        return s
+    }
+
+    sfn clampTo:double (v:double lo:double hi:double) {
+        return (MdApp.least((MdApp.most(v lo)) hi))
+    }
+
+    sfn most:double (a:double b:double) {
+        if (a > b) {
+            return a
+        }
+        return b
+    }
+
+    sfn least:double (a:double b:double) {
+        if (a < b) {
+            return a
+        }
+        return b
+    }
+}
+
+; How a program's plate looks and what it says (MdApp.plateIn). The host
+; fills it in: a deck that runs programs knows its slide's text colour and
+; whether the program is still starting.
+class MdAppPlate {
+    ; the slide's text colour; "" for a grey that reads on light and dark
+    def ink:string ""
+    ; why the program is not running ("" for nothing wrong): said under the
+    ; name in `alert`, with "!" in the badge
+    def note:string ""
+    ; a quiet line under the name ("Loading…"), "" for none
+    def caption:string ""
+    ; the note's colour; "" for a red that reads on light and dark
+    def alert:string ""
+
+    fn inkOr:string () {
+        if ((strlen (trim ink)) == 0) {
+            return "#7d8597"
+        }
+        return ink
+    }
+
+    fn alertOr:string () {
+        if ((strlen (trim alert)) == 0) {
+            return "#e5484d"
+        }
+        return alert
     }
 }

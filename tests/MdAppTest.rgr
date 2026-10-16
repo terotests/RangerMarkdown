@@ -113,11 +113,38 @@ class MdAppTest {
         c.eqStr("the fence word" (MdEmbedKinds.notationOf("app")) "app")
         c.eqStr("its name" (MdEmbedKinds.notationWord("app")) "App")
         def p:EVGElement (MdApp.placeholder(s 400.0 300.0))
-        c.ok("plate has its label" ((array_length p.children) == 1))
-        def pe:EVGElement (MdApp.plate(s 400.0 300.0 "SyntaxError: line 3"))
-        c.ok("a plate with a note has two lines" ((array_length pe.children) == 2))
-        def noteEl:EVGElement (itemAt pe.children 1)
-        c.eqStr("the note" noteEl.textContent "SyntaxError: line 3")
+        c.ok("plate has a badge, its mark and its name" ((array_length p.children) == 3))
+        def pm:EVGElement (itemAt p.children 1)
+        c.eqStr("a play mark" pm.textContent "▶")
+        def pn:EVGElement (itemAt p.children 2)
+        c.eqStr("the name" pn.textContent "a.tsx")
+        def pe:EVGElement (MdApp.plate(s 400.0 300.0 "SyntaxError: line 3\n  at x"))
+        c.ok("a plate with a note has a line more" ((array_length pe.children) == 4))
+        def em:EVGElement (itemAt pe.children 1)
+        c.eqStr("a stopped one is marked !" em.textContent "!")
+        def noteEl:EVGElement (itemAt pe.children 3)
+        c.eqStr("the note, its first line" noteEl.textContent "SyntaxError: line 3")
+        c.ok("the note in the warning colour" ((noteEl.color.red()) > 200))
+        def tiny:EVGElement (MdApp.placeholder(s 80.0 60.0))
+        def tn:EVGElement (itemAt tiny.children 0)
+        c.ok("a small box: no badge" ((array_length tiny.children) == 1))
+        c.eqStr("a small box: the mark before the name" tn.textContent "▶ a.tsx")
+        def look (new MdAppPlate())
+        look.ink = "#ffffff"
+        look.caption = "Loading…"
+        def lp:EVGElement (MdApp.plateIn(s 400.0 300.0 look))
+        c.ok("a caption under the name" ((array_length lp.children) == 4))
+        def cap:EVGElement (itemAt lp.children 3)
+        c.eqStr("the caption" cap.textContent "Loading…")
+        c.ok("drawn in the slide's ink" (((lp.backgroundColor.red()) == 255) && (lp.backgroundColor.a < 0.1)))
+        def nameEl:EVGElement (itemAt lp.children 2)
+        c.ok("the name in the ink" ((nameEl.color.red()) == 255))
+        c.ok("a grey without an ink" ((pn.color.red()) == 125))
+        def longNote:string "x"
+        while ((strlen longNote) < 300) {
+            longNote = (longNote + "x")
+        }
+        c.ok("a long note is cut" ((strlen (MdApp.shortNote(longNote))) == 140))
         ; centred in a wider column: placed at its own width, not stretched
         ; to the column's end
         def e:MdEmbedEntry (new MdEmbedEntry())
