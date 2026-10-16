@@ -1,0 +1,563 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdFromHtml.rgr — HTML from the clipboard as Markdown
+; ============================================================================
+;
+; What a browser, Word or Google Docs puts on the clipboard as text/html,
+; written as the Markdown that says the same: paragraphs, headings, bold,
+; italic, code, links, lists (nested), quotes and preformatted text. Tables
+; are MdSemanticEdit.tableFromHtml's. Anything else is its text.
+;
+; `convert` answers "" when the HTML says nothing the plain text does not
+; (no emphasis, link, heading or list), so the caller pastes the text.
+; ============================================================================
+
+Import "MdChar.rgr"
+Import "MdHtml.rgr"
+
+class MdFromHtml {
+    def blocks:[string]
+    ; whether each block is a list item (items follow each other with no
+    ; blank line between)
+    def items:[boolean]
+    def cur:string ""
+    def prefix:string ""
+    def heading:int 0
+    def isItem:boolean false
+    def quote:int 0
+    def pre:boolean false
+    def skip:int 0
+    def lists:[string]
+    def counts:[int]
+    def links:[string]
+    ; the markers each open span wrote ("**", "*", "**" + "*", ""), closed
+    ; in turn by its </span>
+    def spans:[string]
+    ; an open marker just written: a space after it goes before it
+    def justOpened:string ""
+    def rich:boolean false
+
+    Constructor () {
+    }
+
+    sfn convert:string (html:string) {
+        def m (new MdFromHtml())
+        return (m.run(html))
+    }
+
+    fn run:string (html:string) {
+        def s:string html
+        def fs:int (indexOf s "<!--StartFragment-->")
+        if (fs >= 0) {
+            def fe:int (indexOf s "<!--EndFragment-->")
+            if (fe > fs) {
+                s = (substring s (fs + 20) fe)
+            }
+        }
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 60) {
+                if (((i + 3) < n) && ((substring s i (i + 4)) == "<!--")) {
+                    def ce:int (MdFromHtml.find(s "-->" (i + 4)))
+                    i = (? (ce < 0) n (ce + 3))
+                } {
+                    def at:int (MdHtml.nextTag(s i))
+                    if (at == i) {
+                        def t:MdHtmlTag (MdHtml.tagAt(s i))
+                        this.onTag(t)
+                        i = t.end
+                    } {
+                        this.text("<")
+                        i = (i + 1)
+                    }
+                }
+            } {
+                def j:int i
+                while ((j < n) && ((charAt s j) != 60)) {
+                    j = (j + 1)
+                }
+                this.text((MdFromHtml.decode((substring s i j))))
+                i = j
+            }
+        }
+        this.flush()
+        if (rich == false) {
+            return ""
+        }
+        def out:string ""
+        def k:int 0
+        while (k < (array_length blocks)) {
+            if (k > 0) {
+                out = (out + (? ((itemAt items k) && (itemAt items (k - 1))) "\n" "\n\n"))
+            }
+            out = (out + (itemAt blocks k))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    fn text:void (raw:string) {
+        if (skip > 0) {
+            return
+        }
+        def t:string raw
+        if (pre == false) {
+            t = (MdFromHtml.squeeze(raw))
+            if (((strlen cur) == 0) || (MdFromHtml.endsSpace(cur))) {
+                ; no space at a line's start or twice
+                while (((strlen t) > 0) && ((charAt t 0) == 32)) {
+                    t = (substring t 1 (strlen t))
+                }
+            }
+            t = (MdFromHtml.escape(t))
+        }
+        if ((strlen t) == 0) {
+            return
+        }
+        if (((strlen justOpened) > 0) && ((charAt t 0) == 32)) {
+            ; "** bold" does not make bold: the space before the marker
+            def ml:int (strlen justOpened)
+            cur = ((substring cur 0 ((strlen cur) - ml)) + " " + justOpened)
+            t = (substring t 1 (strlen t))
+        }
+        justOpened = ""
+        cur = (cur + t)
+    }
+
+    fn open:void (mark:string) {
+        if (skip > 0) {
+            return
+        }
+        cur = (cur + mark)
+        justOpened = (justOpened + mark)
+    }
+
+    fn close:void (mark:string) {
+        if ((skip > 0) || ((strlen mark) == 0)) {
+            return
+        }
+        def ml:int (strlen mark)
+        if (((strlen justOpened) >= ml) && (MdFromHtml.ends(cur mark))) {
+            ; nothing between: no markers
+            cur = (substring cur 0 ((strlen cur) - ml))
+            justOpened = (substring justOpened 0 ((strlen justOpened) - ml))
+            return
+        }
+        justOpened = ""
+        ; "bold **" neither: the marker before the space
+        def sp:int 0
+        while ((sp < (strlen cur)) && ((charAt cur (((strlen cur) - 1) - sp)) == 32)) {
+            sp = (sp + 1)
+        }
+        def body:string (substring cur 0 ((strlen cur) - sp))
+        cur = (body + mark + (substring cur ((strlen cur) - sp) (strlen cur)))
+        rich = true
+    }
+
+    fn flush:void () {
+        justOpened = ""
+        def t:string cur
+        if (pre == false) {
+            t = (trim cur)
+        }
+        if ((strlen t) > 0) {
+            def head:string ""
+            if (heading > 0) {
+                def h:int 0
+                while (h < heading) {
+                    head = (head + "#")
+                    h = (h + 1)
+                }
+                head = (head + " ")
+            }
+            def q:string ""
+            def k:int 0
+            while (k < quote) {
+                q = (q + "> ")
+                k = (k + 1)
+            }
+            def lead:string (q + prefix)
+            def body:string (MdFromHtml.indentLines((head + t) lead (MdFromHtml.spaces((strlen prefix)) q)))
+            push blocks body
+            push items isItem
+        }
+        cur = ""
+        heading = 0
+        if isItem {
+            ; the item's further paragraphs stay under its words
+            prefix = (MdFromHtml.spaces((strlen prefix)))
+        }
+    }
+
+    fn onTag:void (t:MdHtmlTag) {
+        def nm:string t.name
+        if (((((nm == "style") || (nm == "script")) || (nm == "head")) || (nm == "title")) || (nm == "xml")) {
+            if (t.selfClose == false) {
+                skip = (skip + (? t.close -1 1))
+                if (skip < 0) {
+                    skip = 0
+                }
+            }
+            return
+        }
+        if (skip > 0) {
+            return
+        }
+        if (((((nm == "p") || (nm == "div")) || (nm == "tr")) || (nm == "dt")) || (nm == "dd")) {
+            this.flush()
+            return
+        }
+        if (((strlen nm) == 2) && (((charAt nm 0) == 104) && (((charAt nm 1) >= 49) && ((charAt nm 1) <= 54)))) {
+            this.flush()
+            if (t.close == false) {
+                heading = ((charAt nm 1) - 48)
+                rich = true
+            }
+            return
+        }
+        if (nm == "br") {
+            if pre {
+                cur = (cur + "\n")
+            } {
+                cur = (cur + "\\\n")
+            }
+            return
+        }
+        if (nm == "blockquote") {
+            this.flush()
+            quote = (quote + (? t.close -1 1))
+            if (quote < 0) {
+                quote = 0
+            }
+            rich = true
+            return
+        }
+        if (nm == "pre") {
+            if t.close {
+                if pre {
+                    cur = (cur + "\n```")
+                    this.flush()
+                    pre = false
+                }
+            } {
+                this.flush()
+                pre = true
+                cur = "```\n"
+            }
+            rich = true
+            return
+        }
+        if ((nm == "ul") || (nm == "ol")) {
+            this.flush()
+            if t.close {
+                if ((array_length lists) > 0) {
+                    removeLast lists
+                    removeLast counts
+                }
+                isItem = ((array_length lists) > 0)
+                prefix = ""
+            } {
+                push lists nm
+                def from:int 1
+                if (t.has("start")) {
+                    from = (?? (str2int (t.attr("start"))) 1)
+                }
+                push counts (from - 1)
+            }
+            return
+        }
+        if (nm == "li") {
+            this.flush()
+            if (t.close == false) {
+                def depth:int (array_length lists)
+                def ind:string ""
+                def d:int 0
+                ; each level under the words of the one above
+                while (d < (depth - 1)) {
+                    ind = (ind + (? ((itemAt lists d) == "ol") "   " "  "))
+                    d = (d + 1)
+                }
+                def mk:string "- "
+                if ((depth > 0) && ((itemAt lists (depth - 1)) == "ol")) {
+                    def num:int ((itemAt counts (depth - 1)) + 1)
+                    set counts (depth - 1) num
+                    mk = ((to_string num) + ". ")
+                }
+                prefix = (ind + mk)
+                isItem = true
+                rich = true
+            }
+            return
+        }
+        if ((nm == "td") || (nm == "th")) {
+            if ((t.close == false) && ((strlen (trim cur)) > 0)) {
+                cur = (cur + " ")
+            }
+            return
+        }
+        if (pre && (nm != "a")) {
+            return
+        }
+        if ((nm == "b") || (nm == "strong")) {
+            ; Google Docs wraps a whole copy in <b style="font-weight:normal">
+            if (t.close == false) {
+                def fw:string (MdHtml.styleProp((t.attr("style")) "font-weight"))
+                if ((fw == "normal") || (fw == "400")) {
+                    push spans ""
+                    return
+                }
+                push spans "**"
+                this.open("**")
+            } {
+                this.closeSpan()
+            }
+            return
+        }
+        if ((nm == "i") || (nm == "em")) {
+            if (t.close == false) {
+                push spans "*"
+                this.open("*")
+            } {
+                this.closeSpan()
+            }
+            return
+        }
+        if (nm == "code") {
+            if (t.close == false) {
+                push spans "`"
+                this.open("`")
+            } {
+                this.closeSpan()
+            }
+            return
+        }
+        if (nm == "span") {
+            if (t.close == false) {
+                def st:string (t.attr("style"))
+                def w:string (MdHtml.styleProp(st "font-weight"))
+                def it:string (MdHtml.styleProp(st "font-style"))
+                def mk2:string ""
+                if (((w == "bold") || (w == "700")) || ((w == "800") || (w == "900"))) {
+                    mk2 = "**"
+                }
+                if (it == "italic") {
+                    mk2 = (mk2 + "*")
+                }
+                push spans mk2
+                if ((strlen mk2) > 0) {
+                    this.open(mk2)
+                }
+            } {
+                this.closeSpan()
+            }
+            return
+        }
+        if (nm == "a") {
+            if (t.close == false) {
+                def href:string (trim (t.attr("href")))
+                push links href
+                if ((strlen href) > 0) {
+                    this.open("[")
+                }
+            } {
+                if ((array_length links) > 0) {
+                    def h2:string (itemAt links ((array_length links) - 1))
+                    removeLast links
+                    if ((strlen h2) > 0) {
+                        if (((strlen justOpened) > 0) && (MdFromHtml.ends(cur "["))) {
+                            ; a link around nothing
+                            cur = (substring cur 0 ((strlen cur) - 1))
+                            justOpened = ""
+                        } {
+                            justOpened = ""
+                            cur = (cur + "](" + h2 + ")")
+                            rich = true
+                        }
+                    }
+                }
+            }
+            return
+        }
+    }
+
+    fn closeSpan:void () {
+        if ((array_length spans) == 0) {
+            return
+        }
+        def mk:string (itemAt spans ((array_length spans) - 1))
+        removeLast spans
+        ; closed in the order opened backwards ("***" opened → "*" then "**")
+        def rev:string ""
+        def k:int ((strlen mk) - 1)
+        while (k >= 0) {
+            rev = (rev + (substring mk k (k + 1)))
+            k = (k - 1)
+        }
+        this.close(rev)
+    }
+
+    ; --- text --------------------------------------------------------------------
+    sfn squeeze:string (s:string) {
+        def out:string ""
+        def sp:boolean false
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((((c == 32) || (c == 9)) || ((c == 10) || (c == 13))) || (c == 160)) {
+                if (c == 160) {
+                    ; &nbsp; is a space the writer meant
+                    out = (out + " ")
+                    sp = false
+                } {
+                    if (sp == false) {
+                        out = (out + " ")
+                    }
+                    sp = true
+                }
+            } {
+                out = (out + (substring s i (i + 1)))
+                sp = false
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn endsSpace:boolean (s:string) {
+        def n:int (strlen s)
+        return ((n > 0) && (((charAt s (n - 1)) == 32) || ((charAt s (n - 1)) == 10)))
+    }
+
+    sfn ends:boolean (s:string tail:string) {
+        def n:int (strlen s)
+        def m:int (strlen tail)
+        return ((n >= m) && ((substring s (n - m) n) == tail))
+    }
+
+    ; `*`, `_`, `` ` `` and `[` that would read as Markdown, escaped.
+    sfn escape:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((((c == 42) || (c == 95)) || (c == 96)) || ((c == 91) || (c == 92))) {
+                out = (out + "\\")
+            }
+            out = (out + (substring s i (i + 1)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn spaces:string (n:int) {
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            out = (out + " ")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The first line after `lead`, the others after `more` (a quote's `> `
+    ; with the item's words' indent).
+    sfn indentLines:string (s:string lead:string more:string) {
+        def out:string lead
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            out = (out + (substring s i (i + 1)))
+            if ((c == 10) && ((i + 1) < n)) {
+                out = (out + more)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The entities a clipboard uses: the five of XML, &nbsp; and numbers.
+    sfn decode:string (s:string) {
+        if ((indexOf s "&") < 0) {
+            return s
+        }
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            def done:boolean false
+            if (c == 38) {
+                def semi:int (MdFromHtml.find(s ";" i))
+                if ((semi > i) && ((semi - i) <= 10)) {
+                    def name:string (substring s (i + 1) semi)
+                    def rep:string ""
+                    if (name == "amp") { rep = "&" }
+                    if (name == "lt") { rep = "<" }
+                    if (name == "gt") { rep = ">" }
+                    if (name == "quot") { rep = "\"" }
+                    if (name == "apos") { rep = "'" }
+                    if (name == "nbsp") { rep = (strfromcode 160) }
+                    if (((strlen name) > 1) && ((charAt name 0) == 35)) {
+                        def num:int 0
+                        if (((charAt name 1) == 120) || ((charAt name 1) == 88)) {
+                            num = (MdFromHtml.hexOf((substring name 2 (strlen name))))
+                        } {
+                            num = (?? (str2int (substring name 1 (strlen name))) 0)
+                        }
+                        if (num > 0) {
+                            rep = (strfromcode num)
+                        }
+                    }
+                    if ((strlen rep) > 0) {
+                        out = (out + rep)
+                        i = (semi + 1)
+                        done = true
+                    }
+                }
+            }
+            if (done == false) {
+                out = (out + (substring s i (i + 1)))
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; Where `sub` is in `s` at or after `from`, or -1.
+    sfn find:int (s:string sub:string from:int) {
+        def n:int (strlen s)
+        def m:int (strlen sub)
+        def i:int from
+        while ((i + m) <= n) {
+            if ((substring s i (i + m)) == sub) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn hexOf:int (h:string) {
+        def v:int 0
+        def i:int 0
+        while (i < (strlen h)) {
+            def c:int (charAt h i)
+            def d:int -1
+            if ((c >= 48) && (c <= 57)) { d = (c - 48) }
+            if ((c >= 97) && (c <= 102)) { d = (c - 87) }
+            if ((c >= 65) && (c <= 70)) { d = (c - 55) }
+            if (d < 0) {
+                return 0
+            }
+            v = ((v * 16) + d)
+            i = (i + 1)
+        }
+        return v
+    }
+}

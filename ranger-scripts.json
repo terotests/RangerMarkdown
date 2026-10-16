@@ -41,6 +41,7 @@
     "markdown:plugins:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdPluginsTest.rgr ./gallery/markdown/bin MdPluginsTest.js",
     "markdown:columns:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdColumnsTest.rgr ./gallery/markdown/bin MdColumnsTest.js",
     "markdown:searchtext:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdSearchTextTest.rgr ./gallery/markdown/bin MdSearchTextTest.js",
-    "markdown:app:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdAppTest.rgr ./gallery/markdown/bin MdAppTest.js"
+    "markdown:app:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdAppTest.rgr ./gallery/markdown/bin MdAppTest.js",
+    "markdown:fromhtml:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdFromHtmlTest.rgr ./gallery/markdown/bin MdFromHtmlTest.js"
   }
 }

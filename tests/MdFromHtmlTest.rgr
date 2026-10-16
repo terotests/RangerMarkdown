@@ -1,0 +1,38 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; MdFromHtml: clipboard HTML as Markdown.
+
+Import "../src/MdFromHtml.rgr"
+
+class MdFromHtmlTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new MdFromHtmlTest())
+        t.run()
+    }
+
+    fn eq:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name + "  got " + got)
+        }
+    }
+
+    fn run:void () {
+        this.eq("plain text says nothing more" (MdFromHtml.convert("<p>Just words</p>")) "")
+        this.eq("bold, italic and a link" (MdFromHtml.convert("<p>A <b>bold</b> and <em>it</em> <a href=\"https://x.fi\">link</a>.</p>")) "A **bold** and *it* [link](https://x.fi).")
+        this.eq("a space inside bold goes outside" (MdFromHtml.convert("<p>A<strong> bold </strong>word</p>")) "A **bold** word")
+        this.eq("paragraphs and a heading" (MdFromHtml.convert("<h2>Title</h2><p>One</p><p>Two</p>")) "## Title\n\nOne\n\nTwo")
+        this.eq("lists, nested" (MdFromHtml.convert("<ul><li>a</li><li>b<ol><li>c</li><li>d</li></ol></li></ul>")) "- a\n- b\n  1. c\n  2. d")
+        this.eq("Google Docs' outer <b> is not bold" (MdFromHtml.convert("<meta charset=\"utf-8\"><b style=\"font-weight:normal;\" id=\"docs-internal-guid-1\"><p><span style=\"font-weight:700\">Bold</span><span style=\"font-weight:400\"> rest</span></p></b>")) "**Bold** rest")
+        this.eq("Word's fragment, comments and styles left out" (MdFromHtml.convert("<html><head><style>p{}</style></head><body><!--StartFragment--><p>x <i>y</i></p><!--EndFragment--></body></html>")) "x *y*")
+        this.eq("entities and Markdown characters" (MdFromHtml.convert("<p>a &amp; b * c &#228; <b>d</b></p>")) "a & b \\* c ä **d**")
+        this.eq("preformatted code" (MdFromHtml.convert("<pre><code>let a = 1;\nlet b;</code></pre>")) "```\nlet a = 1;\nlet b;\n```")
+        this.eq("a quote" (MdFromHtml.convert("<blockquote><p>Said</p></blockquote>")) "> Said")
+        print ("passed=" + (to_string passed) + " failed=" + (to_string failed))
+    }
+}
