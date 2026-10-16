@@ -4285,6 +4285,18 @@ class MdLayout {
                 borderW = (MdCss.borderWidth(got 1.0))
             }
         }
+        ; `::: info|tip|warning|danger` the theme says nothing about: the
+        ; tone's tint and a line in its hue (MdContainer.toneFill)
+        if (((strlen own) == 0) && (node.kind == "container")) {
+            def tone:string (MdContainer.toneOf(node.info))
+            if ((strlen tone) > 0) {
+                own = (MdContainer.toneFill(tone paper style.textColor))
+                if ((strlen border) == 0) {
+                    border = (MdContainer.toneBorder(tone own style.textColor))
+                    borderW = 1.0
+                }
+            }
+        }
         ; A `::: warning` is a callout on the page, not text lifted off a
         ; picture: on a page of its own colour the plate `{container=box}`
         ; defaults to (that colour, nearly opaque) would not show. So with

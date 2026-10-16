@@ -185,6 +185,88 @@ class MdContainer {
         return "#000000"
     }
 
+    ; --- callout tones -------------------------------------------------------
+    ; `::: info` / `::: tip` / `::: warning` / `::: danger`: four named
+    ; callouts a theme does not have to know. Their plate is the page's own
+    ; colour with a little of the tone's hue in it and a line round it in
+    ; the hue, so they are told apart by more than the tint, and the text
+    ; on them is the page's text (`inkOnPaper` still guards it). A theme
+    ; that styles `.warning { background-color }` wins; any other name is
+    ; the neutral plate it always was.
+    sfn tones:[string] () {
+        def out:[string] (strsplit "info,tip,warning,danger" ",")
+        return out
+    }
+
+    sfn toneOf:string (name:string) {
+        def nm:string (MdContainer.lower((trim name)))
+        if (nm == "info") { return "info" }
+        if (nm == "tip") { return "tip" }
+        if (nm == "warning") { return "warning" }
+        if (nm == "danger") { return "danger" }
+        return ""
+    }
+
+    sfn toneHue:string (tone:string) {
+        if (tone == "info") { return "#2F6FDE" }
+        if (tone == "tip") { return "#1F9D55" }
+        if (tone == "warning") { return "#D99A00" }
+        if (tone == "danger") { return "#D1453B" }
+        return ""
+    }
+
+    ; The page under the plate, opaque: the paper, or — over a picture or
+    ; nothing — white under dark text and near-black under light.
+    sfn toneGround:string (paper:string ink:string) {
+        def pc:EVGColor (EVGColor.parse(paper))
+        if (((strlen paper) > 0) && pc.isSet) {
+            if ((pc.alpha()) > 0.5) {
+                return (MdContainer.hexOf((EVGColor.rgb((pc.red()) (pc.green()) (pc.blue())))))
+            }
+        }
+        if ((MdContainer.luminance(ink)) > 0.4) { return "#16191D" }
+        return "#FFFFFF"
+    }
+
+    ; `a` with `t` (0…1) of `b` in it, opaque
+    sfn mix:string (a:string b:string t:double) {
+        def ca:EVGColor (EVGColor.parse(a))
+        def cb:EVGColor (EVGColor.parse(b))
+        def r:int (to_int ((((to_double (ca.red())) * (1.0 - t)) + ((to_double (cb.red())) * t)) + 0.5))
+        def g:int (to_int ((((to_double (ca.green())) * (1.0 - t)) + ((to_double (cb.green())) * t)) + 0.5))
+        def bl:int (to_int ((((to_double (ca.blue())) * (1.0 - t)) + ((to_double (cb.blue())) * t)) + 0.5))
+        return (MdContainer.hexOf((EVGColor.rgb(r g bl))))
+    }
+
+    ; The tone's plate: 14 % of the hue on a light page, 24 % on a dark one,
+    ; backed off while the page's text would not read on it at 4.5:1.
+    sfn toneFill:string (tone:string paper:string ink:string) {
+        def hue:string (MdContainer.toneHue(tone))
+        if ((strlen hue) == 0) { return "" }
+        def ground:string (MdContainer.toneGround(paper ink))
+        def t:double (? ((MdContainer.luminance(ground)) > 0.4) 0.14 0.24)
+        def fill:string (MdContainer.mix(ground hue t))
+        while ((t > 0.04) && ((MdContainer.contrast(ink fill)) < 4.5)) {
+            t = (t - 0.02)
+            fill = (MdContainer.mix(ground hue t))
+        }
+        return fill
+    }
+
+    ; The line round it: the hue, taken toward the text until it stands out
+    ; from the plate at 3:1 (WCAG's non-text contrast).
+    sfn toneBorder:string (tone:string fill:string ink:string) {
+        def hue:string (MdContainer.toneHue(tone))
+        if ((strlen hue) == 0) { return "" }
+        def t:double 0.0
+        def line:string (MdContainer.mix(hue ink t))
+        while ((t < 1.0) && ((MdContainer.contrast(line fill)) < 3.0)) {
+            t = (t + 0.1)
+            line = (MdContainer.mix(hue ink t))
+        }
+        return line
+    }
+
     sfn defaultFill:string (paper:string ink:string) {
         def pc:EVGColor (EVGColor.parse(paper))
         if ((strlen paper) > 0) {

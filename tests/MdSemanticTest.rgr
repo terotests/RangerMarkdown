@@ -105,6 +105,16 @@ class MdSemanticTest {
         this.twice(c "strike" "plain words here\n" "strike" 6 11)
         this.twice(c "underline" "plain words here\n" "underline" 6 11)
         this.twice(c "underline, whole heading text" "# Plain words\n" "underline" 2 13)
+        this.twice(c "highlight" "plain words here\n" "highlight" 6 11)
+        this.twice(c "highlight in a quote" "> one two three\n" "highlight" 6 9)
+        def hl:MdEditController (MdSemanticTest.on("plain words here\n"))
+        hl.setRange(6 11)
+        hl.toggleWrap("highlight")
+        c.eqStr("highlight writes ==mark==" (hl.text()) "plain ==words== here\n")
+        def hm:MdEditController (MdSemanticTest.on("a ==marked== b\n"))
+        hm.setCaret(5)
+        c.ok("a caret inside ==mark== turns highlight off" (hm.toggleWrap("highlight")))
+        c.eqStr("the == markers are gone" (hm.text()) "a marked b\n")
         def u:MdEditController (MdSemanticTest.on("a ++under++ b\n"))
         u.setCaret(5)
         c.ok("a caret inside ++ins++ turns underline off" (u.toggleWrap("underline")))
@@ -617,6 +627,45 @@ class MdSemanticTest {
         return -1
     }
 
+    ; `::: tone` round blocks: on then off gives back every byte, another
+    ; tone renames the fence, and the refusals
+    fn calloutTwice:void (c:SemCheck label:string src:string a:int b:int tone:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def on:MdEditOp (MdSemanticEdit.setCallout(src doc a b tone))
+        c.ok((label + ": on") ((on.isEmpty()) == false))
+        def mid:string (MdEdit.applyTo(src on))
+        def mdoc:MdNode (MdBlock.parseText(mid))
+        c.eqStr((label + ": …the caret is in it") (MdSemanticEdit.calloutAt(mdoc on.selAfterA)) tone)
+        def off:MdEditOp (MdSemanticEdit.setCallout(mid mdoc on.selAfterA on.selAfterB tone))
+        c.ok((label + ": off") ((off.isEmpty()) == false))
+        c.eqStr((label + ": and gave back every byte") (MdEdit.applyTo(mid off)) src)
+    }
+
+    fn callouts:void (c:SemCheck) {
+        print "-- callouts: ::: tone round blocks --"
+        def src:string "# Title\n\nOne two.\n\nThree four.\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def on:MdEditOp (MdSemanticEdit.setCallout(src doc 12 12 "warning"))
+        c.eqStr("the caret's paragraph in a warning" (MdEdit.applyTo(src on)) "# Title\n\n::: warning\nOne two.\n:::\n\nThree four.\n")
+        this.calloutTwice(c "a paragraph" src 12 12 "warning")
+        this.calloutTwice(c "two paragraphs" src 12 25 "info")
+        this.calloutTwice(c "the last line, no newline" "Words here" 3 3 "tip")
+        this.calloutTwice(c "a list" "Intro.\n\n- a\n- b\n" 11 11 "danger")
+        this.calloutTwice(c "a quote" "> Quoted.\n" 4 4 "info")
+        def w:string "::: warning Huom\nCareful.\n:::\n"
+        def wd:MdNode (MdBlock.parseText(w))
+        c.eqStr("the tone at the caret" (MdSemanticEdit.calloutAt(wd 20)) "warning")
+        c.eqStr("none outside" (MdSemanticEdit.calloutAt((MdBlock.parseText("Plain.\n")) 2)) "")
+        def ren:MdEditOp (MdSemanticEdit.setCallout(w wd 20 20 "tip"))
+        c.eqStr("another tone renames, the title kept" (MdEdit.applyTo(w ren)) "::: tip Huom\nCareful.\n:::\n")
+        def offAll:MdEditOp (MdSemanticEdit.setCallout(w wd 20 20 ""))
+        c.eqStr("no tone takes the fences off" (MdEdit.applyTo(w offAll)) "Careful.\n")
+        c.ok("a heading is refused" ((MdSemanticEdit.setCallout(src doc 3 3 "info")).isEmpty()))
+        def col:string "::: col\nIn a column.\n:::\n"
+        c.ok("inside another ::: container is refused" ((MdSemanticEdit.setCallout(col (MdBlock.parseText(col)) 10 10 "info")).isEmpty()))
+        c.ok("an unknown tone is refused" ((MdSemanticEdit.setCallout(src doc 12 12 "purple")).isEmpty()))
+    }
+
     fn run:void () {
         def c:SemCheck (new SemCheck())
         print "== MdSemanticTest =="
@@ -630,6 +679,7 @@ class MdSemanticTest {
         this.typing(c)
         this.corpus(c)
         this.breaks(c)
+        this.callouts(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {

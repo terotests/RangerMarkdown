@@ -553,13 +553,17 @@ class MdPluginsTest {
     }
 
     sfn containersDrawn:void (c:PluginCheck) {
-        def l:MdLayout (MdPluginsTest.column("Before.\n\n::: warning\n*here be dragons*\n:::\n\nAfter.\n" ""))
+        def l:MdLayout (MdPluginsTest.column("Before.\n\n::: aside\n*here be dragons*\n:::\n\nAfter.\n" ""))
         c.eqInt("a container draws a plate" (MdPluginsTest.plates(l)) 1)
         def plate:MdBox (MdPluginsTest.firstPlate(l))
         def t:MdBox (MdPluginsTest.textBox(l "here be dragons"))
         c.ok("…around its content" ((t.y > plate.y) && ((t.y + t.h) < (plate.y + plate.h))))
         c.ok("…painted first" ((MdPluginsTest.indexOfBox(l plate)) < (MdPluginsTest.textIndex(l "here be dragons"))))
         c.eqStr("…on the theme's neutral surface when nothing says otherwise" plate.fill l.style.codeBackground)
+        ; …and a tone name (MdContainer.toneOf) on the tone's own tint
+        def tl:MdLayout (MdPluginsTest.column("::: warning\nCareful.\n:::\n" ""))
+        def tp:MdBox (MdPluginsTest.firstPlate(tl))
+        c.eqStr("…::: warning on the warning tint" tp.fill (MdContainer.toneFill("warning" tl.style.pageBackground tl.style.textColor)))
         def after:MdBox (MdPluginsTest.textBox(l "After."))
         c.ok("…and what follows clears it" (after.y >= (plate.y + plate.h)))
 

@@ -61,6 +61,7 @@ class MdContainerTest {
         MdContainerTest.effects(c)
         MdContainerTest.slideScopes(c)
         MdContainerTest.charts(c)
+        MdContainerTest.tones(c)
         print ""
         print ((("passed=" + (to_string c.passed)) + " failed=") + (to_string c.failed))
         if (c.failed == 0) {
@@ -522,4 +523,54 @@ class MdContainerTest {
         c.ok("…where it is drawn" ((fabs (plate.x - (chart.x + (e.shiftIn(chart.w))))) < 0.5))
     }
 
+
+    ; `::: info|tip|warning|danger`: a tint of the tone's hue on the page,
+    ; the page's text kept readable on it, a line in the hue at 3:1
+    sfn tones:void (c:ContainerCheck) {
+        c.eqStr("warning is a tone" (MdContainer.toneOf("Warning")) "warning")
+        c.eqStr("notes is not (speaker notes)" (MdContainer.toneOf("notes")) "")
+        def papers:[string] (strsplit "#ffffff,#f4efe6,#101820,#1e1e1e," ",")
+        def inks:[string] (strsplit "#1f2328,#2b2b2b,#f0f0f0,#e6e6e6,#1f2328" ",")
+        def tones:[string] (MdContainer.tones())
+        def pi:int 0
+        while (pi < (array_length papers)) {
+            def paper:string (itemAt papers pi)
+            def ink:string (itemAt inks pi)
+            for tones tone:string ti {
+                def fill:string (MdContainer.toneFill(tone paper ink))
+                def line:string (MdContainer.toneBorder(tone fill ink))
+                c.ok((tone + " on " + paper + ": text 4.5:1") ((MdContainer.contrast(ink fill)) >= 4.5))
+                c.ok((tone + " on " + paper + ": line 3:1") ((MdContainer.contrast(line fill)) >= 3.0))
+                c.ok((tone + " on " + paper + ": a tint, not the page") (fill != (MdContainer.toneGround(paper ink))))
+            }
+            pi = (pi + 1)
+        }
+        c.ok("four tones, four tints" ((MdContainer.toneFill("info" "#ffffff" "#1f2328")) != (MdContainer.toneFill("warning" "#ffffff" "#1f2328"))))
+        ; laid out: the tone's plate and its line; the theme's class wins
+        def w:MdLayout (MdContainerTest.laid("Before\n\n::: warning Huom\nCareful.\n:::\n" ""))
+        def wi:int (MdContainerTest.plateIndex(w))
+        c.ok("::: warning has a plate" (wi >= 0))
+        if (wi >= 0) {
+            def plate:MdBox (itemAt w.boxes wi)
+            c.eqStr("…in the warning tint" plate.fill (MdContainer.toneFill("warning" w.style.pageBackground w.style.textColor)))
+            def edge:MdBox (itemAt w.boxes (wi + 1))
+            c.ok("…a line round it" ((edge.kind == 2) && (edge.strokeWidth == 1.0)))
+        }
+        def th:MdLayout (MdContainerTest.laid("::: warning\nCareful.\n:::\n" ".warning { background-color: #ffeecc }"))
+        def thi:int (MdContainerTest.plateIndex(th))
+        if (thi >= 0) {
+            def tp:MdBox (itemAt th.boxes thi)
+            c.eqStr("a theme's .warning wins" tp.fill "#FFEECC")
+        } {
+            c.ok("a theme's .warning plate" false)
+        }
+        def other:MdLayout (MdContainerTest.laid("::: aside\nWords.\n:::\n" ""))
+        def oi:int (MdContainerTest.plateIndex(other))
+        if (oi >= 0) {
+            def op:MdBox (itemAt other.boxes oi)
+            c.eqStr("another name keeps the neutral plate" op.fill other.style.codeBackground)
+        } {
+            c.ok("another name's plate" false)
+        }
+    }
 }
