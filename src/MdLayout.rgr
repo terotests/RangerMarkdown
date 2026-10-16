@@ -731,6 +731,9 @@ class MdLayout {
     ; Pictures the document names and this layout could not find. Counted
     ; rather than hidden, like every other cost in this file.
     def missingImages:int 0
+    ; which ones, so a picture met by a measuring pass and again by the pass
+    ; that places it is one picture, and a new layout starts from none
+    def missingKeys:[string]
     ; HTML the document has that is not drawn as written: a tag nobody
     ; draws, a style property nothing reads, a script handler, a link that
     ; would run script. Each said once, with where in the source it was
@@ -1036,6 +1039,8 @@ class MdLayout {
         clear boxes
         clear htmlNotes
         clear htmlNoteSrc
+        clear missingKeys
+        missingImages = 0
         boxIndexReady = false
         pageIndexReady = false
         this.resetHeadings()
@@ -1116,6 +1121,8 @@ class MdLayout {
         clear boxes
         clear htmlNotes
         clear htmlNoteSrc
+        clear missingKeys
+        missingImages = 0
         boxIndexReady = false
         pageIndexReady = false
         this.resetHeadings()
@@ -6706,10 +6713,10 @@ class MdLayout {
                             MdLayout.containIn(c (to_double st.pixelW) (to_double st.pixelH))
                         }
                     } {
-                        missingImages = (missingImages + 1)
+                        this.missed(("chart:" + c.alt))
                     }
                 } {
-                    missingImages = (missingImages + 1)
+                    this.missed(("chart:" + c.alt))
                 }
             }
         }
@@ -9193,18 +9200,31 @@ class MdLayout {
     ; that hides a problem: it is exactly what the reader sees in the preview,
     ; so the preview and the export are missing the same picture rather than
     ; disagreeing about it. `missingImages` counts them.
+    ; One picture the store does not have, counted once per layout.
+    fn missed:void (key:string) {
+        def i:int 0
+        while (i < (array_length missingKeys)) {
+            if ((itemAt missingKeys i) == key) {
+                return
+            }
+            i = (i + 1)
+        }
+        push missingKeys key
+        missingImages = (missingImages + 1)
+    }
+
     fn pictureBlock:boolean (node:MdNode x:double w:double) {
         if (! haveImages) { return false }
         def img:MdNode (MdLayout.loneImage(node))
         if (img.kind != "image") { return false }
         def path:string (images.resolve(img.destination docDir))
         if ((strlen path) == 0) {
-            missingImages = (missingImages + 1)
+            this.missed(("block@" + (to_string node.srcStart)))
             return false
         }
         def st:VfsStat (images.stat(path))
         if (! st.found) {
-            missingImages = (missingImages + 1)
+            this.missed(("block@" + (to_string node.srcStart)))
             return false
         }
         ; drawn by the host over the page: no room here (a pass that only
@@ -9669,17 +9689,17 @@ class MdLayout {
             b.imageAlt = it.src
         }
         if (! haveImages) {
-            missingImages = (missingImages + 1)
+            this.missed(("gallery:" + it.src))
             return b
         }
         def path:string (images.resolve(it.src docDir))
         if ((strlen path) == 0) {
-            missingImages = (missingImages + 1)
+            this.missed(("gallery:" + it.src))
             return b
         }
         def st:VfsStat (images.stat(path))
         if (! st.found) {
-            missingImages = (missingImages + 1)
+            this.missed(("gallery:" + it.src))
             return b
         }
         b.imagePath = path

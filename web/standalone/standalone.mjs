@@ -1860,7 +1860,11 @@ function selftest() {
     say("the tab switches", app.currentMode() === "slides", app.currentMode());
     say("and a deck has more sheets than a document", app.pdfPageCount() > pagedSheets,
         pagedSheets + " pages → " + app.pdfPageCount() + " slides");
-    say("…of the same words", words().split("|").sort().join("|") === pagedWords.split("|").sort().join("|"));
+    // The same words, each counted once: a table that runs over a page break
+    // says its header row again on the next page, which a slide it fits on
+    // does not need to.
+    const distinct = (w) => [...new Set(w.split("|"))].sort().join("|");
+    say("…of the same words", distinct(words()) === distinct(pagedWords));
     say("…and it says how it split them", app.slideReport().length > 0, app.slideReport());
 
     // The PDF is built from a second layout, in the tab, so "the same
@@ -2203,7 +2207,7 @@ function selftest() {
     // …and said, in the same breath, which one it did not. A deck that is
     // quietly short of a picture the document names is what this accounting
     // exists to prevent.
-    say("…and said which one it could not", app.pptxReport().indexOf("1 picture(s) named but not carried") > 0);
+    say("…and said which one it could not", app.pptxReport().indexOf("1 picture(s) named but not carried") > 0, app.pptxReport());
     app.setMode("continuous");
 
     // ---- and a background is a picture too --------------------------------
