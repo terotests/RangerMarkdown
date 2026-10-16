@@ -1474,6 +1474,39 @@ prose
         c.ok("no words run together" ((indexOf xml "panostammeja") < 0))
     }
 
+    ; A link's runs carry where it goes, a span inside it too; the writer
+    ; makes the address a hyperlink.
+    fn links:void (c:DeckCheck) {
+        print "-- a link is a link, not only its colour --"
+        def src:string "# One\n\nRead [the docs](https://example.com/x) and [**two**](#two), [bad](javascript:alert(1)).\n"
+        def d:PptxDeck (this.build(src "deck { split-level: 1 }\n"))
+        def sl:PptxSlide (itemAt d.pres.slides 0)
+        def got:string ""
+        def k:int 0
+        while (k < (array_length sl.shapes)) {
+            def sh:PptxShape (itemAt sl.shapes k)
+            def p:int 0
+            while (p < (array_length sh.text.paragraphs)) {
+                def para:PptxParagraph (itemAt sh.text.paragraphs p)
+                def r:int 0
+                while (r < (array_length para.runs)) {
+                    def run:PptxTextRun (itemAt para.runs r)
+                    if ((strlen run.link) > 0) {
+                        got = (got + run.text + ">" + run.link + "|")
+                    }
+                    r = (r + 1)
+                }
+                p = (p + 1)
+            }
+            k = (k + 1)
+        }
+        c.eqStr("each link's run has its address, the bold one too, a script none" got "the docs>https://example.com/x|two>#two|")
+        def w:PptxWriter (new PptxWriter())
+        def xml:string (w.slideXml(sl))
+        c.ok("the address is clicked through" ((indexOf xml "<a:hlinkClick r:id=\"rIdLink1\"/></a:rPr><a:t xml:space=\"preserve\">the docs</a:t>") >= 0))
+        c.ok("a #name no one resolved is not a link in the file" ((indexOf xml "rIdLink2") < 0))
+    }
+
     fn run:void () {
         def c:DeckCheck (new DeckCheck())
         print "== MdPptxTest =="
@@ -1496,6 +1529,7 @@ prose
         this.asDrawn(c)
         this.aligned(c)
         this.lineBreaks(c)
+        this.links(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
