@@ -1308,6 +1308,13 @@ class MdToPptx {
             }
             if (node.kind == "link") {
                 st.color = (PptxApi.colorOf(layout.style.linkColor))
+                ; where it goes, as the layout's run has it (MdLayout: a
+                ; script address keeps its text and loses its link). A
+                ; `#name` stays as written: which slide that is, is the
+                ; host's to say (PresStageClick), and the writer leaves an
+                ; unresolved one out.
+                st.link = (MdUrl.safeLink(node.destination))
+                st.linkSlide = -1
             }
             def si:int 0
             while (si < (node.childCount())) {
