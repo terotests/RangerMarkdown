@@ -651,7 +651,7 @@ class MdVegaRender {
         def one:string (MdVegaRender.radialRoom((MdVegaRender.repeatAsLayers(text)) maxH))
         def out:string (MdVegaRender.narrowedTo((MdVegaRender.grownIn(one width pad most maxH)) width pad))
         if ((maxH > 1.0) && ((indexOf text "\"height\"") < 0)) {
-            out = (MdVegaRender.filledTo(out maxH (width - (pad * 2.0))))
+            out = (MdVegaRender.filledTo(out maxH (width - (pad * 2.0)) pad))
         }
         return (MdVegaRender.rowsFitted(out))
     }
@@ -758,8 +758,10 @@ class MdVegaRender {
     ; height set so that the drawing is the room's: what the axes and the
     ; legend take was read at the chart's own type, and grown words took
     ; more of it, so the chart stopped short of its room. No taller than
-    ; its room's shape allows (`tallestFor`).
-    sfn filledTo:string (text:string maxH:double column:double) {
+    ; its room's shape allows (`tallestFor`). Measured with the padding it is
+    ; drawn with: an axis label a little past the plot sits in that padding,
+    ; and measured without it the chart came out that much short of its room.
+    sfn filledTo:string (text:string maxH:double column:double pad:double) {
         def p (new VlJsonParser())
         def spec:VlJson (p.parse(text))
         if ((p.ok == false) || ((spec.isObject()) == false)) {
@@ -781,7 +783,8 @@ class MdVegaRender {
         def rt (new VlRuntime())
         rt.autoLabelAngle = true
         rt.run((compiler.compileSpec(probe)))
-        def viewH:double ((MdVegaRender.drawnScene((MdVegaRender.limitsByFont(text)))).worldH)
+        def drawn:MdVegaDrawing (MdVegaRender.draw((MdVegaRender.limitsByFont(text)) 100000.0 pad))
+        def viewH:double (drawn.scene.worldH - (pad * 2.0))
         if (viewH < 1.0) {
             return text
         }
