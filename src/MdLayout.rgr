@@ -7128,6 +7128,8 @@ class MdLayout {
                 mr.mathDisplay = (c.info == "display")
                 mr.srcStart = c.srcStart
                 mr.srcEnd = c.srcEnd
+                ; its source is `$…$`, not the one character it is drawn as
+                mr.atom = true
                 push out mr
             }
             if (kind == "html_inline") {
@@ -8536,6 +8538,8 @@ class MdLayout {
         }
         b.segSrc = seg.srcStart
         b.segLen = seg.srcLen
+        ; one thing to an editor's caret: `$x^2$` is passed and deleted whole
+        b.segAtom = true
         return b
     }
 

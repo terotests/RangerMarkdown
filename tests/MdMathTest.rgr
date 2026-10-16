@@ -138,6 +138,18 @@ class MdMathTest {
         }
         this.check("the display is centred" ((fabs (((disp.x + (disp.w / 2.0)) - 250.0))) < 30.0))
         this.check("inline math sits after the text" (inl.x > (txt.x + 10.0)))
+        this.check("inline math is one thing to a caret" inl.segAtom)
+        def sl:MdLayout (new MdLayout())
+        sl.layoutContinuous((MdBlock.parseText("Text $x^2$ ok\n")) 500.0)
+        def srcAt:int -1
+        def srcLen:int -1
+        for sl.boxes sb:MdBox sk {
+            if (sb.kind == 5) {
+                srcAt = sb.segSrc
+                srcLen = sb.segLen
+            }
+        }
+        this.check(("…its source is the whole $x^2$: " + (to_string srcAt) + "+" + (to_string srcLen)) ((srcAt == 5) && (srcLen == 5)))
         this.check("inline math is inside the text's line" ((inl.y >= (txt.y - 2.0)) && ((inl.y + inl.h) <= ((txt.y + txt.h) + 2.0))))
         ; drawn: paths in the display list
         def root:EVGElement (MdToEvg.buildPage(l 500.0))
