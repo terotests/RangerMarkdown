@@ -144,7 +144,8 @@ class MdAppTest {
         while ((strlen longNote) < 300) {
             longNote = (longNote + "x")
         }
-        c.ok("a long note is cut" ((strlen (MdApp.shortNote(longNote))) == 140))
+        def cut:string (MdApp.shortNote(longNote))
+        c.ok("a long note is cut" ((startsWith cut (substring longNote 0 139)) && ((indexOf cut "x…") == 138)))
         ; centred in a wider column: placed at its own width, not stretched
         ; to the column's end
         def e:MdEmbedEntry (new MdEmbedEntry())
