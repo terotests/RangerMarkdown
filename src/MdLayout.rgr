@@ -446,6 +446,11 @@ class MdLayout {
     ; Zero-width boxes where a line has no text (an empty code line), for
     ; an editor's caret to stop on. Off for print and exports.
     def caretStops:boolean false
+    ; With caretStops: source offsets of empty lines an editor shows between
+    ; the document's blocks (an empty paragraph the writer made with Enter),
+    ; in order. Each is a line of its own with a stop on it. The host says
+    ; which blank lines are such (Markdown has no empty paragraph).
+    def blankStops:[int]
     ; Built once per layout by `buildBoxIndex`: the first box of each block,
     ; by that block's source offset.
     def boxIndexAt:[string:int]
@@ -2406,7 +2411,16 @@ class MdLayout {
             def fromHead:int (array_length headText)
             push blockFirstPage page
             plateRoomSrc = -1
+            if (i == 0) {
+                this.blankLinesIn(-1 child.srcStart contentX)
+            }
             this.placeBlock(doc i true)
+            def upTo:int -1
+            if ((i + 1) < n) {
+                def nx:MdNode (doc.childAt((i + 1)))
+                upTo = nx.srcStart
+            }
+            this.blankLinesIn(child.srcEnd upTo contentX)
             if (slides && (child.kind == "heading") && (child.level > splitLevel)) {
                 sectionTitle = (child.plainText())
                 sectionLevel = child.level
@@ -3989,6 +4003,30 @@ class MdLayout {
             def child:MdNode (parent.childAt(i))
             this.block(child x w)
             i = (i + 1)
+        }
+    }
+
+    ; The empty lines of `blankStops` in [from, to) (to -1: to the end),
+    ; each a line of the body's height with a caret stop at its start.
+    fn blankLinesIn:void (from:int to:int x:double) {
+        if ((caretStops == false) || ((array_length blankStops) == 0)) {
+            return
+        }
+        def lh:double (style.bodySize * style.lineHeight)
+        def k:int 0
+        while (k < (array_length blankStops)) {
+            def off:int (itemAt blankStops k)
+            if ((off >= from) && ((to < 0) || (off < to))) {
+                def y:double (this.reserve(lh))
+                def stop:MdBox (MdBox.text("" x y 0.0 lh))
+                stop.family = style.bodyFamily
+                stop.size = style.bodySize
+                stop.segSrc = off
+                stop.segLen = 0
+                this.emit(stop)
+                cursorY = ((y + lh) + style.paraSpacing)
+            }
+            k = (k + 1)
         }
     }
 

@@ -393,6 +393,33 @@ class MdSrcMapTest {
             }
         }
         c.eqInt("a bare marker's stop is before its newline" bareAt 6)
+        ; an empty line the host names between blocks: a line of its own
+        ; with a stop, the next block below it
+        def bl0:MdLayout (new MdLayout())
+        bl0.caretStops = true
+        bl0.layoutContinuous((MdBlock.parseText("Aa\n\n\n\nBb\n")) 900.0)
+        def bl1:MdLayout (new MdLayout())
+        bl1.caretStops = true
+        push bl1.blankStops 4
+        bl1.layoutContinuous((MdBlock.parseText("Aa\n\n\n\nBb\n")) 900.0)
+        def by0:double -1.0
+        def by1:double -1.0
+        def blankAt:int -1
+        for bl0.boxes bb0:MdBox bk0 {
+            if (bb0.text == "Bb") {
+                by0 = bb0.y
+            }
+        }
+        for bl1.boxes bb1:MdBox bk1 {
+            if (bb1.text == "Bb") {
+                by1 = bb1.y
+            }
+            if (((bb1.kind == 0) && ((strlen bb1.text) == 0)) && (bb1.segSrc >= 0)) {
+                blankAt = bb1.segSrc
+            }
+        }
+        c.ok("an empty line between blocks pushes the next one down" (by1 > (by0 + 5.0)))
+        c.eqInt("…with a stop at its place" blankAt 4)
         def wide:string "a `` `b` `` c\n"
         def wdoc:MdNode (MdBlock.parseText(wide))
         def wlay:MdLayout (new MdLayout())
