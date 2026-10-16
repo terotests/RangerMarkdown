@@ -382,7 +382,17 @@ class MdSrcMapTest {
             }
         }
         c.ok("an empty item pushes the next one down a line" (y1 > (y0 + 5.0)))
-        c.eqInt("…and has a stop at its end" stopAt 8)
+        c.eqInt("…and a stop after its marker" stopAt 7)
+        def li2:MdLayout (new MdLayout())
+        li2.caretStops = true
+        li2.layoutContinuous((MdBlock.parseText("- aa\n-\n- bb\n")) 900.0)
+        def bareAt:int -1
+        for li2.boxes lb2:MdBox lk2 {
+            if (((lb2.kind == 0) && ((strlen lb2.text) == 0)) && (lb2.segSrc >= 0)) {
+                bareAt = lb2.segSrc
+            }
+        }
+        c.eqInt("a bare marker's stop is before its newline" bareAt 6)
         def wide:string "a `` `b` `` c\n"
         def wdoc:MdNode (MdBlock.parseText(wide))
         def wlay:MdLayout (new MdLayout())

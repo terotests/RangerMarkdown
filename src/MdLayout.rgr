@@ -6641,12 +6641,17 @@ class MdLayout {
                 emptyAt = (this.reserve(elh))
                 cursorY = ((emptyAt + elh) + (? node.listTight style.listTightSpacing style.paraSpacing))
                 if caretStops {
-                    ; where its words would start; the item's source ends
-                    ; there, or one newline later (the host knows which)
+                    ; where its words would start: after the marker and
+                    ; its space, before the newline that ends the item
+                    ; ("-" alone has no space to stand after)
                     def stop:MdBox (MdBox.text("" innerX emptyAt 0.0 elh))
                     stop.family = style.bodyFamily
                     stop.size = style.bodySize
-                    stop.segSrc = item.srcEnd
+                    def wordsAt:int ((item.srcStart + item.markerOffset) + item.padding)
+                    if (wordsAt > (item.srcEnd - 1)) {
+                        wordsAt = (item.srcEnd - 1)
+                    }
+                    stop.segSrc = wordsAt
                     stop.segLen = 0
                     this.emit(stop)
                 }
