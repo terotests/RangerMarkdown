@@ -18,16 +18,18 @@ class MdAnchor {
         def t:string (MdChar.lower((trim text)))
         def out:string ""
         def dash:boolean false
+        ; by code point, the same on every target: on Go a `charAt` is a
+        ; byte, and "Ä" two of them
+        def cs:[int] (to_chars t)
         def i:int 0
-        def n:int (strlen t)
+        def n:int (array_length cs)
         while (i < n) {
-            def c:int (charAt t i)
-            def ch:string (substring t i (i + 1))
+            def c:int (itemAt cs i)
             ; Latin-1 capitals (À..Þ) the ASCII lower-casing leaves alone
             if (((c >= 192) && (c <= 222)) && (c != 215)) {
                 c = (c + 32)
-                ch = (strfromcode c)
             }
+            def ch:string (MdChar.fromCode(c))
             def ascii:boolean ((((c >= 97) && (c <= 122)) || ((c >= 48) && (c <= 57))) || (c == 95))
             ; letters of other scripts stay; Latin-1 signs and the general
             ; punctuation block (dashes, quotes) go

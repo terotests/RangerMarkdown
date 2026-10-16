@@ -7561,7 +7561,9 @@ class MdLayout {
             if ((c == 10) || (c == 13)) {
                 out = (out + " ")
             } {
-                out = (out + (strfromcode c))
+                ; the unit itself: `strfromcode` of a `charAt` splits "ä"
+                ; into two characters on Go, whose strings are bytes
+                out = (out + (substring s i (i + 1)))
             }
             i = (i + 1)
         }
@@ -7796,7 +7798,7 @@ class MdLayout {
                         if (c == 10) {
                             out = (out + " ")
                         } {
-                            out = (out + (strfromcode c))
+                            out = (out + (substring s i (i + 1)))
                         }
                     }
                 }

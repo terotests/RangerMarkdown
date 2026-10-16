@@ -210,9 +210,11 @@ class MdChar {
 
     ; Whether this target stores a string as bytes (C++, Go) or as units
     ; (JavaScript, Java, C#). Asked of the language rather than of a build
-    ; flag, so it cannot be got wrong by a compiler switch.
+    ; flag, so it cannot be got wrong by a compiler switch. The letter is
+    ; written as itself: the Go target wrote "\u00e4" as "", which made
+    ; this false there and fromCode split an emoji into two surrogates.
     sfn stringIsBytes:boolean () {
-        def n:int (strlen "\u00e4")
+        def n:int (strlen "ä")
         return (n > 1)
     }
 }

@@ -407,7 +407,8 @@ class MdGallery {
                 }
                 cur = ""
             } {
-                cur = (cur + (strfromcode c))
+                ; the unit itself (`strfromcode` of a byte breaks "ä" on Go)
+                cur = (cur + (substring v i (i + 1)))
             }
             i = (i + 1)
         }
@@ -606,7 +607,7 @@ class MdGallery {
                 }
                 cur = ""
             } {
-                cur = (cur + (strfromcode c))
+                cur = (cur + (substring t i (i + 1)))
             }
             i = (i + 1)
         }
