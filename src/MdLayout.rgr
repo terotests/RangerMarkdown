@@ -436,6 +436,16 @@ class MdLayout {
     def style:MdStyle (new MdStyle())
     ; while a code line outside the `lines=` marks is laid: its text fades
     def codeDim:boolean false
+    ; While a code block is laid: its node, and where the text being laid
+    ; starts in its literal (-1: nowhere), so each box knows its source
+    ; (`segSrc`) and an editor's caret can stop in code too.
+    def codeNode@(optional):MdNode
+    def codeAt:int -1
+    ; where the token being laid starts in its line's code
+    def codeK:int 0
+    ; Zero-width boxes where a line has no text (an empty code line), for
+    ; an editor's caret to stop on. Off for print and exports.
+    def caretStops:boolean false
     ; Built once per layout by `buildBoxIndex`: the first box of each block,
     ; by that block's source offset.
     def boxIndexAt:[string:int]
@@ -6144,6 +6154,7 @@ class MdLayout {
             markBar = "#79c0ff"
             numInk = "#8b949e"
         }
+        codeNode = node
         def build:boolean ((node.hasClass("build")) && (cl.steps > 0))
         ; `lines=` without build steps: the marked lines are what the block is
         ; shown for, so the rest of it fades and the eye goes to them instead
@@ -6222,8 +6233,13 @@ class MdLayout {
             }
             def rowW:double ((w - (lx - x)) - style.codePadding)
             if ((ln.kind == 3) || (ln.kind == 4)) {
+                codeAt = ln.litAt
                 this.codeRows(ln ln.text lx ty lh rowW style.codeComment (ln.kind == 4))
             } {
+                codeAt = -1
+                if (ln.litAt >= 0) {
+                    codeAt = (ln.litAt + (strlen ln.marker))
+                }
                 if style.highlightCode {
                     def hl:MdHighlightedLine (MdCodeHighlight.line(ln.code lang state))
                     state = hl.state
@@ -6231,12 +6247,41 @@ class MdLayout {
                 } {
                     this.codeRows(ln ln.code lx ty lh rowW style.textColor false)
                 }
+                ; a line of no text (or only spaces): a stop at its end
+                if (caretStops && ((strlen (trim ln.code)) == 0)) {
+                    def stop:MdBox (MdBox.text("" (lx + (this.measureRun(ln.code probe))) ty 0.0 lh))
+                    stop.family = style.monoFamily
+                    stop.size = style.codeSize
+                    stop.segSrc = (this.codeSrc((strlen ln.code)))
+                    stop.segLen = 0
+                    this.emit(stop)
+                }
             }
             ty = (ty + lineH)
             i = (i + 1)
         }
         codeDim = false
+        codeAt = -1
         cursorY = ((y + boxH) + style.paraSpacing)
+    }
+
+    ; The source offset of the k-th character of the code being laid (-1
+    ; when it has none).
+    fn codeSrc:int (k:int) {
+        if ((codeAt < 0) || (null? codeNode)) {
+            return -1
+        }
+        def cn:MdNode (unwrap codeNode)
+        return (cn.srcOfLiteral((codeAt + k)))
+    }
+
+    ; A code box's source: the run [k, k + len) of the code being laid.
+    fn codeSeg:void (b:MdBox k:int len:int) {
+        def at:int (this.codeSrc(k))
+        if (at >= 0) {
+            b.segSrc = at
+            b.segLen = len
+        }
     }
 
     ; a code line's ink: as given, or faded toward the block's background on
@@ -6322,6 +6367,7 @@ class MdLayout {
             b.color = (this.codeInk(color))
             b.quiet = codeDim
             b.bold = bold
+            this.codeSeg(b (itemAt rws r) (strlen b.text))
             this.emit(b)
             r = (r + 1)
         }
@@ -6386,6 +6432,7 @@ class MdLayout {
                 if ((nextWrap >= 0) && ((pos + rlen) > nextWrap)) {
                     def cut:int (nextWrap - pos)
                     if (cut > 0) {
+                        codeK = pos
                         cx = (this.codeToken((substring rest 0 cut) t.kind cx y probe lh))
                     }
                     rest = (substring rest cut rlen)
@@ -6398,6 +6445,7 @@ class MdLayout {
                     cx = (x0 + ln.wrapIndent)
                     y = (y + lh)
                 } {
+                    codeK = pos
                     cx = (this.codeToken(rest t.kind cx y probe lh))
                     pos = (pos + rlen)
                     going = false
@@ -6434,6 +6482,7 @@ class MdLayout {
             b.size = style.codeSize
             b.color = (this.codeInk((style.codeColor(kind))))
             b.quiet = codeDim
+            this.codeSeg(b (codeK + lead) clen)
             this.emit(b)
             cx = (cx + wid)
         }
@@ -6584,6 +6633,24 @@ class MdLayout {
             def startOverflows:int slideOverflows
             inTightItem = node.listTight
             this.blocks(item innerX innerW)
+            ; An empty item ("- " and nothing after it) is still a line: its
+            ; marker on a line of its own, not on top of the next item's.
+            def emptyAt:double -1.0
+            if ((item.childCount()) == 0) {
+                def elh:double (style.bodySize * style.lineHeight)
+                emptyAt = (this.reserve(elh))
+                cursorY = ((emptyAt + elh) + (? node.listTight style.listTightSpacing style.paraSpacing))
+                if caretStops {
+                    ; where its words would start; the item's source ends
+                    ; there, or one newline later (the host knows which)
+                    def stop:MdBox (MdBox.text("" innerX emptyAt 0.0 elh))
+                    stop.family = style.bodyFamily
+                    stop.size = style.bodySize
+                    stop.segSrc = item.srcEnd
+                    stop.segLen = 0
+                    this.emit(stop)
+                }
+            }
             ; On a slide an item is not cut in two when it fits on one: its
             ; bullet on one slide and its words on the next reads as a slide
             ; that lost a line. Undone and laid out again on the next slide.
@@ -6609,6 +6676,11 @@ class MdLayout {
                 def fb:MdBox (this.firstTextBox(firstBox))
                 markerY = fb.y
                 markerPage = fb.page
+            } {
+                if (emptyAt >= 0.0) {
+                    markerY = emptyAt
+                    markerPage = page
+                }
             }
             def savedPage:int page
             page = markerPage

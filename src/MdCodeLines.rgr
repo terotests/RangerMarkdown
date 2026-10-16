@@ -53,6 +53,9 @@ class MdCodeLine {
     ; the block, and how far those rows are indented
     def wraps:[int]
     def wrapIndent:double 0.0
+    ; where `text` starts in the block's literal (its source through the
+    ; node's map): an editor's caret stops on each character of the line
+    def litAt:int -1
 }
 
 ; ============================================================================
@@ -240,9 +243,12 @@ class MdCodeLines {
         }
         def next:int start
         def inHunk:boolean false
+        def lineAt:int 0
         def i:int 0
         while (i < count) {
             def t:string (itemAt raw i)
+            def at:int lineAt
+            lineAt = ((lineAt + (strlen t)) + 1)
             if ((strlen t) > 0) {
                 if ((charAt t ((strlen t) - 1)) == 13) {
                     t = (substring t 0 ((strlen t) - 1))
@@ -257,6 +263,7 @@ class MdCodeLines {
             def l (new MdCodeLine())
             l.text = t
             l.code = t
+            l.litAt = at
             if out.diff {
                 if (startsWith t "@@") {
                     l.kind = 3
