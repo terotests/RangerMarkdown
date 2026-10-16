@@ -1195,7 +1195,8 @@ class MdCss {
                 }
             }
             if (took == false) {
-                out = (out + (strfromcode c))
+                ; the unit itself (`strfromcode` of a byte breaks "ä" on Go)
+                out = (out + (substring css i (i + 1)))
                 i = (i + 1)
             }
         }

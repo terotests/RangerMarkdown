@@ -20,6 +20,8 @@
 ; Nothing moved. This is the same class, in its own file.
 ; ============================================================================
 
+Import "MdChar.rgr"
+
 class MdStyle {
     def bodyFamily:string "Open Sans"
     ; There is no monospace face in `gallery/pdf_writer/assets/fonts`, so
@@ -597,13 +599,16 @@ class MdTypo {
         if (mode == "uppercase") { return (to_uppercase text) }
         if (mode == "lowercase") { return (to_lowercase text) }
         if (mode == "capitalize") {
+            ; by code point: on Go a `charAt` is a byte, and the first
+            ; letter of "äänet" two of them
             def out:string ""
             def start:boolean true
-            def n:int (strlen text)
+            def cs:[int] (to_chars text)
+            def n:int (array_length cs)
             def i:int 0
             while (i < n) {
-                def c:int (charAt text i)
-                def ch:string (strfromcode c)
+                def c:int (itemAt cs i)
+                def ch:string (MdChar.fromCode(c))
                 if ((c == 32) || ((c == 9) || ((c == 10) || (c == 45)))) {
                     start = true
                     out = (out + ch)
