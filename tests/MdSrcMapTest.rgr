@@ -330,6 +330,59 @@ class MdSrcMapTest {
         }
         c.eqInt("the code's box starts at its first letter" cAt 5)
         c.eqInt("…and is as long as its words" cLen 5)
+        ; a fenced block's code: each box stands for its own characters in
+        ; the file, so an editor's caret stops in code too
+        def fence:string "Intro\n\n```js\nlet a = 1\n\n  b()\n```\n"
+        def fdoc:MdNode (MdBlock.parseText(fence))
+        def flay:MdLayout (new MdLayout())
+        flay.caretStops = true
+        flay.layoutContinuous(fdoc 900.0)
+        def fBad:int 0
+        def fSeen:int 0
+        def fEmpty:int -1
+        def fi:int 0
+        while (fi < (array_length flay.boxes)) {
+            def fb:MdBox (itemAt flay.boxes fi)
+            if ((fb.kind == 0) && (fb.segSrc >= 12)) {
+                fSeen = (fSeen + 1)
+                if ((strlen fb.text) == 0) {
+                    fEmpty = fb.segSrc
+                } {
+                    if ((substring fence fb.segSrc (fb.segSrc + fb.segLen)) != fb.text) {
+                        fBad = (fBad + 1)
+                    }
+                }
+            }
+            fi = (fi + 1)
+        }
+        c.ok("code boxes have their source" (fSeen >= 4))
+        c.eqInt("…each one's text is the file's there" fBad 0)
+        c.eqInt("an empty code line has a stop at its place" fEmpty 23)
+        ; an empty list item is a line of its own: the next item's words
+        ; below it, and a stop where its words would start
+        def li0:MdLayout (new MdLayout())
+        li0.layoutContinuous((MdBlock.parseText("- aa\n- bb\n")) 900.0)
+        def li1:MdLayout (new MdLayout())
+        li1.caretStops = true
+        li1.layoutContinuous((MdBlock.parseText("- aa\n- \n- bb\n")) 900.0)
+        def y0:double -1.0
+        def y1:double -1.0
+        def stopAt:int -1
+        for li0.boxes lb0:MdBox lk0 {
+            if (lb0.text == "bb") {
+                y0 = lb0.y
+            }
+        }
+        for li1.boxes lb1:MdBox lk1 {
+            if (lb1.text == "bb") {
+                y1 = lb1.y
+            }
+            if (((lb1.kind == 0) && ((strlen lb1.text) == 0)) && (lb1.segSrc >= 0)) {
+                stopAt = lb1.segSrc
+            }
+        }
+        c.ok("an empty item pushes the next one down a line" (y1 > (y0 + 5.0)))
+        c.eqInt("…and has a stop at its end" stopAt 8)
         def wide:string "a `` `b` `` c\n"
         def wdoc:MdNode (MdBlock.parseText(wide))
         def wlay:MdLayout (new MdLayout())
