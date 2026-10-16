@@ -40,6 +40,7 @@
 Import "MdNode.rgr"
 Import "MdBlock.rgr"
 Import "MdEdit.rgr"
+Import "MdContainer.rgr"
 ; The clipboard reader the .docx editor already has. It imports NOTHING — it
 ; is a tolerant scanner over the `text/html` a spreadsheet puts on the
 ; clipboard, not an XML parser — so markdown gets a spreadsheet range pasted
@@ -162,6 +163,8 @@ class MdSemanticEdit {
         if (c == 126) { return true }
         ; `++ins++`, drawn underlined
         if (c == 43) { return true }
+        ; `==mark==`, drawn highlighted
+        if (c == 61) { return true }
         return false
     }
 
@@ -170,6 +173,7 @@ class MdSemanticEdit {
         if (k == "emph") { return true }
         if (k == "strike") { return true }
         if (k == "ins") { return true }
+        if (k == "mark") { return true }
         return false
     }
 
@@ -579,6 +583,7 @@ class MdSemanticEdit {
         if (what == "strike") { return "strike" }
         if (what == "underline") { return "ins" }
         if (what == "code") { return "code" }
+        if (what == "highlight") { return "mark" }
         return ""
     }
 
@@ -588,6 +593,7 @@ class MdSemanticEdit {
         if (what == "strike") { return "~~" }
         if (what == "underline") { return "++" }
         if (what == "code") { return "`" }
+        if (what == "highlight") { return "==" }
         return ""
     }
 
@@ -640,7 +646,8 @@ class MdSemanticEdit {
         return ""
     }
 
-    ; Bold / italic / strike / underline (`++ins++`) / code, on or off, as
+    ; Bold / italic / strike / underline (`++ins++`) / highlight (`==mark==`)
+    ; / code, on or off, as
     ; one patch.
     sfn toggleWrap:MdEditOp (src:string doc:MdNode what:string a:int b:int) {
         def none:MdEditOp (new MdEditOp())
@@ -1116,5 +1123,140 @@ class MdSemanticEdit {
         op.selAfterA = from
         op.selAfterB = (from + (strlen out))
         return op
+    }
+
+    ; --- callouts --------------------------------------------------------------
+    ; `::: warning` … `:::` round whole blocks: MdContainer's four tones
+    ; (info, tip, warning, danger). One patch on, one off, one to change the
+    ; tone; the blocks inside keep every byte.
+
+    ; The innermost `::: tone` container round [a, b] into `out`, 1 when
+    ; there is one.
+    sfn calloutAround:int (out:[MdNode] node:MdNode a:int b:int) {
+        def i:int 0
+        while (i < (node.childCount())) {
+            def c:MdNode (node.childAt(i))
+            if ((c.kind == "container") && ((c.srcStart >= 0) && ((c.srcStart <= a) && (b <= c.srcEnd)))) {
+                if ((MdSemanticEdit.calloutAround(out c a b)) > 0) { return 1 }
+                if ((strlen (MdContainer.toneOf(c.info))) > 0) {
+                    push out c
+                    return 1
+                }
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    ; The tone of the callout the caret is in, "" for none.
+    sfn calloutAt:string (doc:MdNode a:int) {
+        def found:[MdNode]
+        if ((MdSemanticEdit.calloutAround(found doc a a)) > 0) {
+            def c:MdNode (itemAt found 0)
+            return (MdContainer.toneOf(c.info))
+        }
+        return ""
+    }
+
+    sfn lineStartAt:int (src:string at:int) {
+        def k:int at
+        while ((k > 0) && ((charAt src (k - 1)) != 10)) { k = (k - 1) }
+        return k
+    }
+
+    sfn lineEndAt:int (src:string at:int) {
+        def k:int at
+        def n:int (strlen src)
+        while ((k < n) && ((charAt src k) != 10)) { k = (k + 1) }
+        return k
+    }
+
+    ; The blocks on [a, b] wrapped in `::: tone`, or — inside one — its tone
+    ; changed, or ("" or the same tone) the fence lines taken off. Empty
+    ; when it cannot be done: a heading (a slide's edge) in the selection,
+    ; or blocks inside another `:::` container, where a fence of three
+    ; colons would close the outer one.
+    sfn setCallout:MdEditOp (src:string doc:MdNode a:int b:int tone:string) {
+        def none:MdEditOp (new MdEditOp())
+        def want:string (MdContainer.toneOf(tone))
+        if (((strlen want) == 0) && ((strlen (trim tone)) > 0)) { return none }
+        def lo:int (? (a < b) a b)
+        def hi:int (? (a < b) b a)
+        def found:[MdNode]
+        if ((MdSemanticEdit.calloutAround(found doc lo hi)) > 0) {
+            def c:MdNode (itemAt found 0)
+            def openEnd:int (MdSemanticEdit.lineEndAt(src c.srcStart))
+            def closeAt:int (MdSemanticEdit.lineStartAt(src (c.srcEnd - 1)))
+            def closeEnd:int (MdSemanticEdit.lineEndAt(src closeAt))
+            def closedLine:boolean (closeEnd < (strlen src))
+            if closedLine { closeEnd = (closeEnd + 1) }
+            def opening:string (substring src c.srcStart openEnd)
+            if (((strlen want) == 0) || (want == (MdContainer.toneOf(c.info)))) {
+                ; off: the fence lines go, the blocks stay
+                def bodyFrom:int (openEnd + 1)
+                def body:string ""
+                if (closeAt > bodyFrom) { body = (substring src bodyFrom closeAt) }
+                ; at the file's end with no newline after `:::`, none after
+                ; the blocks either: what `setCallout` on wrote, given back
+                if ((closedLine == false) && (((strlen body) > 0) && ((charAt body ((strlen body) - 1)) == 10))) {
+                    body = (substring body 0 ((strlen body) - 1))
+                }
+                def off:MdEditOp (MdEdit.patch(src c.srcStart closeEnd body))
+                def cut:int (bodyFrom - c.srcStart)
+                off.selAfterA = (MdSemanticEdit.maxInt(c.srcStart (lo - cut)))
+                off.selAfterB = (MdSemanticEdit.maxInt(c.srcStart (hi - cut)))
+                return off
+            }
+            ; another tone: the opening line's name, its colons and title kept
+            def colons:int 0
+            while ((colons < (strlen opening)) && ((charAt opening colons) == 58)) { colons = (colons + 1) }
+            def at:int (indexOf opening c.info)
+            def rest:string ""
+            if (at >= 0) { rest = (substring opening (at + (strlen c.info)) (strlen opening)) }
+            def line:string ((substring opening 0 colons) + " " + want + rest)
+            def ren:MdEditOp (MdEdit.patch(src c.srcStart openEnd line))
+            def grow:int ((strlen line) - (strlen opening))
+            ren.selAfterA = (lo + grow)
+            ren.selAfterB = (hi + grow)
+            return ren
+        }
+        if ((strlen want) == 0) { return none }
+        ; on: the top-level blocks the selection touches
+        def first:int -1
+        def last:int -1
+        def n:int (strlen src)
+        def i:int 0
+        while (i < (doc.childCount())) {
+            def c2:MdNode (doc.childAt(i))
+            if (c2.srcStart >= 0) {
+                def hit:boolean ((c2.srcStart <= hi) && ((c2.srcEnd > lo) || ((c2.srcEnd == lo) && (lo == n))))
+                if hit {
+                    if ((c2.kind == "heading") || (c2.kind == "container")) { return none }
+                    if (first < 0) { first = c2.srcStart }
+                    last = c2.srcEnd
+                }
+            }
+            i = (i + 1)
+        }
+        if (first < 0) { return none }
+        ; a block's span may stop short of its line's newline
+        if ((last < n) && ((charAt src last) == 10)) {
+            if ((charAt src (last - 1)) != 10) { last = (last + 1) }
+        }
+        def body2:string (substring src first last)
+        def head:string ("::: " + want + "\n")
+        def tail:string ":::\n"
+        if ((charAt body2 ((strlen body2) - 1)) != 10) {
+            tail = "\n:::"
+        }
+        def on:MdEditOp (MdEdit.patch(src first last (head + body2 + tail)))
+        on.selAfterA = (lo + (strlen head))
+        on.selAfterB = (hi + (strlen head))
+        return on
+    }
+
+    sfn maxInt:int (a:int b:int) {
+        if (a > b) { return a }
+        return b
     }
 }
