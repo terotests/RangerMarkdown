@@ -368,7 +368,7 @@ class MdBox {
         return b
     }
 
-    sfn text:MdBox (t:string x:double y:double w:double h:double) {
+    sfn textBox:MdBox (t:string x:double y:double w:double h:double) {
         def b:MdBox (new MdBox())
         b.kind = 0
         b.text = t
@@ -1271,7 +1271,7 @@ class MdLayout {
         def lh:double (style.bodySize * style.lineHeight)
         cursorY = (cursorY + style.headingSpaceBefore)
         def hy:double (this.reserve((style.h2Size * style.lineHeight)))
-        def h:MdBox (MdBox.text("Contents" x hy w (style.h2Size * style.lineHeight)))
+        def h:MdBox (MdBox.textBox("Contents" x hy w (style.h2Size * style.lineHeight)))
         h.family = style.headingFamily
         h.size = style.h2Size
         h.bold = true
@@ -1286,7 +1286,7 @@ class MdLayout {
             if (level <= 3) {
                 def y:double (this.reserve(lh))
                 def indent:double ((to_double (level - 1)) * 14.0)
-                def label:MdBox (MdBox.text((itemAt knownText i) (x + indent) y (w - indent) lh))
+                def label:MdBox (MdBox.textBox((itemAt knownText i) (x + indent) y (w - indent) lh))
                 label.family = style.bodyFamily
                 label.size = style.bodySize
                 label.color = style.textColor
@@ -1297,7 +1297,7 @@ class MdLayout {
                 probe.family = style.bodyFamily
                 probe.size = style.bodySize
                 def nw:double (this.measureRun(num probe))
-                def nb:MdBox (MdBox.text(num ((x + w) - nw) y nw lh))
+                def nb:MdBox (MdBox.textBox(num ((x + w) - nw) y nw lh))
                 nb.family = style.bodyFamily
                 nb.size = style.bodySize
                 nb.color = style.mutedColor
@@ -1331,7 +1331,7 @@ class MdLayout {
                 def tlen:int (strlen text)
                 if (tlen > 0) {
                     def hy:double ((contentTop - lh) - 6.0)
-                    def b:MdBox (MdBox.text(text x hy w lh))
+                    def b:MdBox (MdBox.textBox(text x hy w lh))
                     b.family = style.bodyFamily
                     b.size = style.furnitureSize
                     b.color = style.mutedColor
@@ -1359,7 +1359,7 @@ class MdLayout {
                     }
                     if recto { nx = ((x + w) - nw) } { nx = x }
                 }
-                def nb:MdBox (MdBox.text(num nx ny nw lh))
+                def nb:MdBox (MdBox.textBox(num nx ny nw lh))
                 nb.family = style.bodyFamily
                 nb.size = style.furnitureSize
                 nb.color = style.mutedColor
@@ -1926,7 +1926,7 @@ class MdLayout {
             this.emit(b)
         }
         if ((tw > 0.0) && ((strlen text) > 0)) {
-            def t:MdBox (MdBox.text(text tx (y + ((rowH - lh) * 0.5)) tw lh))
+            def t:MdBox (MdBox.textBox(text tx (y + ((rowH - lh) * 0.5)) tw lh))
             t.family = style.bodyFamily
             t.size = size
             t.bold = (? top style.headerBold style.footerBold)
@@ -3078,7 +3078,7 @@ class MdLayout {
                 t = (t + seg.text)
                 size = seg.size
             }
-            def b:MdBox (MdBox.text(t contentX cursorY contentW ln.height))
+            def b:MdBox (MdBox.textBox(t contentX cursorY contentW ln.height))
             b.family = style.headingFamily
             b.size = size
             b.bold = true
@@ -3752,7 +3752,7 @@ class MdLayout {
                     markerY = fb.y
                 }
                 def marker:string ((to_string n) + ".")
-                def mb:MdBox (MdBox.text(marker x markerY (this.measureRun(marker probe)) (style.bodySize * style.lineHeight)))
+                def mb:MdBox (MdBox.textBox(marker x markerY (this.measureRun(marker probe)) (style.bodySize * style.lineHeight)))
                 mb.family = style.bodyFamily
                 mb.size = style.bodySize
                 mb.color = style.mutedColor
@@ -4018,7 +4018,7 @@ class MdLayout {
             def off:int (itemAt blankStops k)
             if ((off >= from) && ((to < 0) || (off < to))) {
                 def y:double (this.reserve(lh))
-                def stop:MdBox (MdBox.text("" x y 0.0 lh))
+                def stop:MdBox (MdBox.textBox("" x y 0.0 lh))
                 stop.family = style.bodyFamily
                 stop.size = style.bodySize
                 stop.segSrc = off
@@ -6247,7 +6247,7 @@ class MdLayout {
             if ((cl.numbers && (ln.number >= 0)) && (gutter > 0.0)) {
                 def nt2:string (to_string ln.number)
                 def nw:double (this.measureRun(nt2 probe))
-                def nb:MdBox (MdBox.text(nt2 ((x + style.codePadding) + ((gutter - style.codePadding) - nw)) ty nw lh))
+                def nb:MdBox (MdBox.textBox(nt2 ((x + style.codePadding) + ((gutter - style.codePadding) - nw)) ty nw lh))
                 nb.family = style.monoFamily
                 nb.size = style.codeSize
                 nb.color = (this.codeInk(numInk))
@@ -6260,7 +6260,7 @@ class MdLayout {
             if ((strlen ln.marker) > 0) {
                 def mw:double (this.measureRun(ln.marker probe))
                 if (ln.marker != " ") {
-                    def mb:MdBox (MdBox.text(ln.marker lx ty mw lh))
+                    def mb:MdBox (MdBox.textBox(ln.marker lx ty mw lh))
                     mb.family = style.monoFamily
                     mb.size = style.codeSize
                     mb.color = addInk
@@ -6299,7 +6299,7 @@ class MdLayout {
                 }
                 ; a line of no text (or only spaces): a stop at its end
                 if (caretStops && ((strlen (trim ln.code)) == 0)) {
-                    def stop:MdBox (MdBox.text("" (lx + (this.measureRun(ln.code probe))) ty 0.0 lh))
+                    def stop:MdBox (MdBox.textBox("" (lx + (this.measureRun(ln.code probe))) ty 0.0 lh))
                     stop.family = style.monoFamily
                     stop.size = style.codeSize
                     stop.segSrc = (this.codeSrc((strlen ln.code)))
@@ -6411,7 +6411,7 @@ class MdLayout {
             if (r > 0) {
                 rx = (lx + ln.wrapIndent)
             }
-            def b:MdBox (MdBox.text((substring text (itemAt rws r) (itemAt rws (r + 1))) rx (ty + (lh * (to_double r))) (rowW - (rx - lx)) lh))
+            def b:MdBox (MdBox.textBox((substring text (itemAt rws r) (itemAt rws (r + 1))) rx (ty + (lh * (to_double r))) (rowW - (rx - lx)) lh))
             b.family = style.monoFamily
             b.size = style.codeSize
             b.color = (this.codeInk(color))
@@ -6527,7 +6527,7 @@ class MdLayout {
         def clen:int (strlen core)
         if (clen > 0) {
             def wid:double (this.measureRun(core probe))
-            def b:MdBox (MdBox.text(core cx y wid lh))
+            def b:MdBox (MdBox.textBox(core cx y wid lh))
             b.family = style.monoFamily
             b.size = style.codeSize
             b.color = (this.codeInk((style.codeColor(kind))))
@@ -6694,7 +6694,7 @@ class MdLayout {
                     ; where its words would start: after the marker and
                     ; its space, before the newline that ends the item
                     ; ("-" alone has no space to stand after)
-                    def stop:MdBox (MdBox.text("" innerX emptyAt 0.0 elh))
+                    def stop:MdBox (MdBox.textBox("" innerX emptyAt 0.0 elh))
                     stop.family = style.bodyFamily
                     stop.size = style.bodySize
                     def wordsAt:int ((item.srcStart + item.markerOffset) + item.padding)
@@ -6740,7 +6740,7 @@ class MdLayout {
             def savedPage:int page
             page = markerPage
             def markerW:double (this.measureRun(marker probe))
-            def mb:MdBox (MdBox.text(marker x markerY markerW (style.bodySize * style.lineHeight)))
+            def mb:MdBox (MdBox.textBox(marker x markerY markerW (style.bodySize * style.lineHeight)))
             mb.family = style.bodyFamily
             mb.size = style.bodySize
             mb.color = (? ((strlen style.markerColor) > 0) style.markerColor style.mutedColor)
@@ -6972,7 +6972,7 @@ class MdLayout {
             ; said as plainly as the text round it: a muted italic line was
             ; read as decoration, not as the reason the chart is missing
             if (nlen > 0) { note = ("⚠ " + kind + ": " + note) }
-            def label:MdBox (MdBox.text(note (x + style.codePadding) (y + style.codePadding) (useW - (style.codePadding * 2.0)) (style.bodySize * style.lineHeight)))
+            def label:MdBox (MdBox.textBox(note (x + style.codePadding) (y + style.codePadding) (useW - (style.codePadding * 2.0)) (style.bodySize * style.lineHeight)))
             label.family = style.bodyFamily
             label.size = style.bodySize
             label.color = style.textColor
@@ -8444,7 +8444,7 @@ class MdLayout {
                 this.emit((MdBox.rect((sx - kp) (top + 2.0) (seg.w + (kp * 2.0)) (lh - 4.0) kFace)))
                 this.emit((MdBox.outline((sx - kp) (top + 2.0) (seg.w + (kp * 2.0)) (lh - 4.0) kEdge 1.0)))
             }
-            def b:MdBox (MdBox.text(seg.text sx ty seg.w lh))
+            def b:MdBox (MdBox.textBox(seg.text sx ty seg.w lh))
             b.segSrc = seg.srcStart
             b.segLen = seg.srcLen
             b.segAtom = seg.atom
