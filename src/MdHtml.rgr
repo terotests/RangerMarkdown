@@ -294,9 +294,15 @@ class MdHtml {
             if ((nm == "tr") || ((nm == "thead") || ((nm == "tbody") || ((nm == "tfoot") || (nm == "table"))))) {
                 closesCell = true
             }
+            ; the cell is let go after the block that narrowed it: assigned
+            ; inside, Ranger's C++ writes `cell.value() = none`
+            def closed:boolean false
             if (closesCell && (!null? cell)) {
                 def c0:MdHtmlCell (unwrap cell)
                 c0.inner = (substring s c0.start i)
+                closed = true
+            }
+            if closed {
                 def none@(optional):MdHtmlCell
                 cell = none
             }
