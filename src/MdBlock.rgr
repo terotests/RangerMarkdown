@@ -1757,7 +1757,13 @@ class MdBlock {
     }
 
     sfn stripHeadingAttrs:void (n:MdNode) {
-        def at:int (MdAttrs.headingAttrs(n n.literal n.attrNotes))
+        ; the notes into a list of its own, then onto the node: a field
+        ; handed to a function that pushes to it is a copy on Rust
+        def notes:[string]
+        def at:int (MdAttrs.headingAttrs(n n.literal notes))
+        for notes note:string ni {
+            push n.attrNotes note
+        }
         if (at < 0) { return }
         def cut:int at
         while (cut > 0) {
