@@ -121,9 +121,9 @@ class MdColumnsTest {
     ; a 960×540 deck, as Sliqtly lays one out
     sfn deck:MdLayout (src:string css:string) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
-        def c:MdCss (new MdCss())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
+        def c:MdCss (MdCss.new_())
         c.addStyleSheet(css)
         c.applyTo(l.style)
         l.style.pageWidth = 960.0
@@ -152,7 +152,7 @@ class MdColumnsTest {
             if ((b.kind == 0) && (b.text == want)) { return b }
             i = (i + 1)
         }
-        def none:MdBox (new MdBox())
+        def none:MdBox (MdBox.new_())
         none.kind = -1
         none.page = -1
         return none
@@ -165,7 +165,7 @@ class MdColumnsTest {
             if ((b.kind == kind) && (b.page == page)) { return b }
             i = (i + 1)
         }
-        def none:MdBox (new MdBox())
+        def none:MdBox (MdBox.new_())
         none.kind = -1
         none.page = -1
         return none
@@ -179,7 +179,7 @@ class MdColumnsTest {
             if (((b.kind == 0) && b.retold) && (b.page == page)) { return b }
             i = (i + 1)
         }
-        def none:MdBox (new MdBox())
+        def none:MdBox (MdBox.new_())
         none.kind = -1
         return none
     }
@@ -192,7 +192,7 @@ class MdColumnsTest {
             if (((b.kind == 1) && (b.page == page)) && (b.w < 8.0)) { return b }
             i = (i + 1)
         }
-        def none:MdBox (new MdBox())
+        def none:MdBox (MdBox.new_())
         none.kind = -1
         return none
     }
@@ -205,7 +205,7 @@ class MdColumnsTest {
             if ((b.kind == 1) && (b.h > 8.0)) { return b }
             i = (i + 1)
         }
-        def none:MdBox (new MdBox())
+        def none:MdBox (MdBox.new_())
         none.kind = -1
         return none
     }
@@ -499,7 +499,7 @@ class MdColumnsTest {
     
         print "-- a gallery of portraits --"
         def gp4:MdGallery (MdGallery.parse("- a.png: A\n- b.png: B\n- c.png: C\n- d.png: D\n"))
-        def look:MdGalleryLook (new MdGalleryLook())
+        def look:MdGalleryLook (MdGalleryLook.new_())
         def tall:[double] ([] _:double (0.75 0.75 0.75 0.75))
         def wide:[double] ([] _:double (1.78 1.78 1.78 1.78))
         c.eqInt("four portraits: four across" (gp4.columnsForRoom(look tall 864.0 380.0 8.0 30.0 140.0)) 4)
@@ -516,8 +516,8 @@ class MdColumnsTest {
         c.ok("HTML: a flex row" ((indexOf html "display:flex") >= 0))
         c.ok("…a div per column" ((indexOf html "class=\"column\"") >= 0))
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
         l.style.pageWidth = 960.0
         l.style.pageHeight = 540.0
         l.style.margin = 48.0

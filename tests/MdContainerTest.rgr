@@ -132,10 +132,10 @@ class MdContainerTest {
 
     sfn laid:MdLayout (src:string css:string) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
         if ((strlen css) > 0) {
-            def mc:MdCss (new MdCss())
+            def mc:MdCss (MdCss.new_())
             mc.addStyleSheet(css)
             mc.applyTo(l.style)
             l.setStyleSheet(css)
@@ -168,8 +168,8 @@ class MdContainerTest {
     sfn headings:void (c:ContainerCheck) {
         def src:string "## Ranta {bg=media/k1.jpg container=box}\n\nKesä.\n"
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
         l.setDocSource(src)
         l.layoutSlides(doc)
         def pi:int (MdContainerTest.plateIndex(l))
@@ -214,9 +214,9 @@ class MdContainerTest {
 
     sfn slidesOf:MdLayout (src:string css:string) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
-        def mc:MdCss (new MdCss())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
+        def mc:MdCss (MdCss.new_())
         mc.addStyleSheet(css)
         mc.applyTo(l.style)
         l.setStyleSheet(css)
@@ -290,9 +290,9 @@ class MdContainerTest {
         def src:string "## Eka\n\nTeksti A\n\n## Anker {#erikoisdia}\n\nTeksti B\n\nIso\n{.lead}\n\n## Tumma {.tumma}\n\nTeksti C\n\n## Vika\n\nTeksti D\n"
         def css:string "deck { split-level: 2 }\nh2 { color: #7ee0ff }\n#erikoisdia h2 { color: #00ff9c }\n.tumma page { background-color: #000000 }\n.tumma p { color: #ff0000 }\n#erikoisdia .lead { font-size: 30pt }\n#eka p { text-transform: uppercase }"
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
-        def mc:MdCss (new MdCss())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
+        def mc:MdCss (MdCss.new_())
         mc.addStyleSheet(css)
         mc.applyTo(l.style)
         l.setStyleSheet(css)
@@ -319,8 +319,8 @@ class MdContainerTest {
         c.eqStr("the style is the sheet's again after the layout" l.style.h2Color "#7EE0FF")
         ; `#erikoisdia list { list-style: process }`: the list under that
         ; heading is a figure (its id or its anchor)
-        def cache:MdEmbedCache (new MdEmbedCache())
-        def lsheet:MdCss (new MdCss())
+        def cache:MdEmbedCache (MdEmbedCache.new_())
+        def lsheet:MdCss (MdCss.new_())
         lsheet.addStyleSheet("#erikoisdia list { list-style: process }\n#toinen-otsikko ul { list-style: swot }")
         cache.listSheet = lsheet
         def ldoc:MdNode (MdBlock.parseText("## Anker {#erikoisdia}\n\n- a\n- b\n\n## Toinen otsikko\n\n- c\n\n## Kolmas\n\n- d\n"))
@@ -343,9 +343,9 @@ class MdContainerTest {
         def bsrc:string "## Eka\n\nTeksti\n\n## Anker {#erikoisdia}\n\nTeksti B\n\n## Luokka {.tumma}\n\nTeksti C\n"
         def bcss:string "deck { split-level: 2 }\npage { background-color: #101a2e }\nh2 { color: #7ee0ff; border-color: #ff3d7f; border-width: 3pt }\ncontainer { background-color: #ffffffdd; border-radius: 30pt }\n#erikoisdia h2 { color: #00ff9c }"
         def bdoc:MdNode (MdBlock.parseText(bsrc))
-        def bl:MdLayout (new MdLayout())
-        bl.style = (new MdStyle())
-        def bmc:MdCss (new MdCss())
+        def bl:MdLayout (MdLayout.new_())
+        bl.style = (MdStyle.new_())
+        def bmc:MdCss (MdCss.new_())
         bmc.addStyleSheet(bcss)
         bmc.applyTo(bl.style)
         bl.setStyleSheet(bcss)
@@ -367,7 +367,7 @@ class MdContainerTest {
                 return b
             }
         }
-        return (new MdBox())
+        return (MdBox.new_())
     }
 
     sfn plateIndex:int (l:MdLayout) {
@@ -459,7 +459,7 @@ class MdContainerTest {
         c.eqStr("its numbers, not its words" (join fb.fxNames ",") "power")
         c.ok("…as numbers" (((array_length fb.fxValues) == 1) && ((itemAt fb.fxValues 0) == 2.0)))
         c.eqStr("it belongs to its block" (to_string fb.srcStart) (to_string t.srcStart))
-        def painter:MdToEvg (new MdToEvg())
+        def painter:MdToEvg (MdToEvg.new_())
         def dl:EVGDisplayList (new EVGDisplayList())
         painter.paintBox(dl l fb 0.0)
         c.ok("one instance" ((array_length dl.fxIds) == 1))
@@ -481,7 +481,7 @@ class MdContainerTest {
 
     sfn painting:void (c:ContainerCheck) {
         def l:MdLayout (MdContainerTest.laid("Hi\n{container=bubble}\n" ""))
-        def painter:MdToEvg (new MdToEvg())
+        def painter:MdToEvg (MdToEvg.new_())
         def dl:EVGDisplayList (new EVGDisplayList())
         def plate:MdBox (itemAt l.boxes (MdContainerTest.plateIndex(l)))
         painter.paintBox(dl l plate 0.0)
@@ -500,8 +500,8 @@ class MdContainerTest {
         def spec:string "{\"width\": 200, \"height\": 120, \"data\": {\"values\": [{\"k\": \"A\", \"v\": 3}, {\"k\": \"B\", \"v\": 7}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"k\", \"type\": \"nominal\"}, \"y\": {\"field\": \"v\", \"type\": \"quantitative\"}}, \"usermeta\": {\"presAlign\": \"center\"}}"
         def src:string ("Before\n\n```vega-lite\n" + spec + "\n```\n{container=box}\n\nAfter\n")
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
         MdDiagram.prepare(doc l.embeds (600.0 - (l.style.margin * 2.0)) "default")
         l.setDocSource(src)
         l.layoutContinuous(doc 600.0)

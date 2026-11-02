@@ -35,7 +35,7 @@ class MdHtmlTest {
 
     sfn laidOut:MdLayout (src:string) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.layoutContinuous(doc 600.0)
         return l
     }
@@ -49,7 +49,7 @@ class MdHtmlTest {
             }
             i = (i + 1)
         }
-        def none:MdBox (new MdBox())
+        def none:MdBox (MdBox.new_())
         none.kind = -1
         return none
     }
@@ -149,8 +149,8 @@ class MdHtmlTest {
     ; mark and kbd take their colours from the sheet
     fn testMarkCss:void () {
         def doc:MdNode (MdBlock.parseText("A <mark>lit</mark> <kbd>K</kbd>"))
-        def l:MdLayout (new MdLayout())
-        def c:MdCss (new MdCss())
+        def l:MdLayout (MdLayout.new_())
+        def c:MdCss (MdCss.new_())
         def css:string "mark { background-color: #3355ff; color: #ffffff } kbd { background-color: #112233; border-color: #445566 }"
         c.addStyleSheet(css)
         c.applyTo(l.style)
@@ -165,8 +165,8 @@ class MdHtmlTest {
 
     sfn styled:MdLayout (md:string css:string) {
         def doc:MdNode (MdBlock.parseText(md))
-        def l:MdLayout (new MdLayout())
-        def c:MdCss (new MdCss())
+        def l:MdLayout (MdLayout.new_())
+        def c:MdCss (MdCss.new_())
         c.addStyleSheet(css)
         c.applyTo(l.style)
         l.setStyleSheet(css)
@@ -243,7 +243,7 @@ class MdHtmlTest {
     fn testPptx:void () {
         def src:string "# Deck\n\n## Table\n\n<table><tr><th>A</th><th>B</th></tr><tr><td colspan=\"2\">both</td></tr></table>\n"
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.applySlideMeta(doc)
         l.setDocSource(src)
         l.layoutSlides(doc)
@@ -305,7 +305,7 @@ class MdHtmlTest {
         ; …and ==mark== is a highlighted run in the .pptx
         def deckSrc:string "# Deck\n\n## Slide\n\nA ==lit== word.\n"
         def doc:MdNode (MdBlock.parseText(deckSrc))
-        def dl:MdLayout (new MdLayout())
+        def dl:MdLayout (MdLayout.new_())
         dl.applySlideMeta(doc)
         dl.setDocSource(deckSrc)
         dl.layoutSlides(doc)
@@ -358,7 +358,7 @@ class MdHtmlTest {
             }
             i = (i + 1)
         }
-        def none:MdBox (new MdBox())
+        def none:MdBox (MdBox.new_())
         none.kind = -1
         return none
     }
@@ -432,7 +432,7 @@ class MdHtmlTest {
 
     fn testDivPlate:void () {
         def l:MdLayout (MdHtmlTest.laidOut("<div style=\"background:#1d2a6b;padding:20px;border-radius:12px;color:#fff\">\nOn a **plate**\n</div>\n"))
-        def plate:MdBox (new MdBox())
+        def plate:MdBox (MdBox.new_())
         for l.boxes b:MdBox i {
             if ((b.kind == 1) && ((MdChar.lower(b.fill)) == "#1d2a6b")) {
                 plate = b
@@ -462,7 +462,7 @@ class MdHtmlTest {
         def uses:[MdSvgUse] (MdSvg.inDoc(doc))
         this.check("svg on its own line, as a block and in a list item are found" ((array_length uses) == 3))
         ; a picture store that has the drawn picture: the slide shows it
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         def u0:MdSvgUse (itemAt uses 0)
         def vfs (new Vfs())
         def mem (new VfsMemory())
@@ -496,7 +496,7 @@ class MdHtmlTest {
         this.check("an https link keeps it" ((MdHtmlTest.boxWith(l "ok")).link == "https://sliqtly.com"))
         this.check("the dropped address is noted" (MdHtmlTest.hasNote(l "script address")))
         def dx:MdToDocx (new MdToDocx())
-        def dst (new MdStyle())
+        def dst (MdStyle.new_())
         def ddoc:RichDocument (dx.build((MdBlock.parseText("[md](javascript:alert(2)) [ok](https://a.b)")) dst))
         def links:[string]
         for ddoc.paragraphs dp:Paragraph bi {

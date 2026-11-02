@@ -27,13 +27,7 @@
 ; says it could not carry it.
 ; ============================================================================
 
-Import "MdNode.rgr"
-Import "MdUrl.rgr"
-Import "MdGallery.rgr"
-Import "MdStyle.rgr"
-Import "MdCellTones.rgr"
-Import "MdEmbedKinds.rgr"
-Import "MdEmbed.rgr"
+Import "lib.rs"
 Import "../../docx_viewer/src/RichDocument.rgr"
 Import "../../vfs/src/Vfs.rgr"
 Import "MdDocSync.rgr"
@@ -108,7 +102,7 @@ class MdDocResult {
 }
 
 class MdToDocx {
-    def style:MdStyle (new MdStyle())
+    def style:MdStyle (MdStyle.new_())
     def result:MdDocResult (new MdDocResult())
     def doc:RichDocument (new RichDocument())
 
@@ -124,7 +118,7 @@ class MdToDocx {
     ; filled is what this reads — the same trees the preview paints and the
     ; deck exporter turns into shapes, so the three views cannot disagree
     ; about what a fence looks like. Without one, a fence is its name.
-    def embeds:MdEmbedCache (new MdEmbedCache())
+    def embeds:MdEmbedCache (MdEmbedCache.new_())
     def haveEmbeds:boolean false
 
     Constructor () {

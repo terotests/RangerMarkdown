@@ -13,8 +13,7 @@
 ; longest first, which is the order `MdTypography` tries them in.
 ; ============================================================================
 
-Import "MdChar.rgr"
-Import "MdEntities.rgr"
+Import "lib.rs"
 
 ; One per process (`__singleton`): the table is loaded once, not once per parse.
 class MdEmoji @singleton(true) {
@@ -25,6 +24,12 @@ class MdEmoji @singleton(true) {
     def shortName:[string]
 
     Constructor () {
+    }
+
+    ; The one table, for the Rust-syntax modules: they have no spelling for
+    ; `__singleton`.
+    sfn shared:MdEmoji () {
+        return (MdEmoji.__singleton())
     }
 
     ; The emoji a shortcode name stands for, or "" when there is none.

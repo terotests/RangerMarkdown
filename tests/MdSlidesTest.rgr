@@ -73,9 +73,9 @@ class MdSlidesTest {
 
     sfn laidOut:MdLayout (src:string css:string width:double) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
-        def c:MdCss (new MdCss())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
+        def c:MdCss (MdCss.new_())
         c.addStyleSheet(css)
         c.applyTo(l.style)
         l.setStyleSheet(css)
@@ -87,9 +87,9 @@ class MdSlidesTest {
 
     sfn asSlides:MdLayout (src:string css:string) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
-        def c:MdCss (new MdCss())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
+        def c:MdCss (MdCss.new_())
         c.addStyleSheet(css)
         c.applyTo(l.style)
         l.setStyleSheet(css)
@@ -213,8 +213,8 @@ class MdSlidesTest {
         ; A paragraph is not cut into columns: that would be a line flow and
         ; is a different feature. Saying so beats thirding a sentence.
         def para:MdNode (MdBlock.parseText("Some prose.\n{.c3}\n"))
-        def pl:MdLayout (new MdLayout())
-        pl.style = (new MdStyle())
+        def pl:MdLayout (MdLayout.new_())
+        pl.style = (MdStyle.new_())
         pl.setStyleSheet(css)
         pl.setDocSource("Some prose.\n{.c3}\n")
         pl.layoutContinuous(para 600.0)
@@ -316,9 +316,9 @@ class MdSlidesTest {
     ; for.
     sfn asSlidesWithDiagrams:MdLayout (src:string css:string) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
-        def c:MdCss (new MdCss())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
+        def c:MdCss (MdCss.new_())
         c.addStyleSheet(css)
         c.applyTo(l.style)
         l.setStyleSheet(css)
@@ -373,10 +373,10 @@ class MdSlidesTest {
         def dia:string "```mermaid\nflowchart LR\n  A[Kirjoita] --> B[Lue]\n```\n"
         def src:string ((("## Yksi\n\n" + dia) + "\nMERKKI\n\n## Kaksi\n\n") + dia)
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
         def css:string "deck { split-level: 2 } page { width: 960pt; height: 540pt; padding: 48pt }"
-        def cc:MdCss (new MdCss())
+        def cc:MdCss (MdCss.new_())
         cc.addStyleSheet(css)
         cc.applyTo(l.style)
         l.setStyleSheet(css)
@@ -590,9 +590,9 @@ class MdSlidesTest {
 
     sfn slidesAt:MdLayout (src:string css:string shrinkMin:double tableMin:double) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
-        def c:MdCss (new MdCss())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
+        def c:MdCss (MdCss.new_())
         c.addStyleSheet(css)
         c.applyTo(l.style)
         l.setStyleSheet(css)
@@ -607,9 +607,9 @@ class MdSlidesTest {
 
     sfn slidesWith:MdLayout (src:string css:string shrinkMin:double) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
-        def c:MdCss (new MdCss())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
+        def c:MdCss (MdCss.new_())
         c.addStyleSheet(css)
         c.applyTo(l.style)
         l.setStyleSheet(css)
@@ -694,18 +694,18 @@ class MdSlidesTest {
         def css:string "deck { split-level: 2 } page { width: 720pt; height: 405pt; padding: 36pt }"
         def src:string "# Title\n\nOne.\n\n## Second\n\nTwo.\n"
         def doc:MdNode (MdBlock.parseText(src))
-        def sheet:MdCss (new MdCss())
+        def sheet:MdCss (MdCss.new_())
         sheet.addStyleSheet(css)
 
-        def flow:MdLayout (new MdLayout())
-        flow.style = (new MdStyle())
+        def flow:MdLayout (MdLayout.new_())
+        flow.style = (MdStyle.new_())
         sheet.applyTo(flow.style)
         flow.setStyleSheet(css)
         flow.setDocSource(src)
         flow.layoutContinuous(doc 720.0)
 
-        def paged:MdLayout (new MdLayout())
-        paged.style = (new MdStyle())
+        def paged:MdLayout (MdLayout.new_())
+        paged.style = (MdStyle.new_())
         sheet.applyTo(paged.style)
         paged.setStyleSheet(css)
         paged.setDocSource(src)
@@ -922,9 +922,9 @@ class MdSlidesTest {
 
     sfn withPictures:MdLayout (src:string css:string) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
-        def c:MdCss (new MdCss())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
+        def c:MdCss (MdCss.new_())
         c.addStyleSheet(css)
         c.applyTo(l.style)
         l.setStyleSheet(css)
@@ -990,9 +990,9 @@ class MdSlidesTest {
         def plain:MdLayout (MdSlidesTest.withPictures(src css))
         c.eqInt("without the type it is a missing picture's alt text" (array_length plain.overlaySrc) 0)
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
-        def mc:MdCss (new MdCss())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
+        def mc:MdCss (MdCss.new_())
         mc.addStyleSheet(css)
         mc.applyTo(l.style)
         l.setStyleSheet(css)
@@ -1489,7 +1489,7 @@ class MdSlidesTest {
     ; What a text box's text measures — a retold title's box is the
     ; column's width whatever it holds.
     sfn inkWidth:double (l:MdLayout b:MdBox) {
-        def r:MdRun (new MdRun())
+        def r:MdRun (MdRun.new_())
         r.family = b.family
         r.bold = b.bold
         r.size = b.size

@@ -23,16 +23,9 @@
 ; scored, the other one is drawn.
 ; ============================================================================
 
-Import "MdNode.rgr"
-Import "MdChar.rgr"
-Import "MdUrl.rgr"
-Import "MdAnchor.rgr"
-Import "MdAttrs.rgr"
-Import "MdGallery.rgr"
-Import "MdCellTones.rgr"
+Import "lib.rs"
 Import "../../math/src/MathRender.rgr"
 Import "../../vfs/src/Vfs.rgr"
-Import "MdColumns.rgr"
 
 class MdToHtml {
     ; A tight list's items hold their paragraphs' contents without the <p>.

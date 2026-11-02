@@ -89,13 +89,13 @@ class MdCodeLinesTest {
     ; picture with no bytes is marked as the stand-in it is, and the gutter's
     ; numbers as dim on purpose (a contrast check leaves both alone)
     sfn readable:void (c:CodeCheck) {
-        def st:MdStyle (new MdStyle())
+        def st:MdStyle (MdStyle.new_())
         for ([] _:string ("#f6f8fa" "#faf7f2" "#f3f4f6")) bg:string i {
             c.ok(("comment on " + bg) ((MdCodeLinesTest.ratio(st.codeComment bg)) >= 4.5))
         }
         def src:string "```py {.numbers}\nx = 1  # one\n```\n\n![A chart](missing.png)\n"
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.style = st
         l.setDocSource(src)
         l.layoutContinuous(doc 600.0)
@@ -183,8 +183,8 @@ class MdCodeLinesTest {
     sfn drawn:void (c:CodeCheck) {
         def src:string "```diff {lines=3|4 .build}\n context\n-old\n+new\n+more\n```\n"
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
         l.setDocSource(src)
         l.layoutContinuous(doc 600.0)
         def bands:int 0
@@ -253,8 +253,8 @@ class MdCodeLinesTest {
 
     sfn slidesWith:MdLayout (src:string at:int) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
         l.style.pageWidth = 960.0
         l.style.pageHeight = 540.0
         l.style.margin = 48.0
@@ -293,8 +293,8 @@ class MdCodeLinesTest {
     ; each text box's colour + quiet flag, in order
     sfn inksOf:[string] (src:string) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
         l.setDocSource(src)
         l.layoutContinuous(doc 600.0)
         def out:[string]
@@ -355,8 +355,8 @@ class MdCodeLinesTest {
         for ([] _:boolean (true false)) hlOn:boolean hi {
             def src:string ("```diff js {.numbers}\n@@ -1,2 +1,2 @@\n-" + long + "\n+" + long + "\n x\n```\n")
             def doc:MdNode (MdBlock.parseText(src))
-            def l:MdLayout (new MdLayout())
-            l.style = (new MdStyle())
+            def l:MdLayout (MdLayout.new_())
+            l.style = (MdStyle.new_())
             l.style.highlightCode = hlOn
             l.setDocSource(src)
             l.layoutContinuous(doc 300.0)
@@ -379,7 +379,7 @@ class MdCodeLinesTest {
             def addedH:double 0.0
             for l.boxes b2:MdBox j {
                 if ((b2.kind == 0) && ((strlen b2.text) > 0)) {
-                    def probe:MdRun (new MdRun())
+                    def probe:MdRun (MdRun.new_())
                     probe.family = l.style.monoFamily
                     probe.size = l.style.codeSize
                     if ((b2.x + (l.measureRun(b2.text probe))) > (right + 0.5)) {
@@ -446,8 +446,8 @@ class MdCodeLinesTest {
     sfn changeDrawn:void (c:CodeCheck) {
         def src:string "```diff js\n-const total = price\n+const total = price * qty\n```\n"
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
         l.setDocSource(src)
         l.layoutContinuous(doc 600.0)
         def narrow:int 0

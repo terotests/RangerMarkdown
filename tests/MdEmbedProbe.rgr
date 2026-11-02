@@ -42,7 +42,7 @@ class MdEmbedProbe {
             return
         }
         def doc:MdNode (MdBlock.parseText(text))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         def inner:double (width - (l.style.margin * 2.0))
         MdDiagram.prepare(doc l.embeds inner "default")
         l.layoutContinuous(doc width)

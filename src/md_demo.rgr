@@ -19,9 +19,7 @@
 ; `TTFTextMeasurer` measures the layout and the paint.
 ; ============================================================================
 
-Import "MdBlock.rgr"
-Import "MdLayout.rgr"
-Import "MdToEvg.rgr"
+Import "lib.rs"
 Import "MdDiagram.rgr"
 Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
 Import "../../pdf_writer/src/core/EVGHTMLRenderer.rgr"
@@ -79,7 +77,7 @@ class MdDemo {
         def measurer:TTFTextMeasurer (new TTFTextMeasurer(fontManager))
 
         ; ---- the page, printed -------------------------------------------
-        def paged:MdLayout (new MdLayout())
+        def paged:MdLayout (MdLayout.new_())
         if fontsLoaded {
             paged.setMeasurer(measurer)
         }
@@ -106,7 +104,7 @@ class MdDemo {
         buffer_write_file "." pdfPath pdf
 
         ; ---- the same document, scrolled ---------------------------------
-        def flowing:MdLayout (new MdLayout())
+        def flowing:MdLayout (MdLayout.new_())
         if fontsLoaded {
             flowing.setMeasurer(measurer)
         }

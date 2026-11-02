@@ -152,10 +152,10 @@ class MdPluginsTest {
     }
 
     sfn slidesOf:MdLayout (doc:MdNode src:string css:string) {
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
         if ((strlen css) > 0) {
-            def mc:MdCss (new MdCss())
+            def mc:MdCss (MdCss.new_())
             mc.addStyleSheet(css)
             mc.applyTo(l.style)
             l.setStyleSheet(css)
@@ -167,10 +167,10 @@ class MdPluginsTest {
 
     sfn column:MdLayout (src:string css:string) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
         if ((strlen css) > 0) {
-            def mc:MdCss (new MdCss())
+            def mc:MdCss (MdCss.new_())
             mc.addStyleSheet(css)
             mc.applyTo(l.style)
             l.setStyleSheet(css)
@@ -186,7 +186,7 @@ class MdPluginsTest {
                 return b
             }
         }
-        def none:MdBox (new MdBox())
+        def none:MdBox (MdBox.new_())
         none.kind = -1
         return none
     }
@@ -216,7 +216,7 @@ class MdPluginsTest {
                 return b
             }
         }
-        def none:MdBox (new MdBox())
+        def none:MdBox (MdBox.new_())
         none.kind = -1
         return none
     }
@@ -269,10 +269,10 @@ class MdPluginsTest {
         v.mount("/" mem)
         def src:string "![The logo][logo]\n\nAfter.\n\n[logo]: logo.png \"Logo\"\n"
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.setImages(v "/")
         l.layoutContinuous(doc 600.0)
-        def pic:MdBox (new MdBox())
+        def pic:MdBox (MdBox.new_())
         pic.kind = -1
         for l.boxes b:MdBox i {
             if (b.kind == 4) {
@@ -357,7 +357,7 @@ class MdPluginsTest {
 
     sfn footnotesDrawn:void (c:PluginCheck) {
         def l:MdLayout (MdPluginsTest.slides((MdPluginsTest.demo()) ""))
-        def ref:MdBox (new MdBox())
+        def ref:MdBox (MdBox.new_())
         ref.kind = -1
         for l.boxes b:MdBox i {
             if ((b.noteRef == 1) && (ref.kind < 0)) {
@@ -653,7 +653,7 @@ class MdPluginsTest {
 
     sfn docx:void (c:PluginCheck) {
         def maker:MdToDocx (new MdToDocx())
-        def rd:RichDocument (maker.build((MdBlock.parseText((MdPluginsTest.demo()))) (new MdStyle())))
+        def rd:RichDocument (maker.build((MdBlock.parseText((MdPluginsTest.demo()))) (MdStyle.new_())))
         def all:string ""
         def i:int 0
         while (i < (rd.paragraphCount())) {

@@ -38,7 +38,7 @@
 
 Import "../../rangerflow/core/FlowScene.rgr"
 Import "../../vela/src/VlJson.rgr"
-Import "MdChar.rgr"
+Import "lib.rs"
 Import "../../rangerflow/domains/graphviz/DotColors.rgr"
 Import "../../vela/src/VlShape.rgr"
 Import "../../vela/src/VlCompile.rgr"

@@ -124,14 +124,14 @@ class MdCssLimitsTest {
     }
 
     sfn style:void (c:LimitsCheck) {
-        def s:MdStyle (new MdStyle())
+        def s:MdStyle (MdStyle.new_())
         def fresh:string (s.fingerprint())
         MdCssLimits.clampStyle(s)
         c.eqStr("the defaults are all in range" (s.fingerprint()) fresh)
 
-        def m:MdCss (new MdCss())
+        def m:MdCss (MdCss.new_())
         m.addStyleSheet("page { width: 13.333in; height: 7.5in; padding: 9in } document { font-size: 2020px; line-height: 0 } h1 { font-size: 99999pt } li { margin-bottom: 5000pt } code { padding: 800pt } blockquote { border-width: 400pt }")
-        def t:MdStyle (new MdStyle())
+        def t:MdStyle (MdStyle.new_())
         m.applyTo(t)
         c.eqNum("the sheet said 2020px" t.bodySize 1515.0)
         MdCssLimits.clampStyle(t)
@@ -149,9 +149,9 @@ class MdCssLimitsTest {
 
     sfn slides:MdLayout (src:string css:string) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
-        def m:MdCss (new MdCss())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
+        def m:MdCss (MdCss.new_())
         m.addStyleSheet(css)
         m.applyTo(l.style)
         l.setStyleSheet(css)

@@ -86,9 +86,9 @@ class MdCssTest {
     }
 
     sfn styled:MdStyle (css:string) {
-        def c:MdCss (new MdCss())
+        def c:MdCss (MdCss.new_())
         c.addStyleSheet(css)
-        def s:MdStyle (new MdStyle())
+        def s:MdStyle (MdStyle.new_())
         c.applyTo(s)
         return s
     }
@@ -180,8 +180,8 @@ class MdCssTest {
         ; that produced something `MdCss` could not parse would pass every
         ; comparison above and break the document.
         def edited:string (MdCssEdit.setProperty(sheet "page" "background-color" "#102040"))
-        def st (new MdStyle())
-        def cs (new MdCss())
+        def st (MdStyle.new_())
+        def cs (MdCss.new_())
         cs.addStyleSheet(edited)
         cs.applyTo(st)
         c.eqStr("and the cascade reads what was written" st.pageBackground "#102040")
@@ -190,7 +190,7 @@ class MdCssTest {
 
     fn untouched:void (c:CssCheck) {
         print "-- a document with no template --"
-        def plain:MdStyle (new MdStyle())
+        def plain:MdStyle (MdStyle.new_())
         def none:MdStyle (MdCssTest.styled(""))
         c.eqStr("an empty sheet changes nothing" (MdCssTest.fingerprint(none)) (MdCssTest.fingerprint(plain)))
 
@@ -198,9 +198,9 @@ class MdCssTest {
         def other:MdStyle (MdCssTest.styled("figure { font-size: 99pt } .nobody { color: red }"))
         c.eqStr("a sheet that names nothing here changes nothing" (MdCssTest.fingerprint(other)) (MdCssTest.fingerprint(plain)))
 
-        def c2:MdCss (new MdCss())
+        def c2:MdCss (MdCss.new_())
         c2.addStyleSheet("")
-        def s2:MdStyle (new MdStyle())
+        def s2:MdStyle (MdStyle.new_())
         c2.applyTo(s2)
         c.eqInt("and nothing was applied" c2.applied 0)
     }
@@ -237,7 +237,7 @@ class MdCssTest {
         c.eqNum("h1" h.h1Size 42.0)
         c.eqNum("h2" h.h2Size 28.0)
         c.eqNum("h6" h.h6Size 12.0)
-        def plain:MdStyle (new MdStyle())
+        def plain:MdStyle (MdStyle.new_())
         c.eqNum("and a level the sheet did not name keeps its own" h.h3Size plain.h3Size)
 
         def rest:MdStyle (MdCssTest.styled("code { font-family: Mono; font-size: 9pt; padding: 12pt; background-color: #eeeeee } a { color: #ff0000 } blockquote { border-width: 5pt; padding-left: 20pt } list { padding-left: 33pt } li { margin-bottom: 4pt } table { padding-left: 3pt; padding-top: 2pt } hr { color: #cccccc }"))
@@ -263,9 +263,9 @@ class MdCssTest {
     ; ----------------------------------------------------------------------
     fn reported:void (c:CssCheck) {
         print "-- and what it cannot do --"
-        def css:MdCss (new MdCss())
+        def css:MdCss (MdCss.new_())
         css.addStyleSheet("document { font-size: 18pt; opacity: 0.5; text-shadow: 1px 1px red }")
-        def s:MdStyle (new MdStyle())
+        def s:MdStyle (MdStyle.new_())
         css.applyTo(s)
         c.eqNum("what it can do, it did" s.bodySize 18.0)
         c.ok("and what it cannot is named" ((css.unsupportedCount()) >= 2))
@@ -276,9 +276,9 @@ class MdCssTest {
         ; it was stated against is not known at this layer, so it is reported
         ; rather than guessed — which is the rule the whole file is written
         ; to, applied to the one property that tempts a guess.
-        def ratio:MdCss (new MdCss())
+        def ratio:MdCss (MdCss.new_())
         ratio.addStyleSheet("document { line-height: 16pt }")
-        def rs:MdStyle (new MdStyle())
+        def rs:MdStyle (MdStyle.new_())
         def before:double rs.lineHeight
         ratio.applyTo(rs)
         c.eqNum("a line-height as a length is not guessed at" rs.lineHeight before)
@@ -286,7 +286,7 @@ class MdCssTest {
 
         ; An at-rule is CssCore's own refusal, and it comes through as an
         ; error rather than as silence. `page { }` is the spelling here.
-        def at:MdCss (new MdCss())
+        def at:MdCss (MdCss.new_())
         at.addStyleSheet("@page { width: 10in }")
         c.ok("an at-rule is refused, loudly" ((at.errorCount()) > 0))
     }
@@ -306,7 +306,7 @@ class MdCssTest {
     ; columns of Stage C are.
     fn perBlock:void (c:CssCheck) {
         print "-- what it says about one block --"
-        def css:MdCss (new MdCss())
+        def css:MdCss (MdCss.new_())
         css.addStyleSheet("p { font-size: 11pt } .lead { font-size: 22pt } #totals { color: #003300 } h2 { font-size: 28pt } .c3 { column-count: 3; column-gap: 28pt }")
 
         def doc:MdNode (MdBlock.parseText("A lead paragraph.\n{.lead}\n\n## A heading\n\n- a\n- b\n{.c3}\n\nTotals.\n{#totals}\n"))
@@ -333,14 +333,14 @@ class MdCssTest {
     ; ----------------------------------------------------------------------
     fn deck:void (c:CssCheck) {
         print "-- what the deck rules carry --"
-        def css:MdCss (new MdCss())
+        def css:MdCss (MdCss.new_())
         css.addStyleSheet("deck { split-level: 2; overflow: shrink; aspect-ratio: 16 / 9 }")
-        def s:MdStyle (new MdStyle())
+        def s:MdStyle (MdStyle.new_())
         css.applyTo(s)
         c.eqInt("the level a slide splits at" css.splitLevel 2)
         c.eqStr("what a full slide does" css.overflow "shrink")
         c.eqStr("and its shape" css.aspect "16 / 9")
-        c.eqStr("…and none of it reached the page" (MdCssTest.fingerprint(s)) (MdCssTest.fingerprint((new MdStyle()))))
+        c.eqStr("…and none of it reached the page" (MdCssTest.fingerprint(s)) (MdCssTest.fingerprint((MdStyle.new_()))))
     }
 
     ; ----------------------------------------------------------------------
@@ -366,13 +366,13 @@ class MdCssTest {
 
         ; Laid out small, then big, on the same layout — which is what the
         ; page does when a reader picks another template.
-        def moved:MdLayout (new MdLayout())
-        moved.style = (new MdStyle())
+        def moved:MdLayout (MdLayout.new_())
+        moved.style = (MdStyle.new_())
         moved.setDocSource(src)
         moved.armCache(doc)
         moved.layoutContinuous(doc 380.0)
         def firstRun:int (array_length moved.boxes)
-        def sheet:MdCss (new MdCss())
+        def sheet:MdCss (MdCss.new_())
         sheet.addStyleSheet(big)
         sheet.applyTo(moved.style)
         moved.setDocSource(src)
@@ -380,9 +380,9 @@ class MdCssTest {
         moved.layoutContinuous(doc 380.0)
 
         ; …and from scratch, which is the truth.
-        def fresh:MdLayout (new MdLayout())
-        fresh.style = (new MdStyle())
-        def sheet2:MdCss (new MdCss())
+        def fresh:MdLayout (MdLayout.new_())
+        fresh.style = (MdStyle.new_())
+        def sheet2:MdCss (MdCss.new_())
         sheet2.addStyleSheet(big)
         sheet2.applyTo(fresh.style)
         fresh.setDocSource(src)
@@ -394,8 +394,8 @@ class MdCssTest {
     }
 
     sfn plainLayout:MdLayout (doc:MdNode src:string) {
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
         l.setDocSource(src)
         l.layoutContinuous(doc 380.0)
         return l
@@ -420,7 +420,7 @@ class MdCssTest {
 
     ; the messages the lint gives `css`, joined by "|"
     sfn lintOf:string (css:string) {
-        def m:MdCss (new MdCss())
+        def m:MdCss (MdCss.new_())
         def notes:[MdCssNote] (m.lintText(css))
         def out:string ""
         for notes n:MdCssNote ni {
@@ -453,7 +453,7 @@ class MdCssTest {
         c.ok("…an at-rule" ((indexOf l7 "@font-face: at-rules other than") >= 0))
         c.eqStr("a gallery's cell:nth(n) is read" (MdCssTest.lintOf("cell:nth(2) { background-color: #fff }\ngallery { gap: 4pt }")) "")
         ; a host's own elements: read under a slide too, and a prefix
-        def host (new MdCssSupport())
+        def host (MdCssSupport.new_())
         host.addElement("chart" "color,font-size,padding" "charts")
         host.addElement("deck" "fx,fx-*" "")
         host.readsUnderScope("chart")
@@ -465,7 +465,7 @@ class MdCssTest {
             c.eqStr("…and fxhue is not" h0.property "fxhue")
         }
         ; where: the offsets point at the declaration in the text as written
-        def m:MdCss (new MdCss())
+        def m:MdCss (MdCss.new_())
         def text:string "/* note */\nh1 {\n  color: red;\n  opacity: 0.5;\n}"
         def ns:[MdCssNote] (m.lintText(text))
         c.eqInt("one note" (array_length ns) 1)
@@ -474,7 +474,7 @@ class MdCssTest {
             c.eqStr("…at the declaration" (substring text n0.at n0.end) "opacity: 0.5")
         }
         ; the sheet added keeps its notes
-        def kept:MdCss (new MdCss())
+        def kept:MdCss (MdCss.new_())
         kept.addStyleSheet("h1 { opacity: 1 }")
         c.eqInt("addStyleSheet keeps the notes" (kept.noteCount()) 1)
     }
@@ -486,10 +486,10 @@ class MdCssTest {
         c.eqStr("…a variable may name another" s.h2Color "#FF3D7F")
         c.eqStr("…a fallback when it is not defined" s.h3Color "#00FF00")
         ; a theme's variable, used in the author's own sheet added after it
-        def two:MdCss (new MdCss())
+        def two:MdCss (MdCss.new_())
         two.addStyleSheet(":root { --brand: #102030 }")
         two.addStyleSheet("a { color: var(--brand) }")
-        def s2:MdStyle (new MdStyle())
+        def s2:MdStyle (MdStyle.new_())
         two.applyTo(s2)
         c.eqStr("a theme's variable reaches a later sheet" s2.linkColor "#102030")
         c.eqInt("…and is not reported" (two.noteCount()) 0)
@@ -508,7 +508,7 @@ class MdCssTest {
         def p:MdTypo (s.typoFor("p"))
         c.eqNum("em spacing is kept as a share (negative)" p.spacing -0.05)
         c.eqStr("capitalize" (MdTypo.apply("capitalize" "hello big world")) "Hello Big World")
-        c.ok("a typography change is a style change" ((s.fingerprint()) != ((new MdStyle()).fingerprint())))
+        c.ok("a typography change is a style change" ((s.fingerprint()) != ((MdStyle.new_()).fingerprint())))
     }
 
     fn plates:void (c:CssCheck) {

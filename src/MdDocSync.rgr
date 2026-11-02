@@ -11,7 +11,7 @@
 ; before a trailing `{.class}`.
 ; ============================================================================
 
-Import "MdNode.rgr"
+Import "lib.rs"
 Import "MdDeckSync.rgr"
 Import "../../docx_viewer/src/RichDocument.rgr"
 

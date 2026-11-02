@@ -26,7 +26,7 @@
 ; ============================================================================
 
 Import "MdDiagram.rgr"
-Import "MdEmbedKinds.rgr"
+Import "lib.rs"
 Import "MdToPptx.rgr"
 Import "../../pptx/src/PptxFromEvg.rgr"
 Import "pkg:evg/EVGLayout.rgr"

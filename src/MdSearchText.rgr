@@ -24,7 +24,7 @@
 ; case, anywhere; the snippet is the text around the first word found.
 ; ============================================================================
 
-Import "MdBlock.rgr"
+Import "lib.rs"
 
 class MdSearchText {
     ; The document's text, one block to a line.

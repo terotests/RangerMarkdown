@@ -138,7 +138,7 @@ class MarkdownTest {
         def chart:string "{\"title\": \"T\", \"data\": {\"values\": [{\"a\": \"x\", \"b\": 1}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"a\", \"type\": \"nominal\"}, \"y\": {\"field\": \"b\", \"type\": \"quantitative\"}}}"
         def src:string ("## Yksi\n\n```vega-lite\n" + chart + "\n```\n\n## Kaksi\n\n```vega-lite\n" + chart + " \n```\n")
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         def w:double 500.0
         MdDiagram.prepare(doc l.embeds w "default")
         def e0:MdEmbedEntry (l.embeds.entryAt(0))
@@ -204,7 +204,7 @@ class MarkdownTest {
         this.ok("no url is left" ((indexOf out "\"url\"") < 0))
         def chart:string "{\"data\": {\"url\": \"data/t.csv\"}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"name\", \"type\": \"nominal\"}, \"y\": {\"field\": \"value\", \"type\": \"quantitative\"}}}"
         def doc:MdNode (MdBlock.parseText(("```vega-lite\n" + chart + "\n```\n")))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         MdDiagram.prepare(doc l.embeds 500.0 "default")
         def e0:MdEmbedEntry (l.embeds.entryAt(0))
         def before:int (this.treeSize((unwrap e0.root)))
@@ -501,7 +501,7 @@ class MarkdownTest {
 
     fn layout:void () {
         def doc:MdNode (MdBlock.parseText("# H\n\nsome **bold** and `code` text\n"))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.layoutContinuous(doc 400.0)
         def n:int (array_length l.boxes)
         this.ok("layout produced boxes" (n > 3))
@@ -510,18 +510,18 @@ class MarkdownTest {
         ; The claim this module exists to make: one line, several faces, and
         ; the segments meet exactly. A gap here is a gap on the printed page.
         def runs:[MdRun]
-        def a:MdRun (new MdRun())
+        def a:MdRun (MdRun.new_())
         a.family = "Open Sans"
         a.size = 11.0
         a.text = "some "
         push runs a
-        def b:MdRun (new MdRun())
+        def b:MdRun (MdRun.new_())
         b.family = "Open Sans"
         b.size = 11.0
         b.bold = true
         b.text = "bold"
         push runs b
-        def c:MdRun (new MdRun())
+        def c:MdRun (MdRun.new_())
         c.family = "Open Sans"
         c.size = 11.0
         ; No leading space: a space that OPENS a run is deliberately laid as
@@ -555,7 +555,7 @@ class MarkdownTest {
         def spaced:[MdRun]
         push spaced a
         push spaced b
-        def d:MdRun (new MdRun())
+        def d:MdRun (MdRun.new_())
         d.family = "Open Sans"
         d.size = 11.0
         d.text = " and more"
@@ -595,7 +595,7 @@ class MarkdownTest {
         ; column and one that drifted high would break it early. Both show up
         ; here, and neither shows up in a test that only asks whether the text
         ; wrapped.
-        def para:MdRun (new MdRun())
+        def para:MdRun (MdRun.new_())
         para.family = "Open Sans"
         para.size = 11.0
         para.text = "The quick brown fox jumps over the lazy dog while the printer waits for a line that is wide enough to be broken somewhere sensible and then broken again"
@@ -646,13 +646,13 @@ class MarkdownTest {
 
         ; A layout with nothing prepared leaves a labelled slot rather than a
         ; hole: the reader is told what was there.
-        def bare:MdLayout (new MdLayout())
+        def bare:MdLayout (MdLayout.new_())
         bare.layoutContinuous(doc 500.0)
         def slots:int (MarkdownTest.countKind(bare 3))
         this.eqInt("an unprepared fence is still a slot" slots 1)
 
         ; Prepared, it is a drawing with a height of its own.
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         ; The SAME width the layout will use. A diagram prepared at another
         ; width is a diagram the layout will not find — it is keyed by the
         ; width it was laid out at, so that re-flowing a document narrower
@@ -754,7 +754,7 @@ class MarkdownTest {
         def d2s:string "direction: right\nvarasto -> keraily\nkeraily -> lahetys"
         def src:string ((((("```plantuml\n" + puml) + "\n```\n\n```dot\n") + dot) + "\n```\n\n```mermaid\n") + mer + "\n```\n\n```d2\n" + d2s + "\n```\n")
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         def contentW:double (700.0 - (l.style.margin * 2.0))
         MdDiagram.prepare(doc l.embeds contentW "default")
         this.eqInt("four fences, four diagrams prepared" (l.embeds.count()) 4)
@@ -828,7 +828,7 @@ class MarkdownTest {
         ; keystroke — and every half-typed predecessor used to stay, element
         ; tree and all. The status line counts this store, so the same bug
         ; told a reader their one-diagram document had sixty in it.
-        def typing:MdLayout (new MdLayout())
+        def typing:MdLayout (MdLayout.new_())
         def t1:MdNode (MdBlock.parseText("```mermaid\nflowchart LR\n  A --> B\n```\n"))
         MdDiagram.prepare(t1 typing.embeds contentW "default")
         this.eqInt("one fence, one entry" (typing.embeds.count()) 1)
@@ -843,7 +843,7 @@ class MarkdownTest {
 
         ; --- a notation whose reader refuses says why, rather than nothing
         def broken:MdNode (MdBlock.parseText("```dot\ndigraph { a -> ; }\n```\n"))
-        def bl:MdLayout (new MdLayout())
+        def bl:MdLayout (MdLayout.new_())
         MdDiagram.prepare(broken bl.embeds contentW "default")
         def bad:MdEmbedEntry (bl.embeds.entryAt(0))
         this.ok("a DOT file the reader refuses is not drawn" (! bad.ok))
@@ -851,7 +851,7 @@ class MarkdownTest {
         ; …and a Mermaid flowchart Mermaid itself would refuse is not drawn
         ; half-read: its note names what is wrong and on which line
         def brokenM:MdNode (MdBlock.parseText("```mermaid\nflowchart LR\n  A[Open --> B\n```\n"))
-        def bm:MdLayout (new MdLayout())
+        def bm:MdLayout (MdLayout.new_())
         MdDiagram.prepare(brokenM bm.embeds contentW "default")
         def badM:MdEmbedEntry (bm.embeds.entryAt(0))
         this.ok("a flowchart with an unclosed [ is not drawn" (! badM.ok))
@@ -956,9 +956,9 @@ class MarkdownTest {
     fn narrowLabels:void () {
         def src:string "```mermaid\ngantt\n  title Julkaisu\n  dateFormat YYYY-MM-DD\n  section Suunnittelu\n  Vaatimusten maarittely :a1, 2026-01-05, 5d\n  Tekninen suunnittelu :a2, after a1, 4d\n  section Kehitys\n  Backend-kehitys :b1, 2026-01-14, 12d\n  Frontend-kehitys :b2, 2026-01-16, 10d\n```\n"
         def node:MdNode (MdBlock.parseText(src))
-        def wide (new MdEmbedCache())
+        def wide (MdEmbedCache.new_())
         MdDiagram.prepare(node wide 1400.0 "default")
-        def thin (new MdEmbedCache())
+        def thin (MdEmbedCache.new_())
         MdDiagram.prepare(node thin 300.0 "default")
         this.eqInt("the gantt was drawn at a wide column" (wide.count()) 1)
         this.eqInt("…and at a narrow one" (thin.count()) 1)
@@ -1018,7 +1018,7 @@ class MarkdownTest {
 
         def src:string "# T\n\n![Logo](logo.png)\n\nAfter.\n"
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.setImages(v "/")
         l.layoutContinuous(doc 700.0)
         def boxes:int 0
@@ -1046,7 +1046,7 @@ class MarkdownTest {
     ; A document, with its diagrams prepared, laid out at 700pt.
     sfn laidOut:MdLayout (src:string) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         def contentW:double (700.0 - (l.style.margin * 2.0))
         MdDiagram.prepare(doc l.embeds contentW "default")
         l.layoutContinuous(doc 700.0)
@@ -1073,7 +1073,7 @@ class MarkdownTest {
             if (b.kind == kind) { return b }
             i = (i + 1)
         }
-        return (new MdBox())
+        return (MdBox.new_())
     }
 
     sfn hasSub:boolean (v:string needle:string) {
@@ -1125,7 +1125,7 @@ class MarkdownTest {
 
         ; and the layout really emits one box per token
         def doc:MdNode (MdBlock.parseText("```js\nconst x = 1;\n```\n"))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.layoutContinuous(doc 400.0)
         def colours:int (MarkdownTest.distinctColours(l))
         this.ok("a code block has several colours" (colours >= 3))
@@ -1180,7 +1180,7 @@ class MarkdownTest {
     fn lists:void () {
         def src:string "- one\n- two\n  - two a\n  - two b\n- three\n\nAfter.\n"
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.layoutContinuous(doc 400.0)
         def one:MdBox (MarkdownTest.boxOf(l "one"))
         def two:MdBox (MarkdownTest.boxOf(l "two"))
@@ -1202,7 +1202,7 @@ class MarkdownTest {
 
         ; A LOOSE list — a blank line between the items — keeps the air.
         def loose:MdNode (MdBlock.parseText("- one\n\n- two\n"))
-        def l2:MdLayout (new MdLayout())
+        def l2:MdLayout (MdLayout.new_())
         l2.layoutContinuous(loose 400.0)
         def lo1:MdBox (MarkdownTest.boxOf(l2 "one"))
         def lo2:MdBox (MarkdownTest.boxOf(l2 "two"))
@@ -1211,7 +1211,7 @@ class MarkdownTest {
 
         ; A nested ordered list counts from one again.
         def nums:MdNode (MdBlock.parseText("1. a\n1. b\n   1. x\n   1. y\n"))
-        def l3:MdLayout (new MdLayout())
+        def l3:MdLayout (MdLayout.new_())
         l3.layoutContinuous(nums 400.0)
         this.eqInt("the nested numbers start again" (MarkdownTest.countText(l3 "1.")) 2)
         this.eqInt("and go on from there" (MarkdownTest.countText(l3 "2.")) 2)
@@ -1219,7 +1219,7 @@ class MarkdownTest {
         ; A marker wider than the step pushes the text out instead of writing
         ; across it.
         def wide:MdNode (MdBlock.parseText("99. a\n100. b\n101. c\n"))
-        def l4:MdLayout (new MdLayout())
+        def l4:MdLayout (MdLayout.new_())
         l4.layoutContinuous(wide 400.0)
         def m:MdBox (MarkdownTest.boxOf(l4 "100."))
         def t:MdBox (MarkdownTest.boxOf(l4 "b"))
@@ -1236,7 +1236,7 @@ class MarkdownTest {
             if (b.text == t) { return b }
             i = (i + 1)
         }
-        return (new MdBox())
+        return (MdBox.new_())
     }
 
     sfn countText:int (l:MdLayout t:string) {
@@ -1263,7 +1263,7 @@ class MarkdownTest {
     fn quotes:void () {
         def src:string "> What is this comment\n> Why?\n\nAfter the quote.\n"
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.layoutContinuous(doc 400.0)
         def barTop:double 0.0
         def barBottom:double 0.0
@@ -1321,7 +1321,7 @@ class MarkdownTest {
     fn links:void () {
         def want:string "https://example.com/x"
         def doc:MdNode (MdBlock.parseText("See [the license](https://example.com/x) for details.\n"))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.layoutContinuous(doc 400.0)
         def kept:int 0
         def i:int 0
@@ -1375,7 +1375,7 @@ class MarkdownTest {
     fn tables:void () {
         def src:string "| Area | Current expectation |\n| --- | --- |\n| Host/runtime | Node.js is the primary supported host for the compiler, and the one the tests run on |\n| JavaScript | Best baseline target and the most reliable place to start when a new program is being written |\n"
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.layoutContinuous(doc 400.0)
         def n:int (array_length l.boxes)
         def texts:int 0
@@ -1432,7 +1432,7 @@ class MarkdownTest {
         this.ok("…and 595pt wide — the unit is shared" ((customW > 594.0) && (customW < 596.0)))
 
         ; and it reaches the layout
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.applyMeta(doc)
         this.ok("the page shrank to A5" (l.style.pageWidth < 500.0))
         this.eq("the title is kept" l.style.title "T")
@@ -1440,7 +1440,7 @@ class MarkdownTest {
 
         ; a document with no front matter is untouched
         def plain:MdNode (MdBlock.parseText("# H\n"))
-        def l2:MdLayout (new MdLayout())
+        def l2:MdLayout (MdLayout.new_())
         l2.applyMeta(plain)
         this.ok("A4 by default" (l2.style.pageWidth > 500.0))
     }
@@ -1451,7 +1451,7 @@ class MarkdownTest {
     fn furniture:void () {
         def src:string "---\ntitle: T\nrunningHead: title\npageNumbers: bottom-center\ntoc: true\n---\n\n# One\n\ntext\n\n## Two\n\nmore\n"
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.applyMeta(doc)
         l.layoutPaged(doc)
 
@@ -1469,7 +1469,7 @@ class MarkdownTest {
 
         ; without front matter there is no furniture and no contents
         def bare:MdNode (MdBlock.parseText("# One\n\ntext\n"))
-        def l2:MdLayout (new MdLayout())
+        def l2:MdLayout (MdLayout.new_())
         l2.applyMeta(bare)
         l2.layoutPaged(bare)
         this.ok("no contents when none was asked for" (! (MarkdownTest.hasText(l2 "Contents"))))
@@ -1506,7 +1506,7 @@ class MarkdownTest {
     fn presized:void () {
         def src:string "# Heading\n\nSome **bold** words and `code` in a paragraph that is long enough to wrap at least once at this width.\n\n- a list item\n- another\n\n> a quote\n\n```js\nconst x = 1; // note\n```\n\n| a | b |\n| --- | ---: |\n| 1 | 2 |\n"
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.layoutContinuous(doc 420.0)
         this.ok("no diagram, so no engine needed" (! (MdToEvg.needsEngine(l))))
 
@@ -1535,7 +1535,7 @@ class MarkdownTest {
 
         ; A page with a diagram on it still needs the engine, and says so.
         def withDiagram:MdNode (MdBlock.parseText("text\n\n```mermaid\nflowchart LR\n  A --> B\n```\n"))
-        def l2:MdLayout (new MdLayout())
+        def l2:MdLayout (MdLayout.new_())
         MdDiagram.prepare(withDiagram l2.embeds (420.0 - (l2.style.margin * 2.0)) "default")
         l2.layoutContinuous(withDiagram 420.0)
         this.ok("a diagram needs the engine" (MdToEvg.needsEngine(l2)))
@@ -1586,7 +1586,7 @@ class MarkdownTest {
 
     fn evg:void () {
         def doc:MdNode (MdBlock.parseText("# H\n\ntext\n\n```\ncode\n```\n"))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.layoutContinuous(doc 400.0)
         def root:EVGElement (MdToEvg.buildPage(l 400.0))
         def kids:int (root.getChildCount())
@@ -1605,7 +1605,7 @@ class MarkdownTest {
         this.ok("evg tree paints text" (texts > 0))
 
         ; Paged output is the shape the PDF writer already understands.
-        def p:MdLayout (new MdLayout())
+        def p:MdLayout (MdLayout.new_())
         p.layoutPaged(doc)
         def printRoot:EVGElement (MdToEvg.buildPrint(p))
         this.eq("print root" printRoot.tagName "print")

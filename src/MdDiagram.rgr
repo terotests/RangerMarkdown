@@ -44,14 +44,10 @@
 ; `MdEmbedCache`.
 ; ============================================================================
 
-Import "MdNode.rgr"
-Import "MdEmbed.rgr"
-Import "MdEmbedKinds.rgr"
+Import "lib.rs"
 Import "MdVegaRender.rgr"
 Import "MdFigure.rgr"
 Import "MdApp.rgr"
-Import "MdAnchor.rgr"
-Import "MdColumns.rgr"
 Import "../../rangerflow/domains/mermaid/MermaidRender.rgr"
 Import "../../rangerflow/domains/plantuml/PlantUmlRender.rgr"
 Import "../../rangerflow/domains/graphviz/DotRender.rgr"
@@ -311,7 +307,7 @@ class MdDiagram {
             cache.removeAt(already)
         }
 
-        def e:MdEmbedEntry (new MdEmbedEntry())
+        def e:MdEmbedEntry (MdEmbedEntry.new_())
         e.kind = word
         e.source = node.literal
         e.atWidth = width

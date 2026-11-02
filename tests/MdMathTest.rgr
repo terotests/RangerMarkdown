@@ -111,7 +111,7 @@ class MdMathTest {
 
     fn testLayout:void () {
         def doc:MdNode (MdMathTest.parse("Text $x^2$ and $\\frac{1}{2}$.\n\n$$\\sum_{i=1}^n i$$"))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.layoutContinuous(doc 500.0)
         def q:int 0
         while (q < (array_length l.boxes)) {
@@ -120,9 +120,9 @@ class MdMathTest {
         }
         this.check("two inline formulas and one display" ((this.countKind(l 5)) == 3))
         def i:int 0
-        def disp:MdBox (new MdBox())
-        def inl:MdBox (new MdBox())
-        def txt:MdBox (new MdBox())
+        def disp:MdBox (MdBox.new_())
+        def inl:MdBox (MdBox.new_())
+        def txt:MdBox (MdBox.new_())
         while (i < (array_length l.boxes)) {
             def b:MdBox (itemAt l.boxes i)
             if ((b.kind == 5) && (b.embedKind == "math-display")) {
@@ -139,7 +139,7 @@ class MdMathTest {
         this.check("the display is centred" ((fabs (((disp.x + (disp.w / 2.0)) - 250.0))) < 30.0))
         this.check("inline math sits after the text" (inl.x > (txt.x + 10.0)))
         this.check("inline math is one thing to a caret" inl.segAtom)
-        def sl:MdLayout (new MdLayout())
+        def sl:MdLayout (MdLayout.new_())
         sl.layoutContinuous((MdBlock.parseText("Text $x^2$ ok\n")) 500.0)
         def srcAt:int -1
         def srcLen:int -1
@@ -169,7 +169,7 @@ class MdMathTest {
         }
         this.check("each formula is a filled path" (paths >= 3))
         def direct:EVGDisplayList (new EVGDisplayList())
-        def painter:MdToEvg (new MdToEvg())
+        def painter:MdToEvg (MdToEvg.new_())
         def b0:int 0
         while (b0 < (array_length l.boxes)) {
             painter.paintBox(direct l (itemAt l.boxes b0) 0.0)

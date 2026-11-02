@@ -144,7 +144,7 @@ class MdSrcMapTest {
     fn pointBack:void (c:SrcMapCheck) {
         def src:string "alpha beta gamma delta\n"
         def doc:MdNode (MdBlock.parseText(src))
-        def lay:MdLayout (new MdLayout())
+        def lay:MdLayout (MdLayout.new_())
         lay.layoutContinuous(doc 900.0)
 
         ; The first text box, and the line it sits on.
@@ -205,7 +205,7 @@ class MdSrcMapTest {
         def doc:MdNode (MdBlock.parseText(src))
         def subs:[MdNode]
         MdSrcMapTest.collect(doc "text" subs)
-        def sign:MdNode (new MdNode())
+        def sign:MdNode (MdNode.new_())
         def found:boolean false
         def i:int 0
         while (i < (array_length subs)) {
@@ -221,7 +221,7 @@ class MdSrcMapTest {
         c.eqStr("…and whose span is all of (c)" (MdSrcMapTest.spanOf(src sign)) "(c)")
         c.eqStr("the text after it still reads back" (MdSrcMapTest.spanOfNth(src "text" 2)) " cd")
 
-        def lay:MdLayout (new MdLayout())
+        def lay:MdLayout (MdLayout.new_())
         lay.layoutContinuous(doc 900.0)
         def bi:int -1
         def k:int 0
@@ -315,7 +315,7 @@ class MdSrcMapTest {
         ; …and its words on the page stand for its words in the file, not
         ; for the backticks before them
         def cdoc:MdNode (MdBlock.parseText(code))
-        def clay:MdLayout (new MdLayout())
+        def clay:MdLayout (MdLayout.new_())
         clay.layoutContinuous(cdoc 900.0)
         def cAt:int -1
         def cLen:int -1
@@ -334,7 +334,7 @@ class MdSrcMapTest {
         ; the file, so an editor's caret stops in code too
         def fence:string "Intro\n\n```js\nlet a = 1\n\n  b()\n```\n"
         def fdoc:MdNode (MdBlock.parseText(fence))
-        def flay:MdLayout (new MdLayout())
+        def flay:MdLayout (MdLayout.new_())
         flay.caretStops = true
         flay.layoutContinuous(fdoc 900.0)
         def fBad:int 0
@@ -360,9 +360,9 @@ class MdSrcMapTest {
         c.eqInt("an empty code line has a stop at its place" fEmpty 23)
         ; an empty list item is a line of its own: the next item's words
         ; below it, and a stop where its words would start
-        def li0:MdLayout (new MdLayout())
+        def li0:MdLayout (MdLayout.new_())
         li0.layoutContinuous((MdBlock.parseText("- aa\n- bb\n")) 900.0)
-        def li1:MdLayout (new MdLayout())
+        def li1:MdLayout (MdLayout.new_())
         li1.caretStops = true
         li1.layoutContinuous((MdBlock.parseText("- aa\n- \n- bb\n")) 900.0)
         def y0:double -1.0
@@ -383,7 +383,7 @@ class MdSrcMapTest {
         }
         c.ok("an empty item pushes the next one down a line" (y1 > (y0 + 5.0)))
         c.eqInt("…and a stop after its marker" stopAt 7)
-        def li2:MdLayout (new MdLayout())
+        def li2:MdLayout (MdLayout.new_())
         li2.caretStops = true
         li2.layoutContinuous((MdBlock.parseText("- aa\n-\n- bb\n")) 900.0)
         def bareAt:int -1
@@ -395,10 +395,10 @@ class MdSrcMapTest {
         c.eqInt("a bare marker's stop is before its newline" bareAt 6)
         ; an empty line the host names between blocks: a line of its own
         ; with a stop, the next block below it
-        def bl0:MdLayout (new MdLayout())
+        def bl0:MdLayout (MdLayout.new_())
         bl0.caretStops = true
         bl0.layoutContinuous((MdBlock.parseText("Aa\n\n\n\nBb\n")) 900.0)
-        def bl1:MdLayout (new MdLayout())
+        def bl1:MdLayout (MdLayout.new_())
         bl1.caretStops = true
         push bl1.blankStops 4
         bl1.layoutContinuous((MdBlock.parseText("Aa\n\n\n\nBb\n")) 900.0)
@@ -422,7 +422,7 @@ class MdSrcMapTest {
         c.eqInt("…with a stop at its place" blankAt 4)
         def wide:string "a `` `b` `` c\n"
         def wdoc:MdNode (MdBlock.parseText(wide))
-        def wlay:MdLayout (new MdLayout())
+        def wlay:MdLayout (MdLayout.new_())
         wlay.layoutContinuous(wdoc 900.0)
         def wAt:int -1
         def wi:int 0
@@ -437,7 +437,7 @@ class MdSrcMapTest {
         ; a picture the layout has no bytes for shows "[alt]", which is not
         ; its source spelled out: the box stands for all of `![alt](p.png)`
         def gdoc:MdNode (MdBlock.parseText(img))
-        def glay:MdLayout (new MdLayout())
+        def glay:MdLayout (MdLayout.new_())
         glay.layoutContinuous(gdoc 900.0)
         def gAt:int -1
         def gLen:int -1

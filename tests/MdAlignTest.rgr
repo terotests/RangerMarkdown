@@ -59,10 +59,10 @@ class MdAlignTest {
 
     sfn laid:MdLayout (src:string css:string) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
         if ((strlen css) > 0) {
-            def mc:MdCss (new MdCss())
+            def mc:MdCss (MdCss.new_())
             mc.addStyleSheet(css)
             mc.applyTo(l.style)
             l.setStyleSheet(css)
