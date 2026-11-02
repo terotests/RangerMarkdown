@@ -32,8 +32,7 @@
 ; may be in another table cell on another page.
 ; ============================================================================
 
-Import "MdBlock.rgr"
-Import "MdLayout.rgr"
+Import "lib.rs"
 Import "MdEdit.rgr"
 Import "MdSemanticEdit.rgr"
 Import "../../office/text/OfficeCaretMotion.rgr"
@@ -44,7 +43,7 @@ class MdEditController {
     ; The document, and the only copy of it.
     def source:string ""
     def doc:MdNode (MdNode.create("document"))
-    def layout:MdLayout (new MdLayout())
+    def layout:MdLayout (MdLayout.new_())
     ; Has the text changed since the tree and the boxes were built?
     def stale:boolean true
     ; Width the document is laid out at, and how the sheets are stacked.

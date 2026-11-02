@@ -72,7 +72,7 @@ class MdDocxTest {
     fn make:RichDocument (src:string) {
         def node:MdNode (MdBlock.parseText(src))
         maker = (new MdToDocx())
-        def st (new MdStyle())
+        def st (MdStyle.new_())
         return (maker.build(node st))
     }
 
@@ -80,7 +80,7 @@ class MdDocxTest {
         def node:MdNode (MdBlock.parseText(src))
         maker = (new MdToDocx())
         maker.setImages(v "/")
-        def st (new MdStyle())
+        def st (MdStyle.new_())
         return (maker.build(node st))
     }
 
@@ -407,12 +407,12 @@ class MdDocxTest {
         print "-- a diagram is geometry in the Word document too --"
         def src:string "# Kaavio\n\n```dot\ndigraph { saapuu -> tarkista; tarkista -> laskuta; }\n```\n\nJa teksti sen alla.\n"
         def node:MdNode (MdBlock.parseText(src))
-        def cache (new MdEmbedCache())
+        def cache (MdEmbedCache.new_())
         MdDiagram.prepare(node cache 600.0 "default")
         c.eqInt("the layout drew the fence" (cache.count()) 1)
         maker = (new MdToDocx())
         maker.setEmbeds(cache)
-        def st (new MdStyle())
+        def st (MdStyle.new_())
         def d:RichDocument (maker.build(node st))
         c.eqInt("the diagram went in as a drawing" maker.result.drawings 1)
         c.eqInt("…and not as its name" maker.result.drawingsAsText 0)

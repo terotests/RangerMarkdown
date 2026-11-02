@@ -148,7 +148,7 @@ class MdAppTest {
         c.ok("a long note is cut" ((startsWith cut (substring longNote 0 139)) && ((indexOf cut "x…") == 138)))
         ; centred in a wider column: placed at its own width, not stretched
         ; to the column's end
-        def e:MdEmbedEntry (new MdEmbedEntry())
+        def e:MdEmbedEntry (MdEmbedEntry.new_())
         e.width = 400.0
         e.align = "center"
         c.near("centred shift" (e.shiftIn(800.0)) 200.0)

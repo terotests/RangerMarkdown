@@ -13,8 +13,7 @@
 ; (no emphasis, link, heading or list), so the caller pastes the text.
 ; ============================================================================
 
-Import "MdChar.rgr"
-Import "MdHtml.rgr"
+Import "lib.rs"
 
 class MdFromHtml {
     def blocks:[string]

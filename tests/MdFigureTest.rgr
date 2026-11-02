@@ -450,7 +450,7 @@ class MdFigureTest {
         def plain:[MdFigureItem] (MdFigure.items("Strengths:\nWeaknesses: few\n"))
         c.ok("a title alone" (((array_length plain) == 2) && ((itemAt plain 0).title == "Strengths")))
 
-        def st (new MdFigureStyle)
+        def st (MdFigureStyle.new_())
         def cols:[string] ([] _:string ("#ff6600" "#0066cc"))
         st.colors = cols
         st.paper = "#ffffff"
@@ -561,7 +561,7 @@ class MdFigureTest {
         while (pi < 2) {
             def qi:int 0
             while (qi < 2) {
-                def cs (new MdFigureStyle)
+                def cs (MdFigureStyle.new_())
                 def cols:[string] (strsplit (itemAt palettes pi) " ")
                 cs.colors = cols
                 cs.paper = (itemAt papers qi)
@@ -653,7 +653,7 @@ class MdFigureTest {
 
         ; --- cards: Tero's three recommendations (wine, gold), 16:9 and
         ; portrait
-        def wine (new MdFigureStyle)
+        def wine (MdFigureStyle.new_())
         def wc:[string] ([] _:string ("#8b2240" "#c4943a"))
         wine.colors = wc
         wine.paper = "#f8f4ee"
@@ -712,7 +712,7 @@ class MdFigureTest {
         while (cpi < 2) {
             def cqi:int 0
             while (cqi < 2) {
-                def cs2 (new MdFigureStyle)
+                def cs2 (MdFigureStyle.new_())
                 def cols2:[string] (strsplit (itemAt palettes cpi) " ")
                 cs2.colors = cols2
                 cs2.paper = (itemAt papers cqi)
@@ -807,7 +807,7 @@ class MdFigureTest {
         c.ok("empty: nothing drawn" (e.worldW <= 0.0))
 
         ; --- through the cache
-        def cache (new MdEmbedCache())
+        def cache (MdEmbedCache.new_())
         def doc:MdNode (MdNode.create("document"))
         def fence:MdNode (MdNode.create("embed"))
         fence.info = "timeline"
@@ -828,7 +828,7 @@ class MdFigureTest {
         ; --- the room comes from the page: a turned page draws the figure
         ; again for its own height (a portrait room kept on a landscape page
         ; ran the swot over the slide's bottom edge)
-        def rc (new MdEmbedCache())
+        def rc (MdEmbedCache.new_())
         rc.chartRoomKept = 120.0
         def rd:MdNode (MdNode.create("document"))
         def rf:MdNode (MdNode.create("embed"))
@@ -851,7 +851,7 @@ class MdFigureTest {
         ; under a heading below the split level (the editorial theme: `##`
         ; on an A4 page with several sections) a figure is a part of its
         ; page: at most 0.7 of its width tall, not the page's room
-        def sec (new MdEmbedCache())
+        def sec (MdEmbedCache.new_())
         sec.chartRoomKept = 120.0
         sec.fitPage(842.0 64.0)
         def sd:MdNode (MdBlock.parseText("# Title\n\n## Section\n\n```swot\nStrengths: strong brand\nWeaknesses: small team\nOpportunities: new markets\nThreats: competitors\n```\n"))
@@ -864,13 +864,13 @@ class MdFigureTest {
         MdDiagram.prepare(sd sec 467.0 "default")
         def onSlide:double (sec.heightFor("swot" sf.literal 467.0))
         c.ok(("slide: the slide's room, drawn again: " + (to_string onSlide)) (onSlide > (inSection + 50.0)))
-        def hc (new MdEmbedCache())
+        def hc (MdEmbedCache.new_())
         hc.chartMaxH = 300.0
         hc.fitPage(960.0 40.0)
         c.ok("room: none kept, the host's number stays" ((fabs (hc.chartMaxH - 300.0)) < 0.01))
 
         ; --- a plain list with `{list-style=swot}` under it
-        def lc (new MdEmbedCache())
+        def lc (MdEmbedCache.new_())
         def ld:MdNode (MdBlock.parseText("- Vahvuudet: brändi\n- Heikkoudet: tiimi\n  - pieni\n  - uusi\n{list-style=swot}\n\n- Tavallinen lista\n"))
         MdDiagram.prepare(ld lc 800.0 "default")
         def l0:MdNode (ld.childAt(0))
@@ -881,7 +881,7 @@ class MdFigureTest {
         def l1:MdNode (ld.childAt(1))
         c.eqStr("list-style: a list without one stays a list" l1.kind "list")
         ; …and from the sheet: a class, then a heading's anchor
-        def sc2 (new MdEmbedCache())
+        def sc2 (MdEmbedCache.new_())
         sc2.listSheet.addStyleSheet(".vaiheet { list-style: process } ul { list-style: disc }")
         def ld2:MdNode (MdBlock.parseText("- A\n- B\n{.vaiheet}\n\n## Aikajana\n\n- 2024: X\n- 2025: Y\n"))
         push sc2.listScopes "aikajana"
@@ -892,7 +892,7 @@ class MdFigureTest {
         c.eqStr("sheet: a class's list-style" m0.info "process")
         c.eqStr("sheet: a heading's list-style" m2.info "timeline")
         ; ```cards from a plain list
-        def lc3 (new MdEmbedCache())
+        def lc3 (MdEmbedCache.new_())
         def ld3:MdNode (MdBlock.parseText("- Käynnistä: ohjelma\n- Kasvata: asiakkaat\n- Panosta: markkinat\n{list-style=cards}\n"))
         MdDiagram.prepare(ld3 lc3 800.0 "default")
         def n3:MdNode (ld3.childAt(0))
@@ -900,7 +900,7 @@ class MdFigureTest {
         c.ok("list-style=cards: drawn" ((lc3.heightFor("cards" n3.literal 800.0)) > 0.0))
 
         if ((strlen outDir) > 0) {
-            def dark (new MdFigureStyle)
+            def dark (MdFigureStyle.new_())
             def dc:[string] ([] _:string ("#ffa546" "#5ce1ff"))
             dark.colors = dc
             dark.paper = "#0b1030"

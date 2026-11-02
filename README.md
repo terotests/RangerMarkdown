@@ -16,6 +16,25 @@
 > git clone https://github.com/terotests/RangerFlow     <ranger>/gallery/rangerflow
 > ```
 
+## As a crate (Ranger Rust syntax)
+
+The parser, the layout and the EVG writer (the 31 files a document view
+needs: `MdBlock`, `MdInline`, `MdLayout`, `MdToEvg`, `MdCss` and what they
+import) are Ranger's Rust syntax, one crate: [`src/lib.rs`](src/lib.rs) with
+[`Cargo.toml`](Cargo.toml). Ranger still compiles them to every target. The
+old `.rgr` names (`MdLayout.rgr`, …) are one line, `Import "lib.rs"`, so
+existing imports keep working; `.rs` code depends on the crate by path
+(`rangermarkdown = { path = "…/gallery/markdown" }`, `use
+rangermarkdown::MdLayout`). It depends on RangerMath (`gallery/math`) the same
+way.
+
+- A converted class is made with `X.new_()` in `.rgr` code: `new X()` skips
+  the Rust constructor's defaults.
+- Kept `.rgr`: `MdEmoji` (one table per process, a singleton: `MdEmoji.shared()`
+  from `.rs`), `MdText` (string length and slicing in the target's own units),
+  `MdMath` (a formula's outlines, as RangerMath's drawing functions are not
+  public), and the editor, the exporters and the diagrams (not converted yet).
+
 A CommonMark + GFM parser written in Ranger, and a layout engine that turns
 what it reads into the box list every EVG painter already draws. The same
 document, measured once, comes out as a PDF with its fonts embedded and as a

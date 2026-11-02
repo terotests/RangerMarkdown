@@ -50,8 +50,8 @@ class MetaCheck {
     ; The layout of a deck, as a host lays one out.
     fn laid:MdLayout (text:string) {
         def doc:MdNode (MdBlock.parseText(text))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
         l.applyMeta(doc)
         l.applySlideMeta(doc)
         l.setDocSource(text)
@@ -178,8 +178,8 @@ class MetaCheck {
             this.ok("…naming title" ((indexOf (itemAt dw 0) "Did you mean title?") >= 0))
         }
         ; a value a running program set wins over the slide's and the deck's
-        def lv:MdLayout (new MdLayout())
-        lv.style = (new MdStyle())
+        def lv:MdLayout (MdLayout.new_())
+        lv.style = (MdStyle.new_())
         def ldoc:MdNode (MdBlock.parseText(fm))
         this.ok("a live value is new" (lv.setLive("Owner" "Grumble")))
         this.ok("the same value again changes nothing" ((lv.setLive("owner" "Grumble")) == false))

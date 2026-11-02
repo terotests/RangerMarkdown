@@ -471,11 +471,11 @@ class MdVegaTest {
         ; two views one over the other, each at its own size, came out
         ; taller than the slide's room: drawn again narrower, to the room
         def two:string "{\"data\": {\"values\": [{\"a\": 1, \"b\": 3}, {\"a\": 2, \"b\": 5}]}, \"vconcat\": [{\"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"a\", \"type\": \"quantitative\"}, \"y\": {\"field\": \"b\", \"type\": \"quantitative\"}}}, {\"mark\": \"point\", \"encoding\": {\"x\": {\"field\": \"a\", \"type\": \"quantitative\"}, \"y\": {\"field\": \"b\", \"type\": \"quantitative\"}}}]}"
-        def tn (new MdNode())
+        def tn (MdNode.new_())
         tn.kind = "embed"
         tn.info = "vega-lite"
         tn.literal = two
-        def tc (new MdEmbedCache())
+        def tc (MdEmbedCache.new_())
         tc.chartGrow = 2.5
         tc.chartMaxH = 319.0
         MdDiagram.render(tn tc 859.0 "default" "vega-lite" "vega")
@@ -646,7 +646,7 @@ class MdVegaTest {
         def third:MdNode (doc.childAt(5))
         c.eqStr("the second chart's fence" second.kind "embed")
         c.eqStr("the third chart's fence" third.kind "embed")
-        def cache (new MdEmbedCache())
+        def cache (MdEmbedCache.new_())
         cache.chartMaxH = 300.0
         cache.lazy = true
         cache.viewFrom = second.srcStart
@@ -694,7 +694,7 @@ class MdVegaTest {
     fn staggered:void (c:VegaCheck) {
         print "-- charts drawn again a few at a time --"
         def doc:MdNode (MdBlock.parseText((MdVegaTest.fourCharts())))
-        def cache (new MdEmbedCache())
+        def cache (MdEmbedCache.new_())
         cache.chartConfig = "\"config\": {\"axis\": {\"labelFontSize\": 12}}"
         MdDiagram.prepare(doc cache 600.0 "default")
         c.eqInt("four charts" (cache.count()) 4)
@@ -778,7 +778,7 @@ class MdVegaTest {
             def le:EVGLayout (new EVGLayout())
             le.setPageSize(d2.scene.worldW d2.scene.worldH)
             le.layout(root)
-            def lay (new MdLayout())
+            def lay (MdLayout.new_())
             ; the middle of the turned line: its anchor's x, half way up
             def midX:double (((100.0 + last.x) - d2.scene.worldX) + last.originX)
             def midY:double (((50.0 + last.y) - d2.scene.worldY) + last.originY)
@@ -895,7 +895,7 @@ class MdVegaTest {
         mem.put("/media/logo.svg" blob)
         v.mount("/" mem)
         def doc:MdNode (MdBlock.parseText(("# T\n\n```vega-lite\n" + spec + "\n```\n")))
-        def l:MdLayout (new MdLayout())
+        def l:MdLayout (MdLayout.new_())
         l.setImages(v "/")
         MdDiagram.prepare(doc l.embeds (600.0 - (l.style.margin * 2.0)) "default")
         l.layoutContinuous(doc 600.0)

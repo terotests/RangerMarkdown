@@ -37,10 +37,8 @@
 ; file is a page of span arithmetic rather than a serializer.
 ; ============================================================================
 
-Import "MdNode.rgr"
-Import "MdBlock.rgr"
+Import "lib.rs"
 Import "MdEdit.rgr"
-Import "MdContainer.rgr"
 ; The clipboard reader the .docx editor already has. It imports NOTHING — it
 ; is a tolerant scanner over the `text/html` a spreadsheet puts on the
 ; clipboard, not an XML parser — so markdown gets a spreadsheet range pasted

@@ -37,7 +37,7 @@
 ; guess rather than to say so.
 ; ============================================================================
 
-Import "MdNode.rgr"
+Import "lib.rs"
 
 class MdSrcMapScan {
     def nodes:int 0

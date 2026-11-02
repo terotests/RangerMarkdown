@@ -35,9 +35,7 @@
 ; edit, so the count is printed rather than kept.
 ; ==============================================================================
 
-Import "MdBlock.rgr"
-Import "MdLayout.rgr"
-Import "MdStyle.rgr"
+Import "lib.rs"
 Import "MdDiagram.rgr"
 Import "MdToPptx.rgr"
 Import "../../pptx/api/PptxApi.rgr"
@@ -158,7 +156,7 @@ class MdDeckTool {
         }
         def doc:MdNode (MdBlock.parseText((unwrap text)))
 
-        def deck (new MdLayout())
+        def deck (MdLayout.new_())
         ; Measured with real fonts where there are any. Without a measurer the
         ; slide breaks are computed from guessed widths, which is how a deck
         ; ends up with a heading that fits on screen and not on the slide.
@@ -171,7 +169,7 @@ class MdDeckTool {
             print "note: no fonts found, so the slides are broken on guessed text widths — pass -fonts"
         }
 
-        def st (new MdStyle())
+        def st (MdStyle.new_())
         deck.style = st
         MdDeckTool.deckDefaults(deck.style)
         if ((strlen cssPath) > 0) {

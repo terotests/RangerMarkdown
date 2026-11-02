@@ -209,8 +209,8 @@ class MdCellTonesTest {
 
     sfn sheet:void (c:ToneCheck) {
         print "-- a theme says it for every table --"
-        def st:MdStyle (new MdStyle())
-        def css:MdCss (new MdCss())
+        def st:MdStyle (MdStyle.new_())
+        def css:MdCss (MdCss.new_())
         css.addStyleSheet("table { cell-tones: \"Done=green Late=red\"; }")
         css.applyTo(st)
         def t:MdCellTones (MdCellTones.parse(st.tableCellTones))
@@ -228,9 +228,9 @@ class MdCellTonesTest {
     ; ----------------------------------------------------------------------
     sfn slides:MdLayout (src:string css:string) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
-        def c:MdCss (new MdCss())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
+        def c:MdCss (MdCss.new_())
         c.addStyleSheet(css)
         c.applyTo(l.style)
         l.setStyleSheet(css)
@@ -263,7 +263,7 @@ class MdCellTonesTest {
             }
             i = (i + 1)
         }
-        def none:MdBox (new MdBox())
+        def none:MdBox (MdBox.new_())
         none.kind = -1
         return none
     }
@@ -280,7 +280,7 @@ class MdCellTonesTest {
             }
             i = (i + 1)
         }
-        def none:MdBox (new MdBox())
+        def none:MdBox (MdBox.new_())
         none.kind = -1
         return none
     }
@@ -387,9 +387,9 @@ class MdCellTonesTest {
         print "-- the PPTX cell is filled --"
         def src:string ("# Riskit\n\n" + (MdCellTonesTest.riskTable()))
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
-        def css:MdCss (new MdCss())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
+        def css:MdCss (MdCss.new_())
         css.addStyleSheet((MdCellTonesTest.darkCss()))
         css.applyTo(l.style)
         l.setStyleSheet((MdCellTonesTest.darkCss()))
@@ -432,7 +432,7 @@ class MdCellTonesTest {
         print "-- the Word cell is shaded --"
         def node:MdNode (MdBlock.parseText((MdCellTonesTest.riskTable())))
         def maker:MdToDocx (new MdToDocx())
-        def st:MdStyle (new MdStyle())
+        def st:MdStyle (MdStyle.new_())
         def d:RichDocument (maker.build(node st))
         def t:DocumentTable (itemAt d.tables 0)
         def r1:DocTableRow (itemAt t.rows 1)

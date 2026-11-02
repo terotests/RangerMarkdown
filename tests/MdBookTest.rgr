@@ -176,8 +176,8 @@ class MdBookTest {
 
     sfn slides:MdLayout (src:string) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
         l.style.pageWidth = 420.0
         l.style.pageHeight = 595.0
         l.setStyleSheet("")

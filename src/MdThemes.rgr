@@ -31,8 +31,7 @@
 ; them to wonder.
 ; ============================================================================
 
-Import "MdNode.rgr"
-Import "MdFrontMatter.rgr"
+Import "lib.rs"
 
 class MdThemes {
     def names:[string]

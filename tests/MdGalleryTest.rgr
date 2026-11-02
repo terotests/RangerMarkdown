@@ -106,7 +106,7 @@ class MdGalleryTest {
             }
             i = (i + 1)
         }
-        return (new MdNode())
+        return (MdNode.new_())
     }
 
     sfn reading:void (t:GalleryCheck) {
@@ -161,7 +161,7 @@ class MdGalleryTest {
 
     sfn crops:void (t:GalleryCheck) {
         print "cover and contain"
-        def c (new MdGalleryCell())
+        def c (MdGalleryCell.new_())
         ; a 2:1 picture in a square: half its width shows
         MdGallery.fitPicture(c "cover" 0.0 0.5 2000.0 1000.0 10.0 20.0 100.0 100.0)
         t.ok("cropped" c.cropped)
@@ -188,10 +188,10 @@ class MdGalleryTest {
     sfn sheets:void (t:GalleryCheck) {
         print "the sheet's selectors"
         def css:string "gallery { gap: 12pt; columns: 4; background-color: #0b1030; }\ncell { border-radius: 4pt; padding: 0; }\ncaption { font-size: 14pt; color: #e8ecff; text-align: left; }\ncell.text { font-size: 18pt; padding: 16pt; background-color: #151c48; }\n.polaroid cell { padding: 10pt 10pt 32pt; background-color: #fff; }\n.polaroid caption { color: #222; font-family: Noto Sans; }\ncell:nth(3) { border-width: 2pt; border-color: #ff0000; }\n"
-        def sheet (new MdCss())
+        def sheet (MdCss.new_())
         sheet.addStyleSheet(css)
         t.eqInt("the sheet reads without errors" (sheet.errorCount()) 0)
-        def st (new MdStyle())
+        def st (MdStyle.new_())
         def g:MdGallery (MdGallery.of((MdGalleryTest.fence("```gallery\n- a.jpg: A\n- b.jpg: B\n- c.jpg: C\n- Words\n```\n"))))
         def look:MdGalleryLook (g.look(sheet))
         t.near("gallery gap" look.gap 12.0)
@@ -225,11 +225,11 @@ class MdGalleryTest {
     sfn printing:void (t:GalleryCheck) {
         print "@media print"
         def css:string "page { width: 960pt; height: 540pt; }\ngallery { gap: 8pt; }\n@media print {\n  page { width: 297mm; height: 210mm; bleed: 3mm; safe-area: 8mm; }\n  deck { crop-marks: on; }\n  gallery { gap: 4pt; }\n}\n@media screen { caption { font-size: 20pt; } }\n"
-        def screen (new MdCss())
+        def screen (MdCss.new_())
         screen.addStyleSheet(css)
         t.eqInt("no at-rule errors" (screen.errorCount()) 0)
         t.ok("it has print rules" (screen.hasPrint()))
-        def st (new MdStyle())
+        def st (MdStyle.new_())
         screen.applyTo(st)
         t.near("screen page width" st.pageWidth 960.0)
         t.ok("a screen style is not for print" (st.forPrint == false))
@@ -239,10 +239,10 @@ class MdGalleryTest {
         t.near("screen gap" lk1.gap 8.0)
         def cp1:MdCellLook (g.captionLook(screen (itemAt g.items 0) st))
         t.near("@media screen counts on a screen" cp1.fontSize 20.0)
-        def paper (new MdCss())
+        def paper (MdCss.new_())
         paper.media = "print"
         paper.addStyleSheet(css)
-        def ps (new MdStyle())
+        def ps (MdStyle.new_())
         paper.applyTo(ps)
         paper.applyPrint(ps)
         t.ok("for print" ps.forPrint)
@@ -255,7 +255,7 @@ class MdGalleryTest {
         t.near("print gap wins in print" lk2.gap 4.0)
         def cp2:MdCellLook (g.captionLook(paper (itemAt g.items 0) ps))
         t.ok("@media screen does not count in print" (cp2.fontSize < 19.0))
-        def back (new MdCss())
+        def back (MdCss.new_())
         back.addStyleSheet(css)
         back.setMedia("print")
         def lk3:MdGalleryLook (g.look(back))
@@ -293,9 +293,9 @@ class MdGalleryTest {
 
     sfn slides:MdLayout (src:string css:string media:string) {
         def doc:MdNode (MdBlock.parseText(src))
-        def l:MdLayout (new MdLayout())
-        l.style = (new MdStyle())
-        def c:MdCss (new MdCss())
+        def l:MdLayout (MdLayout.new_())
+        l.style = (MdStyle.new_())
+        def c:MdCss (MdCss.new_())
         c.media = media
         c.addStyleSheet(css)
         c.applyTo(l.style)
@@ -511,7 +511,7 @@ class MdGalleryTest {
             }
             i = (i + 1)
         }
-        return (new MdBox())
+        return (MdBox.new_())
     }
 
     sfn textOn:MdBox (l:MdLayout want:string) {
@@ -523,7 +523,7 @@ class MdGalleryTest {
             }
             i = (i + 1)
         }
-        return (new MdBox())
+        return (MdBox.new_())
     }
 
     sfn pageOfText:int (l:MdLayout want:string) {
@@ -539,7 +539,7 @@ class MdGalleryTest {
         def css:string "page { width: 960pt; height: 540pt; padding: 40pt; }\ncell { border-radius: 6pt; }\n"
         def src:string "## A {heading=hidden}\n\n```gallery\n- media/wide.jpg: A {focus=right}\n- media/tall.jpg: B\n```\n"
         def l:MdLayout (MdGalleryTest.slides(src css "screen"))
-        def painter (new MdToEvg())
+        def painter (MdToEvg.new_())
         def dl (new EVGDisplayList())
         def i:int 0
         while (i < (array_length l.boxes)) {
@@ -611,7 +611,7 @@ class MdGalleryTest {
         t.ok("plain CommonMark rendering is unchanged" ((indexOf plain "<pre><code class=\"language-gallery\">") >= 0))
         def w (new MdToDocx())
         w.setImages((MdGalleryTest.pictures()) "/")
-        def st (new MdStyle())
+        def st (MdStyle.new_())
         w.build(doc st)
         t.eqInt("Word: the pictures" w.result.pictures 2)
     }
