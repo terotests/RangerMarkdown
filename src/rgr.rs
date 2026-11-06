@@ -37,3 +37,7 @@ mod rgr {
 #[cfg(not(ranger))]
 pub use rangerevg::{EVGBox, EVGColor, EVGDisplayList, EVGDrawCmd, EVGElement, EVGLayout, EVGTextEngine, EVGTextMeasurer, EVGTextMetrics, EVGUnit};
 pub use rgr::{CssCascade, CssComputed, CssNode, CssRule, CssSelector, CssSelectorPart, CssSheet, CssValue, MdEmoji, MdMath, MdText, Vfs, VfsStat};
+// every type the module writes, for the crates that name this crate's .rgr
+// types (-rust-extern: `use rangermarkdown::*`)
+#[cfg(not(ranger))]
+pub use rgr::*;
