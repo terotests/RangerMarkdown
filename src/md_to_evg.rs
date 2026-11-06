@@ -71,6 +71,7 @@ impl MdToEvg {
     /// A DIAGRAM is the exception in both directions: its geometry lives in a
     /// `FlowScene`'s own element subtree, so that one goes through the engine
     /// and its commands are appended where the slot is.
+    #[doc(hidden)]
     pub fn toDisplayList(layout: &Rc<RefCell<MdLayout>>, width: f64) -> Rc<RefCell<EVGDisplayList>> {
         let mut b: Rc<RefCell<MdToEvg>> = Rc::new(RefCell::new(MdToEvg::new()));
         return b.borrow_mut().paint(layout, width, 0.0, layout.borrow().documentHeight.clone(), false);
