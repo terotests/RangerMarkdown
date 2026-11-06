@@ -639,9 +639,9 @@ impl MdBlock {
     /// lists them. A name not here starts a type 7 block instead, which is the
     /// one that may not interrupt a paragraph.
     pub fn isBlockTag(name: &str) -> bool {
-        let names: String = " address article aside base basefont blockquote body caption center col colgroup dd details dialog dir div dl dt fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe legend li link main menu menuitem nav noframes ol optgroup option p param search section summary table tbody td tfoot th thead title tr track ul ";
+        let names: String = " address article aside base basefont blockquote body caption center col colgroup dd details dialog dir div dl dt fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe legend li link main menu menuitem nav noframes ol optgroup option p param search section summary table tbody td tfoot th thead title tr track ul ".to_string();
         let probe: String = format!(" {} ", name);
-        MdBlock::hasSub(names, &probe)
+        MdBlock::hasSub(&names, &probe)
     }
     /// ----------------------------------------------------------------------
     /// Closing a block
@@ -927,7 +927,8 @@ impl MdBlock {
                 descend = true;
             }
             if descend && cur.borrow().hasChildren() {
-                cur = cur.borrow().lastChild();
+                let last: Rc<RefCell<MdNode>> = cur.borrow().lastChild();
+                cur = last;
             } else {
                 going = false;
             }
@@ -1117,15 +1118,15 @@ impl MdBlock {
                 }
                 j += 1;
             }
-            let mut a: String = "";
+            let mut a: String = "".to_string();
             if left && right {
-                a = "center";
+                a = "center".to_string();
             }
             if left && false == right {
-                a = "left";
+                a = "left".to_string();
             }
             if false == left && right {
-                a = "right";
+                a = "right".to_string();
             }
             out.push(a.to_string());
             i += 1;
@@ -2769,7 +2770,7 @@ impl MdBlock {
     }
     /// Link reference definitions at the head of a paragraph, moved into the
     /// map and off the front of the text.
-    pub fn stripReferences(&self, para: &Rc<RefCell<MdNode>>) {
+    pub fn stripReferences(&mut self, para: &Rc<RefCell<MdNode>>) {
         let joined: String = MdBlock::joinLines(&para.borrow().lines.clone());
         let mut rest: String = joined.clone();
         let mut going: bool = true;

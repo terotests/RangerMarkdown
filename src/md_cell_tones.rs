@@ -139,18 +139,18 @@ impl MdCellTones {
             return String::new();
         }
         let mut c: Rc<RefCell<EVGColor>> = EVGColor::parse(&t);
-        if false == c.borrow().isSet {
+        if false == c.borrow().is_set {
             return String::new();
         }
-        return EVGColor::toHexString(&c);
+        return EVGColor::to_hex_string(&c);
     }
     /// The colour cells stand on: the page's own when it has one, else the
     /// page the text colour was chosen for (light text, a dark page).
     pub fn paperOf(page_background: &str, text_color: &str) -> String {
         if !page_background.is_empty() {
             let mut pc: Rc<RefCell<EVGColor>> = EVGColor::parse(page_background);
-            if pc.borrow().isSet && EVGColor::alpha(&pc) > 0.5 {
-                return EVGColor::toHexString(&EVGColor::rgb(
+            if pc.borrow().is_set && EVGColor::alpha(&pc) > 0.5 {
+                return EVGColor::to_hex_string(&EVGColor::rgb(
                     EVGColor::red(&pc),
                     EVGColor::green(&pc),
                     EVGColor::blue(&pc)
@@ -181,14 +181,14 @@ impl MdCellTones {
             return String::new();
         }
         let fill: String = MdCellTones::fillOf(tone, paper);
-        let mut pole: String = "#000000";
+        let mut pole: String = "#000000".to_string();
         let mut t: f64 = 0.3;
         if MdCellTones::isDark(&fill) {
-            pole = "#FFFFFF";
+            pole = "#FFFFFF".to_string();
             t = 0.45;
         }
         while t < 1.0 {
-            let ink: String = MdCellTones::mix(&hue, pole, t);
+            let ink: String = MdCellTones::mix(&hue, &pole, t);
             if MdContainer::contrast(&ink, &fill) >= MdCellTones::needContrast() {
                 return ink;
             }
@@ -200,16 +200,16 @@ impl MdCellTones {
     pub fn mix(a: &str, b: &str, t: f64) -> String {
         let mut ca: Rc<RefCell<EVGColor>> = EVGColor::parse(a);
         let mut cb: Rc<RefCell<EVGColor>> = EVGColor::parse(b);
-        if false == ca.borrow().isSet {
+        if false == ca.borrow().is_set {
             return b.to_string();
         }
-        if false == cb.borrow().isSet {
+        if false == cb.borrow().is_set {
             return a.to_string();
         }
         let r: i64 = MdCellTones::lerp(EVGColor::red(&ca), EVGColor::red(&cb), t);
         let g: i64 = MdCellTones::lerp(EVGColor::green(&ca), EVGColor::green(&cb), t);
         let bl: i64 = MdCellTones::lerp(EVGColor::blue(&ca), EVGColor::blue(&cb), t);
-        EVGColor::toHexString(&EVGColor::rgb(
+        EVGColor::to_hex_string(&EVGColor::rgb(
             r,
             g,
             bl

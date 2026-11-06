@@ -29,6 +29,6 @@ class MdMath {
     ; the formula's outlines, `px` pixels per em, in `colour`
     sfn element:EVGElement (tex:string display:boolean px:double colour:string) {
         def b:MathBox (MathLayout.layout(tex display))
-        return (MathRender.boxElement(b px colour))
+        return (MathRender.box_element(b px colour))
     }
 }

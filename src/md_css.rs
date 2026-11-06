@@ -69,7 +69,7 @@ use crate::rgr::{CssCascade, CssComputed, CssNode, CssRule, CssSelector, CssSele
 /// is how a stylesheet ends up with two cascades.
 /// ============================================================================
 pub struct MdCss {
-    sheet: Rc<RefCell<CssSheet>>,
+    pub(crate) sheet: Rc<RefCell<CssSheet>>,
     /// The text the sheet was parsed from, kept so a caller that has the
     /// resolved sheet can hand the same text to something else — the LAYOUT
     /// needs it, because it asks the sheet a different question and parses its
@@ -176,7 +176,7 @@ impl MdCss {
     /// `slide` per heading in `heads` (by level, outermost first; empty
     /// places skipped), each with the heading's `{#id}` — or, without one,
     /// its anchor — and its `{.classes}`. Absent when there is no heading.
-    fn scopeOf(heads: &Vec<Rc<RefCell<MdNode>>>) -> Option<Rc<RefCell<CssNode>>> {
+    pub(crate) fn scopeOf(heads: &Vec<Rc<RefCell<MdNode>>>) -> Option<Rc<RefCell<CssNode>>> {
         let mut out: Option<Rc<RefCell<CssNode>>> = None;
         let mut i: i64 = 0;
         while i < (heads.len() as i64) {
@@ -187,7 +187,7 @@ impl MdCss {
                 n.borrow_mut().id = MdCss::anchorOf(&h);
                 let mut k: i64 = 0;
                 while k < h.borrow().classCount() {
-                    CssNode::addClass(&n, &h.borrow().classAt(k));
+                    CssNode::add_class(&n, &h.borrow().classAt(k));
                     k += 1;
                 }
                 n.borrow_mut().parent = out.clone();
@@ -269,20 +269,20 @@ impl MdCss {
         inner
     }
     /// The typography one rule says, unset where it says nothing.
-    fn typoOf(got: &Rc<RefCell<CssComputed>>) -> Rc<RefCell<MdTypo>> {
+    pub(crate) fn typoOf(got: &Rc<RefCell<CssComputed>>) -> Rc<RefCell<MdTypo>> {
         let mut t: Rc<RefCell<MdTypo>> = Rc::new(RefCell::new(MdTypo::new()));
         if CssComputed::has(&got, "font-weight") {
             let w: String = CssSheet::lower(&CssSheet::tidy(&CssComputed::get(&got, "font-weight")));
             if w == "normal" || (w == "lighter" || (w == "400" || (w == "300" || (w == "100" || (w == "200" || w == "500"))))) {
                 t.borrow_mut().weight = 0;
             }
-            if CssValue::isBold(&w) {
+            if CssValue::is_bold(&w) {
                 t.borrow_mut().weight = 1;
             }
         }
         if CssComputed::has(&got, "font-style") {
             let fs: String = CssSheet::lower(&CssSheet::tidy(&CssComputed::get(&got, "font-style")));
-            if CssValue::isItalic(&fs) {
+            if CssValue::is_italic(&fs) {
                 t.borrow_mut().italic = 1;
             }
             if fs == "normal" {
@@ -311,7 +311,7 @@ impl MdCss {
                         t.borrow_mut().spacingSet = true;
                     }
                 } else {
-                    let pts: f64 = CssValue::fontPoints(&ls, -9999.0);
+                    let pts: f64 = CssValue::font_points(&ls, -9999.0);
                     if pts > -9999.0 {
                         t.borrow_mut().spacing = MdCss::atLeastZero(pts);
                         t.borrow_mut().spacingSet = true;
@@ -331,25 +331,25 @@ impl MdCss {
     }
     /// `padding` (one to four lengths) and `padding-top` … `-left`, as
     /// [top, right, bottom, left] in points; -1 where nothing was said
-    fn padding(got: &Rc<RefCell<CssComputed>>) -> Vec<f64> {
+    pub(crate) fn padding(got: &Rc<RefCell<CssComputed>>) -> Vec<f64> {
         let mut out: Vec<f64> = vec![-1.0, -1.0, -1.0, -1.0];
         if CssComputed::has(&got, "padding") {
-            let mut words: Vec<String> = CssSheet::splitWhitespace(&CssSheet::tidy(&CssComputed::get(&got, "padding")));
+            let mut words: Vec<String> = CssSheet::split_whitespace(&CssSheet::tidy(&CssComputed::get(&got, "padding")));
             let n: i64 = words.len() as i64;
             if n > 0 {
-                let a: f64 = CssValue::fontPoints(&words[0].clone(), -1.0);
+                let a: f64 = CssValue::font_points(&words[0].clone(), -1.0);
                 let mut b: f64 = a;
                 let mut c: f64 = a;
                 let mut d: f64 = a;
                 if n >= 2 {
-                    b = CssValue::fontPoints(&words[1].clone(), -1.0);
+                    b = CssValue::font_points(&words[1].clone(), -1.0);
                     d = b;
                 }
                 if n >= 3 {
-                    c = CssValue::fontPoints(&words[2].clone(), -1.0);
+                    c = CssValue::font_points(&words[2].clone(), -1.0);
                 }
                 if n >= 4 {
-                    d = CssValue::fontPoints(&words[3].clone(), -1.0);
+                    d = CssValue::font_points(&words[3].clone(), -1.0);
                 }
                 out = vec![a, b, c, d];
             }
@@ -359,7 +359,7 @@ impl MdCss {
         while i < 4 {
             let name: String = sides[i as usize].clone();
             if CssComputed::has(&got, &name) {
-                out[i as usize] = CssValue::fontPoints(&CssComputed::get(&got, &name), out[i as usize]);
+                out[i as usize] = CssValue::font_points(&CssComputed::get(&got, &name), out[i as usize]);
             }
             i += 1;
         }
@@ -367,18 +367,18 @@ impl MdCss {
     }
     /// a border's colour from `border-color` or `border: 2pt solid #7ee0ff`,
     /// "" for none (`border: none`, or nothing said)
-    fn borderColour(got: &Rc<RefCell<CssComputed>>) -> String {
+    pub(crate) fn borderColour(got: &Rc<RefCell<CssComputed>>) -> String {
         if CssComputed::has(&got, "border-color") {
             let mut c: Rc<RefCell<EVGColor>> = CssValue::color(&CssComputed::get(&got, "border-color"));
-            if c.borrow().isSet {
+            if c.borrow().is_set {
                 return MdCss::hexOf(&c);
             }
         }
         if CssComputed::has(&got, "border") {
-            let mut words: Vec<String> = CssSheet::splitWhitespace(&CssSheet::tidy(&CssComputed::get(&got, "border")));
+            let mut words: Vec<String> = CssSheet::split_whitespace(&CssSheet::tidy(&CssComputed::get(&got, "border")));
             for w in words.iter().cloned() {
                 let mut c2: Rc<RefCell<EVGColor>> = CssValue::color(&w);
-                if c2.borrow().isSet {
+                if c2.borrow().is_set {
                     return MdCss::hexOf(&c2);
                 }
             }
@@ -390,16 +390,16 @@ impl MdCss {
         String::new()
     }
     /// …and its width: `border-width`, the length in `border`, else `fallback`
-    fn borderWidth(got: &Rc<RefCell<CssComputed>>, fallback: f64) -> f64 {
+    pub(crate) fn borderWidth(got: &Rc<RefCell<CssComputed>>, fallback: f64) -> f64 {
         if CssComputed::has(&got, "border-width") {
-            return CssValue::fontPoints(&CssComputed::get(&got, "border-width"), fallback);
+            return CssValue::font_points(&CssComputed::get(&got, "border-width"), fallback);
         }
         if CssComputed::has(&got, "border") {
-            let mut words: Vec<String> = CssSheet::splitWhitespace(&CssSheet::tidy(&CssComputed::get(&got, "border")));
+            let mut words: Vec<String> = CssSheet::split_whitespace(&CssSheet::tidy(&CssComputed::get(&got, "border")));
             for w in words.iter().cloned() {
                 let first: i64 = MdText::char_at(&w, 0);
                 if (first >= 48 && first <= 57) || first == 46 {
-                    return CssValue::fontPoints(&w, fallback);
+                    return CssValue::font_points(&w, fallback);
                 }
             }
         }
@@ -436,13 +436,13 @@ impl MdCss {
     }
     /// `#RRGGBB`, or `#RRGGBBAA` when the colour lets what is behind it show
     /// through — `#151c4833` kept its alpha nowhere before this.
-    fn hexOf(c: &Rc<RefCell<EVGColor>>) -> String {
-        let hex: String = EVGColor::toHexString(&c);
+    pub(crate) fn hexOf(c: &Rc<RefCell<EVGColor>>) -> String {
+        let hex: String = EVGColor::to_hex_string(&c);
         let a: f64 = EVGColor::alpha(&c);
         if a >= 0.999 {
             return hex;
         }
-        let digits: String = "0123456789ABCDEF";
+        let digits: String = "0123456789ABCDEF".to_string();
         let v: i64 = (a * 255.0 + 0.5).floor() as i64;
         let hi: i64 = v / 16;
         let lo: i64 = v % 16;
@@ -467,7 +467,7 @@ impl MdCss {
     /// block]. Another medium's block (`@media (max-width…)`) is left in the
     /// first part, where `CssCore` reports it as an at-rule it does not read.
     pub fn splitMedia(css: &str) -> Vec<String> {
-        let src: String = CssSheet::stripComments(css);
+        let src: String = CssSheet::strip_comments(css);
         let mut rest: String = String::new();
         let mut on_print: String = String::new();
         let mut on_screen: String = String::new();
@@ -477,20 +477,20 @@ impl MdCss {
         while i < n {
             let c: i64 = MdText::char_at(&src, i);
             if c == 64 {
-                let open: i64 = CssSheet::findChar(&src, i, 123);
+                let open: i64 = CssSheet::find_char(&src, i, 123);
                 if open < 0 {
                     i = n;
                 } else {
                     let head: String = CssSheet::lower(&CssSheet::tidy(&MdText::substr(&src, i, open)));
-                    let close: i64 = CssSheet::matchingBrace(&src, open);
-                    let mut which: String = "";
+                    let close: i64 = CssSheet::matching_brace(&src, open);
+                    let mut which: String = "".to_string();
                     if MdText::index_of(&head, "@media") == 0 {
                         let q: String = MdText::substr(&head, 6, (MdText::str_len(&head) as i64)).trim().to_string();
                         if q == "print" {
-                            which = "print";
+                            which = "print".to_string();
                         }
                         if q == "screen" {
-                            which = "screen";
+                            which = "screen".to_string();
                         }
                     }
                     if !which.is_empty() {
@@ -523,7 +523,7 @@ impl MdCss {
                 }
             } else {
                 if c == 123 {
-                    let close2: i64 = CssSheet::matchingBrace(&src, i);
+                    let close2: i64 = CssSheet::matching_brace(&src, i);
                     if close2 < 0 {
                         i = n;
                     } else {
@@ -567,7 +567,7 @@ impl MdCss {
             let mut took: bool = false;
             if depth == 0 && (c == 58 && i + 5 < n) {
                 if MdText::substr(&css, i, i + 5) == ":nth(" {
-                    let close: i64 = CssSheet::findChar(css, i + 5, 41);
+                    let close: i64 = CssSheet::find_char(css, i + 5, 41);
                     if close > 0 {
                         let arg: String = MdText::substr(&css, i + 5, close).trim().to_string();
                         let num: Option<i64> = arg.parse::<i64>().ok();
@@ -721,7 +721,7 @@ impl MdCss {
     /// `style` — colours, faces, backgrounds and typography only (see
     /// `MdCssSupport.scopedOk`). The layout puts the style's look back after
     /// (`MdStyle.setLook`). Answers whether there was anything to apply.
-    fn applyLook(&mut self, style: &Rc<RefCell<MdStyle>>, ctx: Option<Rc<RefCell<CssNode>>>) -> bool {
+    pub(crate) fn applyLook(&mut self, style: &Rc<RefCell<MdStyle>>, ctx: Option<Rc<RefCell<CssNode>>>) -> bool {
         if !self.hasScoped || ctx.is_none() {
             return false;
         }
@@ -731,25 +731,43 @@ impl MdCss {
         self.sheet = self.scopedSheet.clone();
         self.looksOnly = true;
         self.lookCtx = ctx.clone();
-        self.page(style, &self.forTag("page".to_string()));
-        self.body(style, &self.forTag("document".to_string()));
-        self.body(style, &self.forTag("body".to_string()));
-        self.para(style, &self.forTag("p".to_string()));
+        let __arg734 = self.forTag("page".to_string());
+        self.page(style, &__arg734);
+        let __arg735 = self.forTag("document".to_string());
+        self.body(style, &__arg735);
+        let __arg736 = self.forTag("body".to_string());
+        self.body(style, &__arg736);
+        let __arg737 = self.forTag("p".to_string());
+        self.para(style, &__arg737);
         self.headings(style);
-        self.code(style, &self.forTag("code".to_string()));
-        self.mark(style, &self.forTag("mark".to_string()));
-        self.kbd(style, &self.forTag("kbd".to_string()));
-        self.link(style, &self.forTag("a".to_string()));
-        self.rule(style, &self.forTag("hr".to_string()));
-        self.quote(style, &self.forTag("blockquote".to_string()));
-        self.container(style, &self.forTag("container".to_string()));
-        self.list(style, &self.forTag("list".to_string()));
-        self.item(style, &self.forTag("li".to_string()));
-        self.table(style, &self.forTag("table".to_string()));
-        self.tableHead(style, &self.forTag("th".to_string()));
-        self.picture(style, &self.forTag("img".to_string()));
-        self.furniture(style, &self.forTag("header".to_string()), true);
-        self.furniture(style, &self.forTag("footer".to_string()), false);
+        let __arg739 = self.forTag("code".to_string());
+        self.code(style, &__arg739);
+        let __arg740 = self.forTag("mark".to_string());
+        self.mark(style, &__arg740);
+        let __arg741 = self.forTag("kbd".to_string());
+        self.kbd(style, &__arg741);
+        let __arg742 = self.forTag("a".to_string());
+        self.link(style, &__arg742);
+        let __arg743 = self.forTag("hr".to_string());
+        self.rule(style, &__arg743);
+        let __arg744 = self.forTag("blockquote".to_string());
+        self.quote(style, &__arg744);
+        let __arg745 = self.forTag("container".to_string());
+        self.container(style, &__arg745);
+        let __arg746 = self.forTag("list".to_string());
+        self.list(style, &__arg746);
+        let __arg747 = self.forTag("li".to_string());
+        self.item(style, &__arg747);
+        let __arg748 = self.forTag("table".to_string());
+        self.table(style, &__arg748);
+        let __arg749 = self.forTag("th".to_string());
+        self.tableHead(style, &__arg749);
+        let __arg750 = self.forTag("img".to_string());
+        self.picture(style, &__arg750);
+        let __arg751 = self.forTag("header".to_string());
+        self.furniture(style, &__arg751, true);
+        let __arg752 = self.forTag("footer".to_string());
+        self.furniture(style, &__arg752, false);
         let mut none: Option<Rc<RefCell<CssNode>>> = None;
         self.lookCtx = none.clone();
         self.looksOnly = false;
@@ -761,17 +779,17 @@ impl MdCss {
     /// What the sheet says about one block under a slide or section (`ctx`,
     /// from `scopeOf`): the same as `resolve`, with `#intro .lead` able to
     /// match.
-    fn resolveIn(&mut self, node: &Rc<RefCell<MdNode>>, ctx: Option<Rc<RefCell<CssNode>>>) -> Rc<RefCell<CssComputed>> {
+    pub(crate) fn resolveIn(&mut self, node: &Rc<RefCell<MdNode>>, ctx: Option<Rc<RefCell<CssNode>>>) -> Rc<RefCell<CssComputed>> {
         self.resolveAs(node, MdCss::tagOf(node), ctx.clone())
     }
     /// …as element `tag` (a list is `ul` / `ol` and also `list`)
-    fn resolveAs(&mut self, node: &Rc<RefCell<MdNode>>, tag: String, ctx: Option<Rc<RefCell<CssNode>>>) -> Rc<RefCell<CssComputed>> {
+    pub(crate) fn resolveAs(&mut self, node: &Rc<RefCell<MdNode>>, tag: String, ctx: Option<Rc<RefCell<CssNode>>>) -> Rc<RefCell<CssComputed>> {
         let mut n: Rc<RefCell<CssNode>> = Rc::new(RefCell::new(CssNode::new()));
         n.borrow_mut().tag = tag.clone();
         n.borrow_mut().id = node.borrow().nodeId.clone();
         let mut i: i64 = 0;
         while i < node.borrow().classCount() {
-            CssNode::addClass(&n, &node.borrow().classAt(i));
+            CssNode::add_class(&n, &node.borrow().classAt(i));
             i += 1;
         }
         n.borrow_mut().parent = ctx.clone();
@@ -780,26 +798,27 @@ impl MdCss {
     }
     /// What only the block's own classes and id say about it (`ownSheet`):
     /// whether it is a box, and that box's colour, border and padding.
-    fn resolveOwn(&self, node: &Rc<RefCell<MdNode>>, ctx: Option<Rc<RefCell<CssNode>>>) -> Rc<RefCell<CssComputed>> {
+    pub(crate) fn resolveOwn(&self, node: &Rc<RefCell<MdNode>>, ctx: Option<Rc<RefCell<CssNode>>>) -> Rc<RefCell<CssComputed>> {
         let mut n: Rc<RefCell<CssNode>> = Rc::new(RefCell::new(CssNode::new()));
         n.borrow_mut().tag = MdCss::tagOf(node);
         n.borrow_mut().id = node.borrow().nodeId.clone();
         let mut i: i64 = 0;
         while i < node.borrow().classCount() {
-            CssNode::addClass(&n, &node.borrow().classAt(i));
+            CssNode::add_class(&n, &node.borrow().classAt(i));
             i += 1;
         }
         n.borrow_mut().parent = ctx.clone();
         CssCascade::resolve(&self.ownSheet.clone(), &n)
     }
     pub fn readDeck(&mut self) {
-        self.deck(&self.forTag("deck".to_string()));
+        let __arg796 = self.forTag("deck".to_string());
+        self.deck(&__arg796);
     }
     pub fn errorCount(&self) -> i64 {
-        return CssSheet::errorCount(&self.sheet);
+        return CssSheet::error_count(&self.sheet);
     }
     pub fn errorAt(&self, i: i64) -> String {
-        return CssSheet::errorAt(&self.sheet, i);
+        return CssSheet::error_at(&self.sheet, i);
     }
     /// What the lint says about `css` were it added now: the notes for an
     /// editor's gutter, with offsets into `css` itself.
@@ -840,33 +859,52 @@ impl MdCss {
     pub fn applyTo(&mut self, style: &Rc<RefCell<MdStyle>>) {
         self.applied = 0;
         self.asked = 0;
-        self.page(style, &self.forTag("page".to_string()));
-        self.body(style, &self.forTag("document".to_string()));
+        let __arg843 = self.forTag("page".to_string());
+        self.page(style, &__arg843);
+        let __arg844 = self.forTag("document".to_string());
+        self.body(style, &__arg844);
         // `body` says the same thing, because that is what somebody who has
         // written CSS before types — and a rule that is silently ignored is
         // worse than one that is refused by name: the page simply looks
         // unchanged and there is nothing to read about why. Second, so it
         // wins where a sheet says both.
-        self.body(style, &self.forTag("body".to_string()));
-        self.para(style, &self.forTag("p".to_string()));
+        let __arg850 = self.forTag("body".to_string());
+        self.body(style, &__arg850);
+        let __arg851 = self.forTag("p".to_string());
+        self.para(style, &__arg851);
         self.headings(style);
-        self.code(style, &self.forTag("code".to_string()));
-        self.mark(style, &self.forTag("mark".to_string()));
-        self.kbd(style, &self.forTag("kbd".to_string()));
-        self.link(style, &self.forTag("a".to_string()));
-        self.rule(style, &self.forTag("hr".to_string()));
-        self.quote(style, &self.forTag("blockquote".to_string()));
-        self.container(style, &self.forTag("container".to_string()));
-        self.list(style, &self.forTag("list".to_string()));
-        self.item(style, &self.forTag("li".to_string()));
-        self.table(style, &self.forTag("table".to_string()));
-        self.tableHead(style, &self.forTag("th".to_string()));
-        self.picture(style, &self.forTag("img".to_string()));
-        self.furniture(style, &self.forTag("header".to_string()), true);
-        self.furniture(style, &self.forTag("footer".to_string()), false);
-        self.deck(&self.forTag("deck".to_string()));
+        let __arg853 = self.forTag("code".to_string());
+        self.code(style, &__arg853);
+        let __arg854 = self.forTag("mark".to_string());
+        self.mark(style, &__arg854);
+        let __arg855 = self.forTag("kbd".to_string());
+        self.kbd(style, &__arg855);
+        let __arg856 = self.forTag("a".to_string());
+        self.link(style, &__arg856);
+        let __arg857 = self.forTag("hr".to_string());
+        self.rule(style, &__arg857);
+        let __arg858 = self.forTag("blockquote".to_string());
+        self.quote(style, &__arg858);
+        let __arg859 = self.forTag("container".to_string());
+        self.container(style, &__arg859);
+        let __arg860 = self.forTag("list".to_string());
+        self.list(style, &__arg860);
+        let __arg861 = self.forTag("li".to_string());
+        self.item(style, &__arg861);
+        let __arg862 = self.forTag("table".to_string());
+        self.table(style, &__arg862);
+        let __arg863 = self.forTag("th".to_string());
+        self.tableHead(style, &__arg863);
+        let __arg864 = self.forTag("img".to_string());
+        self.picture(style, &__arg864);
+        let __arg865 = self.forTag("header".to_string());
+        self.furniture(style, &__arg865, true);
+        let __arg866 = self.forTag("footer".to_string());
+        self.furniture(style, &__arg866, false);
+        let __arg867 = self.forTag("deck".to_string());
+        self.deck(&__arg867);
     }
-    fn forTag(&mut self, tag: String) -> Rc<RefCell<CssComputed>> {
+    pub(crate) fn forTag(&mut self, tag: String) -> Rc<RefCell<CssComputed>> {
         let mut n: Rc<RefCell<CssNode>> = Rc::new(RefCell::new(CssNode::new()));
         n.borrow_mut().tag = tag.clone();
         n.borrow_mut().parent = self.lookCtx.clone();
@@ -883,7 +921,7 @@ impl MdCss {
         n.borrow_mut().id = node.borrow().nodeId.clone();
         let mut i: i64 = 0;
         while i < node.borrow().classCount() {
-            CssNode::addClass(&n, &node.borrow().classAt(i));
+            CssNode::add_class(&n, &node.borrow().classAt(i));
             i += 1;
         }
         self.asked += 1;
@@ -1277,7 +1315,7 @@ impl MdCss {
             return fallback;
         }
         self.applied += 1;
-        return CssValue::fontPoints(&CssComputed::get(&got, name), fallback);
+        return CssValue::font_points(&CssComputed::get(&got, name), fallback);
     }
     fn size(&mut self, got: &Rc<RefCell<CssComputed>>, name: &str, fallback: f64) -> f64 {
         self.len(got, name, fallback)
@@ -1294,7 +1332,7 @@ impl MdCss {
             return fallback;
         }
         let v: String = CssSheet::tidy(&CssComputed::get(&got, name));
-        if CssValue::isBareNumber(&v) {
+        if CssValue::is_bare_number(&v) {
             self.applied += 1;
             let d: Option<f64> = v.parse::<f64>().ok();
             return if d.is_some() { d.unwrap() } else { fallback };
@@ -1306,7 +1344,7 @@ impl MdCss {
         if false == CssComputed::has(&got, name) {
             return fallback.to_string();
         }
-        let f: String = CssValue::firstFamily(&CssComputed::get(&got, name));
+        let f: String = CssValue::first_family(&CssComputed::get(&got, name));
         if f.is_empty() {
             return fallback.to_string();
         }
@@ -1333,7 +1371,7 @@ impl MdCss {
             return "transparent".to_string();
         }
         let mut c: Rc<RefCell<EVGColor>> = CssValue::color(&CssComputed::get(&got, name));
-        if false == c.borrow().isSet {
+        if false == c.borrow().is_set {
             return fallback.to_string();
         }
         self.applied += 1;

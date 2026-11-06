@@ -1,0 +1,9 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; The .rgr classes the crate's Rust modules use, as one module (rgr.rs,
+; build.rs). EVG is the rangerevg crate's, MathRender rangermath's.
+Import "MdEmoji.rgr"
+Import "MdMath.rgr"
+Import "MdText.rgr"
+Import "../../css/CssCore.rgr"
+Import "../../vfs/src/Vfs.rgr"
+Import "../../vfs/src/VfsCore.rgr"

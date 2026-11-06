@@ -13,8 +13,6 @@
 ; longest first, which is the order `MdTypography` tries them in.
 ; ============================================================================
 
-Import "lib.rs"
-
 ; One per process (`__singleton`): the table is loaded once, not once per parse.
 class MdEmoji @singleton(true) {
     def table:[string:string]
@@ -32,8 +30,11 @@ class MdEmoji @singleton(true) {
         return (MdEmoji.__singleton())
     }
 
-    ; The emoji a shortcode name stands for, or "" when there is none.
-    fn lookup:string (name:string) {
+    ; The code points a shortcode name stands for, hex and comma separated
+    ; (`1f469,200d,1f9af`), or "" when there is none; MdTypography decodes
+    ; them (MdEntities::decodeCodes). This file imports nothing of the crate's
+    ; Rust code, so cargo builds it as a .rgr module of the crate.
+    fn lookupCodes:string (name:string) {
         if! loaded {
             this.load()
         }
@@ -252,12 +253,12 @@ class MdEmoji @singleton(true) {
             def pn:int (array_length pairs)
             while (pi < pn) {
                 def pair:string (itemAt pairs pi)
-                def cut:int (MdEntities.colonAt(pair))
+                def cut:int (indexOf pair ":")
                 if (cut > 0) {
                     def name:string (substring pair 0 cut)
                     def plen:int (strlen pair)
                     def codes:string (substring pair (cut + 1) plen)
-                    set table name (MdEntities.decodeCodes(codes))
+                    set table name codes
                 }
                 pi = (pi + 1)
             }

@@ -529,7 +529,7 @@ impl MdGallery {
             pct = true;
             s = MdText::substr(&s, 0, (MdText::str_len(&s) as i64) - 1);
         }
-        if !CssValue::isBareNumber(&s) {
+        if !CssValue::is_bare_number(&s) {
             return -1.0;
         }
         let d: Option<f64> = s.trim().to_string().parse::<f64>().ok();
@@ -582,7 +582,7 @@ impl MdGallery {
             out.borrow_mut().colorSet = true;
         }
         if CssComputed::has(&got, "font-family") {
-            let f: String = CssValue::firstFamily(&CssComputed::get(&got, "font-family"));
+            let f: String = CssValue::first_family(&CssComputed::get(&got, "font-family"));
             if !f.is_empty() {
                 out.borrow_mut().family = f.clone();
             }
@@ -594,7 +594,7 @@ impl MdGallery {
             }
         }
         if CssComputed::has(&got, "font-weight") {
-            out.borrow_mut().bold = CssValue::isBold(&CssComputed::get(&got, "font-weight"));
+            out.borrow_mut().bold = CssValue::is_bold(&CssComputed::get(&got, "font-weight"));
         }
     }
     /// `10pt`, `10pt 20pt`, `10pt 10pt 32pt` or four: top, right, bottom,
@@ -627,7 +627,7 @@ impl MdGallery {
         let mut vals: Vec<f64> = Vec::new();
         let mut k: i64 = 0;
         while k < n {
-            vals.push(MdGallery::safeLen(CssValue::fontPoints(&words[k as usize].clone(), 0.0)));
+            vals.push(MdGallery::safeLen(CssValue::font_points(&words[k as usize].clone(), 0.0)));
             k += 1;
         }
         let top: f64 = vals[0];
@@ -654,7 +654,7 @@ impl MdGallery {
         if !CssComputed::has(&got, name) {
             return fallback;
         }
-        return MdGallery::safeLen(CssValue::fontPoints(&CssComputed::get(&got, name), fallback));
+        return MdGallery::safeLen(CssValue::font_points(&CssComputed::get(&got, name), fallback));
     }
     /// A length a sheet gave, within what a slide can hold: no negative
     /// padding, nothing past 500pt (MdCssLimits holds the document's own).
@@ -676,7 +676,7 @@ impl MdGallery {
             return String::new();
         }
         let mut c: Rc<RefCell<EVGColor>> = CssValue::color(&CssComputed::get(&got, name));
-        if !c.borrow().isSet {
+        if !c.borrow().is_set {
             return fallback.to_string();
         }
         MdCss::hexOf(&c)
@@ -768,7 +768,7 @@ impl MdGallery {
         n.borrow_mut().tag = "gallery".to_string();
         let mut i: i64 = 0;
         while i < (self.classes.len() as i64) {
-            CssNode::addClass(&n, &self.classes[i as usize].clone());
+            CssNode::add_class(&n, &self.classes[i as usize].clone());
             i += 1;
         }
         n
@@ -779,12 +779,12 @@ impl MdGallery {
         let mut p: Option<Rc<RefCell<CssNode>>> = Some(self.galleryNode());
         n.borrow_mut().parent = p.clone();
         if it.borrow().isText {
-            CssNode::addClass(&n, "text");
+            CssNode::add_class(&n, "text");
         }
-        CssNode::addClass(&n, &MdCss::nthClass(it.borrow().index.clone()));
+        CssNode::add_class(&n, &MdCss::nthClass(it.borrow().index.clone()));
         let mut i: i64 = 0;
         while i < (it.borrow().classes.len() as i64) {
-            CssNode::addClass(&n, &it.borrow().classes[i as usize].clone());
+            CssNode::add_class(&n, &it.borrow().classes[i as usize].clone());
             i += 1;
         }
         n

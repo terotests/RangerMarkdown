@@ -251,7 +251,7 @@ impl MdColumns {
                     let mut r#box: Rc<RefCell<MdNode>> = MdColumns::wrapper(i + 1, j, node);
                     r#box.borrow_mut().setAttr("layout", &word);
                     if c.borrow().hasAttr("widths") {
-                        r#box.borrow_mut().setAttr("widths", &MdNode::attrValue(&c, "widths"));
+                        r#box.borrow_mut().setAttr("widths", &c.borrow().attrValue("widths"));
                     }
                     kept.push(r#box.clone());
                     i = j - 1;
@@ -365,7 +365,7 @@ impl MdColumns {
         r#box.borrow_mut().open = false;
         let mut i: i64 = from;
         while i < to {
-            r#box.borrow_mut().add(MdNode::childAt(&parent, i));
+            r#box.borrow_mut().add(parent.borrow().childAt(i));
             i += 1;
         }
         r#box.clone()

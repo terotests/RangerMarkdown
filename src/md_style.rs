@@ -755,7 +755,7 @@ impl MdTypo {
     }
     pub fn copy(&self) -> Rc<RefCell<MdTypo>> {
         let mut t: Rc<RefCell<MdTypo>> = Rc::new(RefCell::new(MdTypo::new()));
-        t.borrow_mut().over(self);
+        t.borrow_mut().over(&Rc::new(RefCell::new(self.clone())));
         t
     }
     pub fn isEmpty(&self) -> bool {

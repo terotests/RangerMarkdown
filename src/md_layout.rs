@@ -53,6 +53,7 @@ use crate::md_url::MdUrl;
 use crate::rgr::MdText;
 use crate::rgr::{EVGTextEngine, EVGTextMeasurer, EVGTextMetrics, EVGUnit, Vfs, VfsStat};
 use rangermath::{MathBox, MathLayout};
+use crate::rgr::{CssComputed, CssNode, CssSheet, CssValue, EVGColor, EVGElement};
 
 /// ============================================================================
 /// MdLayout.rgr — the AST, laid out. Boxes with coordinates, and nothing drawn.
@@ -894,7 +895,7 @@ pub struct MdLayout {
     /// its ALT TEXT when nobody has the bytes, which is the most truthful thing
     /// to draw, and is what this did for every document before there was a byte
     /// store at all.
-    images: Rc<RefCell<Vfs>>,
+    pub(crate) images: Rc<RefCell<Vfs>>,
     pub haveImages: bool,
     pub docDir: String,
     /// Pictures the document names and this layout could not find. Counted
@@ -2049,7 +2050,7 @@ impl MdLayout {
         found
     }
     fn setMeasurer(&mut self, m: Rc<RefCell<EVGTextMeasurer>>) {
-        EVGTextEngine::setMeasurer(&self.engine.clone(), m.clone());
+        EVGTextEngine::set_measurer(&self.engine.clone(), m.clone());
         // Everything cached was measured through the old one.
         self.dropCache();
     }
@@ -3161,13 +3162,13 @@ impl MdLayout {
         out.borrow_mut().h = if top { self.style.borrow().headerImageH } else { self.style.borrow().footerImageH };
         let w_v = out.borrow().h;
         out.borrow_mut().w = w_v;
-        if st.borrow().pixelH > 0 {
-            let w_v = out.borrow().h * ((st.borrow().pixelW as f64) / (st.borrow().pixelH as f64));
+        if st.borrow().pixel_h > 0 {
+            let w_v = out.borrow().h * ((st.borrow().pixel_w as f64) / (st.borrow().pixel_h as f64));
             out.borrow_mut().w = w_v;
         }
         out.borrow_mut().path = resolved.clone();
-        out.borrow_mut().natW = st.borrow().pixelW;
-        out.borrow_mut().natH = st.borrow().pixelH;
+        out.borrow_mut().natW = st.borrow().pixel_w;
+        out.borrow_mut().natH = st.borrow().pixel_h;
         out
     }
     pub fn slotRun(&self, top: bool) -> Rc<RefCell<MdRun>> {
@@ -3989,7 +3990,7 @@ impl MdLayout {
     pub fn floatSide(&self, child: &Rc<RefCell<MdNode>>, b: &Rc<RefCell<MdBox>>) -> String {
         let mut want: String = child.borrow().attrValue("width");
         if child.borrow().kind == "paragraph" {
-            want = MdLayout::loneImage(child).attrValue("width");
+            want = MdLayout::loneImage(child).borrow().attrValue("width");
             if want.is_empty() {
                 want = child.borrow().attrValue("width");
             }
@@ -5309,7 +5310,7 @@ impl MdLayout {
         // element's (`heading`, then `h2`), then its class's, below
         let mut nt: Rc<RefCell<MdTypo>> = self.typo.borrow().copy();
         if self.typoDepth == 0 {
-            nt = self.style.borrow().typoOf("document").copy();
+            nt = self.style.borrow().typoOf("document").borrow().copy();
         }
         let tag: String = MdCss::tagOf(&node);
         if node.borrow().kind == "heading" {
@@ -6348,8 +6349,8 @@ impl MdLayout {
             }
         }
         let mut fh: f64 = fw * 0.5;
-        if st.borrow().pixelW > 0 && st.borrow().pixelH > 0 {
-            fh = fw * ((st.borrow().pixelH as f64) / (st.borrow().pixelW as f64));
+        if st.borrow().pixel_w > 0 && st.borrow().pixel_h > 0 {
+            fh = fw * ((st.borrow().pixel_h as f64) / (st.borrow().pixel_w as f64));
         }
         // A picture that says no size takes a corner's worth: at most 30%
         // of the height. One that says `width=` is that wide, and `height=`
@@ -6392,8 +6393,8 @@ impl MdLayout {
         b.borrow_mut().h = fh;
         b.borrow_mut().imagePath = path.clone();
         b.borrow_mut().imageAlt = img.borrow().plainText();
-        b.borrow_mut().imageNaturalW = st.borrow().pixelW;
-        b.borrow_mut().imageNaturalH = st.borrow().pixelH;
+        b.borrow_mut().imageNaturalW = st.borrow().pixel_w;
+        b.borrow_mut().imageNaturalH = st.borrow().pixel_h;
         b.borrow_mut().pinned = true;
         self.emit(b.clone());
         let gap: f64 = self.style.borrow().bodySize * 1.2;
@@ -7486,8 +7487,8 @@ impl MdLayout {
         let dark: bool = MdLayout::luminance(&self.style.borrow().codeBackground.clone()) < 0.25;
         let mut added: String = MdLayout::tint(&self.style.borrow().codeBackground.clone(), "#2da44e", 0.2);
         let mut removed: String = MdLayout::tint(&self.style.borrow().codeBackground.clone(), "#cf222e", 0.18);
-        let mut add_ink: String = "#1a7f37";
-        let mut del_ink: String = "#cf222e";
+        let mut add_ink: String = "#1a7f37".to_string();
+        let mut del_ink: String = "#cf222e".to_string();
         let mut add_span: String = MdLayout::tint(&self.style.borrow().codeBackground.clone(), "#2da44e", 0.42);
         let mut del_span: String = MdLayout::tint(&self.style.borrow().codeBackground.clone(), "#cf222e", 0.36);
         if dark {
@@ -7511,21 +7512,21 @@ impl MdLayout {
                 "#f85149",
                 0.5
             );
-            add_ink = "#3fb950";
-            del_ink = "#f85149";
+            add_ink = "#3fb950".to_string();
+            del_ink = "#f85149".to_string();
         }
         // a highlight is a lighter (darker) band, its bar an accent blue
         let mut mark_band: String = MdLayout::tint(&self.style.borrow().codeBackground.clone(), "#1f2328", 0.08);
-        let mut mark_bar: String = "#0969da";
-        let mut num_ink: String = "#57606a";
+        let mut mark_bar: String = "#0969da".to_string();
+        let mut num_ink: String = "#57606a".to_string();
         if dark {
             mark_band = MdLayout::tint(
                 &self.style.borrow().codeBackground,
                 "#e6edf3",
                 0.13
             );
-            mark_bar = "#79c0ff";
-            num_ink = "#8b949e";
+            mark_bar = "#79c0ff".to_string();
+            num_ink = "#8b949e".to_string();
         }
         self.codeNode = Some(node.clone());
         let build: bool = node.borrow().hasClass("build") && cl.borrow().steps > 0;
@@ -7550,10 +7551,10 @@ impl MdLayout {
                 // (red), a shade deeper, so it still reads as added (removed)
                 let mut band_ink: String = mark_band.clone();
                 if ln.borrow().kind == 1 {
-                    band_ink = MdLayout::tint(&added, mark_bar, 0.12);
+                    band_ink = MdLayout::tint(&added, &mark_bar, 0.12);
                 }
                 if ln.borrow().kind == 2 {
-                    band_ink = MdLayout::tint(&removed, mark_bar, 0.12);
+                    band_ink = MdLayout::tint(&removed, &mark_bar, 0.12);
                 }
                 let mut band: Rc<RefCell<MdBox>> = MdBox::rect(
                     x + 1.0,
@@ -7591,7 +7592,7 @@ impl MdLayout {
                 );
                 nb.borrow_mut().family = self.style.borrow().monoFamily.clone();
                 nb.borrow_mut().size = self.style.borrow().codeSize;
-                nb.borrow_mut().color = self.codeInk(num_ink);
+                nb.borrow_mut().color = self.codeInk(&num_ink);
                 // a gutter number is drawn dim on purpose and read with its
                 // line: not the text a contrast check is for
                 nb.borrow_mut().quiet = true;
@@ -7645,7 +7646,8 @@ impl MdLayout {
                     self.codeLine(&hl, &ln, lx, ty, lh);
                 } else {
                     let mut _tmp_2813 = ln.borrow().code.clone();
-                    self.codeRows(&ln, &_tmp_2813, lx, ty, lh, row_w, &self.style.borrow().textColor.clone(), false);
+                    let text_ink: String = self.style.borrow().textColor.clone();
+                    self.codeRows(&ln, &_tmp_2813, lx, ty, lh, row_w, &text_ink, false);
                 }
                 // a line of no text (or only spaces): a stop at its end
                 if self.caretStops && ln.borrow().code.trim().to_string().is_empty() {
@@ -8220,8 +8222,8 @@ impl MdLayout {
                     }
                     if st.borrow().found {
                         c.borrow_mut().src = path.clone();
-                        if st.borrow().pixelW > 0 && st.borrow().pixelH > 0 {
-                            MdLayout::containIn(&c, st.borrow().pixelW as f64, st.borrow().pixelH as f64);
+                        if st.borrow().pixel_w > 0 && st.borrow().pixel_h > 0 {
+                            MdLayout::containIn(&c, st.borrow().pixel_w as f64, st.borrow().pixel_h as f64);
                         }
                     } else {
                         self.missed(&format!("chart:{}", c.borrow().alt).clone());
@@ -8851,7 +8853,7 @@ impl MdLayout {
         }
         let mut i: i64 = 0;
         while i < doc.borrow().childCount() {
-            r#box.borrow_mut().add(MdNode::childAt(&doc, i));
+            r#box.borrow_mut().add(doc.borrow().childAt(i));
             i += 1;
         }
         let saved_ink: String = self.style.borrow().textColor.clone();
@@ -9688,7 +9690,8 @@ impl MdLayout {
                 if base > 0.0 {
                     mt = top + (base - own);
                 }
-                self.emit(self.mathSegBox(&seg, sx, mt));
+                let __arg9692 = self.mathSegBox(&seg, sx, mt);
+                self.emit(__arg9692);
                 s += 1;
                 continue;
             }
@@ -9836,7 +9839,7 @@ impl MdLayout {
     }
     pub fn baselineAt(&self, family: &str, bold: bool, italic: bool, size: f64) -> f64 {
         let face: String = self.style.borrow().faceFor(family, bold, italic);
-        let mut m: Rc<RefCell<EVGTextMetrics>> = EVGTextEngine::measureRun(
+        let mut m: Rc<RefCell<EVGTextMetrics>> = EVGTextEngine::measure_run(
             &self.engine,
             "Hg",
             &face,
@@ -9916,7 +9919,8 @@ impl MdLayout {
             // a line that first refers to a footnote needs the footnote's
             // room on its page too: without it the line goes on and its note
             // goes nowhere, so the two go to the next page together
-            let y: f64 = self.reserve(ln.borrow().height + self.noteRoomFor(&ln));
+            let __arg9920 = self.noteRoomFor(&ln);
+            let y: f64 = self.reserve(ln.borrow().height + __arg9920);
             let mut dx: f64 = 0.0;
             if self.align == "center" {
                 dx = (w - ln.borrow().width) / 2.0;
@@ -9988,7 +9992,7 @@ impl MdLayout {
             return 0.0;
         }
         let face: String = self.style.borrow().faceFor(family, bold, italic);
-        let mut m: Rc<RefCell<EVGTextMetrics>> = EVGTextEngine::measureRun(
+        let mut m: Rc<RefCell<EVGTextMetrics>> = EVGTextEngine::measure_run(
             &self.engine,
             text,
             &face,
@@ -10127,14 +10131,14 @@ impl MdLayout {
         let mut _tmp_3043 = r.borrow().bold.clone();
         let face: String = self.style.borrow().faceFor(&_tmp_3042, _tmp_3043, r.borrow().italic.clone());
         let mut _tmp_3046 = r.borrow().size.clone();
-        let mut m: Rc<RefCell<EVGTextMetrics>> = EVGTextEngine::measureRun(
+        let mut m: Rc<RefCell<EVGTextMetrics>> = EVGTextEngine::measure_run(
             &self.engine,
             text,
             &face,
             _tmp_3046
         );
         if r.borrow().spacing != 0.0 {
-            return m.borrow().width + EVGTextEngine::trackingWidth(text, r.borrow().spacing.clone());
+            return m.borrow().width + EVGTextEngine::tracking_width(text, r.borrow().spacing.clone());
         }
         return m.borrow().width;
     }
@@ -10501,7 +10505,7 @@ impl MdLayout {
                 let mut _tmp_3079 = seg.borrow().bold.clone();
                 let face: String = self.style.borrow().faceFor(&_tmp_3078, _tmp_3079, seg.borrow().italic.clone());
                 let mut _tmp_3082 = seg.borrow().size.clone();
-                let mut m: Rc<RefCell<EVGTextMetrics>> = EVGTextEngine::measureRun(
+                let mut m: Rc<RefCell<EVGTextMetrics>> = EVGTextEngine::measure_run(
                     &self.engine,
                     "Hg",
                     &face,
@@ -10539,7 +10543,7 @@ impl MdLayout {
         cur.borrow_mut().height = height;
         cur.borrow_mut().ascent = ascent;
         cur.borrow_mut().width = width;
-        cur
+        cur.clone()
     }
     /// ----------------------------------------------------------------------
     /// Tables
@@ -10754,7 +10758,7 @@ impl MdLayout {
         }
         // drawn by the host over the page: no room here (a pass that only
         // measures what follows a picture does not place it)
-        if self.isOverlayType(&st.borrow().contentType.clone()) {
+        if self.isOverlayType(&st.borrow().content_type.clone()) {
             if self.paginate {
                 let mut _tmp_3096 = node.borrow().srcStart.clone();
                 self.noteOverlay(_tmp_3096, &path, self.page.clone());
@@ -10763,8 +10767,8 @@ impl MdLayout {
         }
         // Its own size, never scaled UP — a 64pt icon in a 468pt column is a
         // 64pt icon — and fitted down when it is wider than the column.
-        let nat_w: f64 = st.borrow().pixelW as f64;
-        let nat_h: f64 = st.borrow().pixelH as f64;
+        let nat_w: f64 = st.borrow().pixel_w as f64;
+        let nat_h: f64 = st.borrow().pixel_h as f64;
         let mut use_w: f64 = nat_w;
         let mut use_h: f64 = nat_h;
         if nat_w <= 0.0 {
@@ -10893,8 +10897,8 @@ impl MdLayout {
         b.borrow_mut().h = use_h;
         b.borrow_mut().imagePath = path.clone();
         b.borrow_mut().imageAlt = img.borrow().plainText();
-        b.borrow_mut().imageNaturalW = st.borrow().pixelW;
-        b.borrow_mut().imageNaturalH = st.borrow().pixelH;
+        b.borrow_mut().imageNaturalW = st.borrow().pixel_w;
+        b.borrow_mut().imageNaturalH = st.borrow().pixel_h;
         self.emit(b.clone());
         self.cursorY = (y + use_h) + self.style.borrow().paraSpacing;
         true
@@ -11292,8 +11296,8 @@ impl MdLayout {
             return b;
         }
         b.borrow_mut().imagePath = path.clone();
-        b.borrow_mut().imageNaturalW = st.borrow().pixelW;
-        b.borrow_mut().imageNaturalH = st.borrow().pixelH;
+        b.borrow_mut().imageNaturalW = st.borrow().pixel_w;
+        b.borrow_mut().imageNaturalH = st.borrow().pixel_h;
         b
     }
     /// The picture where the cell says, or its name in brackets in that
@@ -11480,9 +11484,9 @@ impl MdLayout {
             }
         }
         if lk.borrow().align != "start" {
-            let mut word: String = "center";
+            let mut word: String = "center".to_string();
             if lk.borrow().align == "end" {
-                word = "right";
+                word = "right".to_string();
             }
             let mut k: i64 = first;
             while k < (self.boxes.len() as i64) {
