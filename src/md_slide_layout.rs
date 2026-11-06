@@ -131,13 +131,13 @@ impl MdSlideLayout {
         if left == right {
             return String::new();
         }
-        let mut a: String = "top";
+        let mut a: String = "top".to_string();
         if bottom {
-            a = "bottom";
+            a = "bottom".to_string();
         }
-        let mut b: String = "left";
+        let mut b: String = "left".to_string();
         if right {
-            b = "right";
+            b = "right".to_string();
         }
         format!("{}-{}", a, b)
     }

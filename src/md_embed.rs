@@ -10,6 +10,7 @@ use crate::md_embed_kinds::MdEmbedKinds;
 use crate::md_node::MdNode;
 use crate::rgr::MdText;
 use crate::rgr::{EVGElement};
+use crate::rgr::{CssComputed, CssNode};
 
 /// ============================================================================
 /// MdEmbed.rgr — the slot a fenced diagram fills, and what fills it.
@@ -70,7 +71,7 @@ pub struct MdEmbedEntry {
     /// taller than its room (the text written over and under it took the
     /// rest), 0 for none: it is drawn again that high (`MdEmbedCache.askRoom`)
     pub fitH: f64,
-    root: Option<Rc<RefCell<EVGElement>>>,
+    pub(crate) root: Option<Rc<RefCell<EVGElement>>>,
 }
 
 impl MdEmbedEntry {

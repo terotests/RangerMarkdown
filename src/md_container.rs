@@ -119,7 +119,7 @@ impl MdContainer {
     pub fn fillOf(node: &Rc<RefCell<MdNode>>) -> String {
         if node.borrow().hasAttr("background") {
             let mut c: Rc<RefCell<EVGColor>> = EVGColor::parse(&node.borrow().attrValue("background").trim().to_string());
-            if c.borrow().isSet {
+            if c.borrow().is_set {
                 return MdContainer::hexOf(&c);
             }
         }
@@ -127,7 +127,7 @@ impl MdContainer {
             let v: String = node.borrow().attrValue("bg").trim().to_string();
             if MdContainer::colourLike(&v) {
                 let mut c2: Rc<RefCell<EVGColor>> = EVGColor::parse(&v);
-                if c2.borrow().isSet {
+                if c2.borrow().is_set {
                     return MdContainer::hexOf(&c2);
                 }
             }
@@ -224,7 +224,7 @@ impl MdContainer {
                 }
             }
             let mut c: Rc<RefCell<EVGColor>> = EVGColor::parse(&MdText::substr(&rest, 0, end));
-            if c.borrow().isSet {
+            if c.borrow().is_set {
                 return MdContainer::hexOf(&EVGColor::rgba(
                     EVGColor::red(&c),
                     EVGColor::green(&c),
@@ -285,7 +285,7 @@ impl MdContainer {
     /// nothing — white under dark text and near-black under light.
     pub fn toneGround(paper: &str, ink: &str) -> String {
         let mut pc: Rc<RefCell<EVGColor>> = EVGColor::parse(paper);
-        if !paper.is_empty() && pc.borrow().isSet {
+        if !paper.is_empty() && pc.borrow().is_set {
             if EVGColor::alpha(&pc) > 0.5 {
                 return MdContainer::hexOf(&EVGColor::rgb(
                     EVGColor::red(&pc),
@@ -342,7 +342,7 @@ impl MdContainer {
     pub fn defaultFill(paper: &str, ink: &str) -> String {
         let mut pc: Rc<RefCell<EVGColor>> = EVGColor::parse(paper);
         if !paper.is_empty() {
-            if pc.borrow().isSet && EVGColor::alpha(&pc) > 0.5 {
+            if pc.borrow().is_set && EVGColor::alpha(&pc) > 0.5 {
                 return MdContainer::hexOf(&EVGColor::rgba(
                     EVGColor::red(&pc),
                     EVGColor::green(&pc),
@@ -381,7 +381,7 @@ impl MdContainer {
             return worst;
         }
         let mut pc: Rc<RefCell<EVGColor>> = EVGColor::parse(paper);
-        if false == pc.borrow().isSet || EVGColor::alpha(&pc) < 0.99 {
+        if false == pc.borrow().is_set || EVGColor::alpha(&pc) < 0.99 {
             return worst;
         }
         let dark: f64 = MdContainer::worstContrast("#111111", fill);
@@ -402,7 +402,7 @@ impl MdContainer {
     pub fn overColour(fill: &str, paper: &str) -> String {
         let mut c: Rc<RefCell<EVGColor>> = EVGColor::parse(fill);
         let mut u: Rc<RefCell<EVGColor>> = EVGColor::parse(paper);
-        if false == c.borrow().isSet {
+        if false == c.borrow().is_set {
             return MdContainer::hexOf(&EVGColor::rgb(
                 EVGColor::red(&u),
                 EVGColor::green(&u),
@@ -428,7 +428,7 @@ impl MdContainer {
     /// `fill` laid over a grey `under` (0 black … 255 white), as `#RRGGBB`
     pub fn over(fill: &str, under: i64) -> String {
         let mut c: Rc<RefCell<EVGColor>> = EVGColor::parse(fill);
-        if false == c.borrow().isSet {
+        if false == c.borrow().is_set {
             return MdContainer::hexOf(&EVGColor::rgb(under, under, under));
         }
         let a: f64 = EVGColor::alpha(&c);
@@ -462,13 +462,13 @@ impl MdContainer {
         let q: f64 = y.sqrt().sqrt();
         ((y * y) * q) * q.sqrt()
     }
-    fn hexOf(c: &Rc<RefCell<EVGColor>>) -> String {
-        let hex: String = EVGColor::toHexString(&c);
+    pub(crate) fn hexOf(c: &Rc<RefCell<EVGColor>>) -> String {
+        let hex: String = EVGColor::to_hex_string(&c);
         let a: f64 = EVGColor::alpha(&c);
         if a >= 0.999 {
             return hex;
         }
-        let digits: String = "0123456789ABCDEF";
+        let digits: String = "0123456789ABCDEF".to_string();
         let v: i64 = (a * 255.0 + 0.5).floor() as i64;
         let hi: i64 = v / 16;
         let lo: i64 = v % 16;

@@ -136,11 +136,11 @@ impl MdCssSupport {
             .clone()
     }
     /// read by some element or by a class at all
-    pub fn anywhere(sup: &Rc<RefCell<MdCssSupport>>, prop: &str) -> bool {
+    pub fn anywhere(sup: &MdCssSupport, prop: &str) -> bool {
         if MdCssSupport::listed(&MdCssSupport::BLOCK(), prop) {
             return true;
         }
-        let __it_r = sup.borrow().reads.clone();
+        let __it_r = sup.reads.clone();
         for r in __it_r.iter().cloned() {
             if MdCssSupport::listed(&r, prop) {
                 return true;
@@ -150,7 +150,7 @@ impl MdCssSupport {
     }
     /// the element a selector is about ("" for a bare class or id)
     pub fn subjectOf(sel: &str) -> String {
-        let mut words: Vec<String> = CssSheet::splitWhitespace(sel);
+        let mut words: Vec<String> = CssSheet::split_whitespace(sel);
         if words.is_empty() {
             return String::new();
         }
@@ -168,7 +168,7 @@ impl MdCssSupport {
     /// under a slide or a section: more than one part, the outer ones not a
     /// gallery's
     pub fn isScoped(sel: &str) -> bool {
-        let mut words: Vec<String> = CssSheet::splitWhitespace(sel);
+        let mut words: Vec<String> = CssSheet::split_whitespace(sel);
         if (words.len() as i64) < 2 {
             return false;
         }
@@ -212,15 +212,15 @@ impl MdCssSupport {
     /// in order (a later one of the same name wins where they are used)
     pub fn varPairs(css: &str) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
-        let src: String = CssSheet::stripComments(css);
+        let src: String = CssSheet::strip_comments(css);
         let n: i64 = MdText::str_len(&src) as i64;
         let mut i: i64 = 0;
         while i < n {
-            let open: i64 = CssSheet::findChar(&src, i, 123);
+            let open: i64 = CssSheet::find_char(&src, i, 123);
             if open < 0 {
                 return out;
             }
-            let close: i64 = CssSheet::matchingBrace(&src, open);
+            let close: i64 = CssSheet::matching_brace(&src, open);
             if close < 0 {
                 return out;
             }
@@ -705,7 +705,7 @@ impl MdCssSupport {
             }
             let sel_text: String = MdText::substr(&src, i, open).trim().to_string();
             let sel_at: i64 = i + ((MdText::str_len(&MdText::substr(&src, i, open)) as i64) - (MdText::str_len(&MdCssSupport::trimStart(&MdText::substr(&src, i, open))) as i64));
-            let close: i64 = CssSheet::matchingBrace(src, open);
+            let close: i64 = CssSheet::matching_brace(src, open);
             if close < 0 || close > to {
                 MdCssSupport::note(
                     &mut out,
@@ -986,7 +986,7 @@ impl MdCssSupport {
         if (MdText::index_of(&sel, ">") >= 0 || MdText::index_of(&sel, "+") >= 0) || MdText::index_of(&sel, "~") >= 0 {
             return format!("{}: only the space between two parts is read (not >, +, ~); the rule is ignored.", sel);
         }
-        let mut words: Vec<String> = CssSheet::splitWhitespace(sel);
+        let mut words: Vec<String> = CssSheet::split_whitespace(sel);
         let n: i64 = words.len() as i64;
         let mut i: i64 = 0;
         while i < n {

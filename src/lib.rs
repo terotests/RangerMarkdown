@@ -66,3 +66,8 @@ pub use md_table_split::{MdTablePlan, MdTableSplit};
 pub use md_to_evg::{MdToEvg};
 pub use md_typography::{MdInlineOptions, MdTypoCell, MdTypoGroup, MdQuoteItem, MdQuoteOpen, MdTypography};
 pub use md_url::{MdUrl};
+
+// the .rgr types too, for the crates whose .rgr code uses this crate
+// (-rust-extern names them through `use rangermarkdown::*`)
+#[cfg(not(ranger))]
+pub use rgr::*;

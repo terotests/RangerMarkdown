@@ -7,6 +7,7 @@ use std::rc::Rc;
 
 use crate::md_attrs::MdAttrs;
 use crate::md_char::MdChar;
+use crate::md_entities::MdEntities;
 use crate::md_front_matter::MdMeta;
 use crate::md_node::MdNode;
 use crate::rgr::MdText;
@@ -1201,7 +1202,7 @@ impl MdTypography {
     pub fn emojiPass(&self, g: &Rc<RefCell<MdTypoGroup>>) {
         let mut out: Vec<Rc<RefCell<MdTypoCell>>> = Vec::new();
         let n: i64 = g.borrow().cellCount();
-        let sc_count: i64 = MdEmoji::shortcutCount(&self.opts.borrow().emoji());
+        let sc_count: i64 = MdEmoji::shortcut_count(&self.opts.borrow().emoji());
         let mut i: i64 = 0;
         while i < n {
             let mut cell: Rc<RefCell<MdTypoCell>> = g.borrow().cellAt(i);
@@ -1214,7 +1215,7 @@ impl MdTypography {
                     }
                     if j > i + 1 && self.charOf(g, j) == 58 {
                         let name: String = self.plainText(g, i + 1, (j - i) - 1);
-                        let v: String = MdEmoji::lookup(&self.opts.borrow().emoji(), &name);
+                        let v: String = MdEntities::decodeCodes(&MdEmoji::lookup_codes(&self.opts.borrow().emoji(), &name));
                         if !v.is_empty() {
                             let mut last: Rc<RefCell<MdTypoCell>> = g.borrow().cellAt(j);
                             let mut _tmp_107 = cell.borrow().a.clone();
@@ -1225,7 +1226,7 @@ impl MdTypography {
                 }
                 let mut k: i64 = 0;
                 while took == 0 && k < sc_count {
-                    let sc: String = MdEmoji::shortcutAt(&self.opts.borrow().emoji(), k);
+                    let sc: String = MdEmoji::shortcut_at(&self.opts.borrow().emoji(), k);
                     let __len: i64 = MdText::str_len(&sc) as i64;
                     if self.plainText(g, i, __len) == sc {
                         // A match glued to a letter is not an emoticon, and the
@@ -1235,7 +1236,7 @@ impl MdTypography {
                         let ok_before: bool = i == 0 || MdTypography::isZPCc(before);
                         let ok_after: bool = i + __len >= n || MdTypography::isZPCc(after);
                         if ok_before && ok_after {
-                            let v2: String = self.opts.borrow().emoji().borrow_mut().lookup(&MdEmoji::shortcutName(&self.opts.borrow().emoji(), k));
+                            let v2: String = MdEntities::decodeCodes(&MdEmoji::lookup_codes(&self.opts.borrow().emoji(), &MdEmoji::shortcut_name(&self.opts.borrow().emoji(), k)));
                             let mut lastc: Rc<RefCell<MdTypoCell>> = g.borrow().cellAt((i + __len) - 1);
                             let mut _tmp_115 = cell.borrow().a.clone();
                             out.push(MdTypoCell::make(v2.clone(), _tmp_115, lastc.borrow().b.clone(), 1, -1));
@@ -1357,7 +1358,7 @@ impl MdTypography {
     pub fn flushStretch(&self, g: &Rc<RefCell<MdTypoGroup>>, mut out: &mut Vec<Rc<RefCell<MdTypoCell>>>, seg: &Vec<Rc<RefCell<MdTypoCell>>>) -> Vec<Rc<RefCell<MdTypoCell>>> {
         let n0: i64 = seg.len() as i64;
         if n0 == 0 {
-            return out;
+            return out.clone();
         }
         let mut s: Vec<Rc<RefCell<MdTypoCell>>> = seg.clone();
         let t: String = MdTypography::textOf(&s);
@@ -1394,7 +1395,7 @@ impl MdTypography {
             out.push(c.clone());
             i += 1;
         }
-        out
+        out.clone()
     }
     /// ----------------------------------------------------------------------
     /// Quotes (markdown-it's `smartquotes` rule)

@@ -265,7 +265,7 @@ impl MdSvg {
         format!("inline-svg/{}{}.svg", MdSvg::hex(a), MdSvg::hex(b))
     }
     pub fn hex(v: i64) -> String {
-        let digits: String = "0123456789abcdef";
+        let digits: String = "0123456789abcdef".to_string();
         let mut out: String = String::new();
         let mut x: i64 = v;
         let mut k: i64 = 0;

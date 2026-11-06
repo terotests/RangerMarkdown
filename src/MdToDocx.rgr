@@ -314,7 +314,7 @@ class MdToDocx {
             def mh:double ((mb.h + mb.d) * px)
             if ((mw > 0.0) && (mh > 0.0)) {
                 def dr:DocDrawing (doc.addDrawing())
-                dr.root = (MathRender.boxElement(mb px style.textColor))
+                dr.root = (MathRender.box_element(mb px style.textColor))
                 dr.naturalW = mw
                 dr.naturalH = mh
                 dr.widthPx = (to_int (((mw * 96.0) / 72.0) + 0.5))
