@@ -1507,6 +1507,51 @@ prose
         c.ok("a #name no one resolved is not a link in the file" ((indexOf xml "rIdLink2") < 0))
     }
 
+    ; An item that starts with a link starts where the others do. The text's
+    ; start was read off the first run that was not a link, so in
+    ; "[Siemens](…) (manufacturingdigital.com)" it was the bracket's — the
+    ; bullet's gap grew by the link's width and the line moved right.
+    fn linkFirstItems:void (c:DeckCheck) {
+        print "-- an item that starts with a link is not indented by it --"
+        def src:string "# Sources\n\n- Models: [Alpha](https://a.example), [Beta](https://b.example)\n- [Siemens Eigen](https://s.example) (manufacturingdigital.com)\n- [AI Act omnibus](https://u.example) (usercentrics.com), [CRA](https://t.example) (traverssmith.com)\n- [Only a link](https://o.example)\n"
+        def css:string "page { width: 720pt; height: 405pt; padding: 36pt }"
+        def back:PptxDeck (this.reopened((this.build(src css))))
+        def sl:PptxSlideRef (back.slideAt(0))
+        def got:string ""
+        def k:int 0
+        while (k < (sl.shapeCount())) {
+            def m:PptxShape ((sl.shapeAt(k)).model())
+            if ((array_length m.text.paragraphs) == 4) {
+                def p:int 0
+                while (p < 4) {
+                    def para:PptxParagraph (itemAt m.text.paragraphs p)
+                    got = (got + (to_string (to_int (para.marginLeftPt + 0.5))) + "/" + (to_string (to_int ((0.0 - para.indentPt) + 0.5))) + "|")
+                    p = (p + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        def first:string (substring got 0 ((indexOf got "|") + 1))
+        c.eqStr("every item's text starts where the first one's does" got (first + first + first + first))
+        ; the words around the links go nowhere: a run made here is the
+        ; model's own (`new_`, link slide -1), not a zeroed one (slide 0)
+        ; that jumps to the first slide when its words are clicked
+        def d:PptxDeck (this.build(src css))
+        def jumps:int 0
+        def links:int 0
+        def s0:PptxSlide (itemAt d.pres.slides 0)
+        for s0.shapes sh:PptxShape si {
+            for sh.text.paragraphs para:PptxParagraph pi {
+                for para.runs run:PptxTextRun ri {
+                    if (run.linkSlide >= 0) { jumps = (jumps + 1) }
+                    if ((strlen run.link) > 0) { links = (links + 1) }
+                }
+            }
+        }
+        c.eqInt("plain words are not a jump to a slide" jumps 0)
+        c.eqInt("…and the links are still links" links 6)
+    }
+
     fn run:void () {
         def c:DeckCheck (new DeckCheck())
         print "== MdPptxTest =="
@@ -1530,6 +1575,7 @@ prose
         this.aligned(c)
         this.lineBreaks(c)
         this.links(c)
+        this.linkFirstItems(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {

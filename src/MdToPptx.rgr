@@ -674,11 +674,13 @@ class MdToPptx {
         ; set it, in from the bar
         this.blockRules(slide node)
         def drawn:MdBox (this.runBoxOf(node (this.pageOf(node))))
+        ; where the text starts: its first run, a link's too
+        def start:MdBox (this.firstRunOf(node (this.pageOf(node))))
         def tx:double x
         def tw:double w
-        if ((drawn.kind >= 0) && (drawn.x > x)) {
-            tx = drawn.x
-            tw = (w - (drawn.x - x))
+        if ((start.kind >= 0) && (start.x > x)) {
+            tx = start.x
+            tw = (w - (start.x - x))
         }
         def box:PptxShapeRef (slide.addTextBox(tx y tw h text))
         MdToPptx.tight(box)
@@ -782,7 +784,7 @@ class MdToPptx {
     }
 
     sfn codeRun:PptxTextRun (text:string color:string size:double family:string) {
-        def r (new PptxTextRun)
+        def r (PptxTextRun.new_())
         r.text = text
         r.fontFamily = family
         r.fontSizePt = size
@@ -997,7 +999,7 @@ class MdToPptx {
                     p.bulletAutoNum = false
                     p.bulletChar = (? (item.taskState == 1) "☑" "☐")
                 }
-                def r (new PptxTextRun)
+                def r (PptxTextRun.new_())
                 r.text = text
                 r.fontFamily = layout.style.bodyFamily
                 r.fontSizePt = layout.style.bodySize
@@ -1007,18 +1009,27 @@ class MdToPptx {
                 ; a theme can make other than the body's, and the gap it left
                 ; above the item, so the list takes the room it took on the
                 ; slide instead of closing up under its first line.
+                ; The colour comes from a run that is not a link (a link's is
+                ; the link's); where the text STARTS comes from the first run
+                ; drawn, link or not. Read off the first plain run, an item
+                ; that opened with a link started at the words after it, and
+                ; the bullet's gap grew by the link's width.
                 def drawn:MdBox (this.runBoxOf(item page))
+                def start:MdBox (this.firstRunOf(item page))
                 MdToPptx.asDrawn(r drawn)
-                if (drawn.kind >= 0) {
-                    MdToPptx.lineSpacingOf(p drawn)
-                    def mark:MdBox (this.markerBoxOf(node page drawn))
+                if (drawn.kind < 0) {
+                    MdToPptx.faceOf(r start)
+                }
+                if (start.kind >= 0) {
+                    MdToPptx.lineSpacingOf(p start)
+                    def mark:MdBox (this.markerBoxOf(node page start))
                     if (mark.kind >= 0) {
                         p.bulletColor = (PptxApi.colorOf(mark.color))
                         if (mark.size > 0.0) {
                             p.bulletSizePt = mark.size
                         }
                         ; the text starts where the layout started it
-                        def gapX:double (drawn.x - mark.x)
+                        def gapX:double (start.x - mark.x)
                         if (gapX > 1.0) {
                             p.marginLeftPt = ((to_double level) * step) + gapX
                             p.indentPt = (0.0 - gapX)
@@ -1204,7 +1215,7 @@ class MdToPptx {
         def p (new PptxParagraph)
         p.marginLeftPt = indent
         p.marginSet = true
-        def r (new PptxTextRun)
+        def r (PptxTextRun.new_())
         r.text = (trim (MdToPptx.flatText(node)))
         r.fontFamily = layout.style.bodyFamily
         r.fontSizePt = layout.style.bodySize
@@ -1290,7 +1301,7 @@ class MdToPptx {
     fn collectRuns:void (node:MdNode tmpl:PptxTextRun out:[PptxTextRun]) {
         ; a span: its children in the span's style
         if (((node.kind == "strong") || (node.kind == "emph")) || (node.kind == "link")) {
-            def st (new PptxTextRun)
+            def st (PptxTextRun.new_())
             tmpl.copyStyleTo(st)
             st.color = tmpl.color
             st.highlight = tmpl.highlight
@@ -1324,7 +1335,7 @@ class MdToPptx {
         ; underline here, so `^sup^ ~sub~ ++ins++` keep their text in the
         ; style around them.
         if (node.kind == "mark") {
-            def mk (new PptxTextRun)
+            def mk (PptxTextRun.new_())
             tmpl.copyStyleTo(mk)
             mk.color = tmpl.color
             if ((strlen layout.style.markColor) > 0) {
@@ -1340,7 +1351,7 @@ class MdToPptx {
         }
         ; inline code: the face and the band the layout drew it with
         if (node.kind == "code") {
-            def cr (new PptxTextRun)
+            def cr (PptxTextRun.new_())
             tmpl.copyStyleTo(cr)
             cr.color = tmpl.color
             cr.text = node.literal
@@ -1366,7 +1377,7 @@ class MdToPptx {
         ; export captions it, `[1]`, smaller and in the link colour. The note
         ; is on the slide's foot, with the furniture.
         if (node.kind == "footnote_ref") {
-            def fr (new PptxTextRun)
+            def fr (PptxTextRun.new_())
             tmpl.copyStyleTo(fr)
             fr.color = (PptxApi.colorOf(layout.style.linkColor))
             fr.text = ("[" + (to_string node.noteNumber) + "]")
@@ -1376,7 +1387,7 @@ class MdToPptx {
             return
         }
         if (node.kind == "math") {
-            def r (new PptxTextRun)
+            def r (PptxTextRun.new_())
             tmpl.copyStyleTo(r)
             r.color = tmpl.color
             r.text = (MathOmml.linear(node.literal))
@@ -1385,7 +1396,7 @@ class MdToPptx {
             return
         }
         if (MdToPptx.isBreak(node)) {
-            def br (new PptxTextRun)
+            def br (PptxTextRun.new_())
             tmpl.copyStyleTo(br)
             br.color = tmpl.color
             br.text = "\n"
@@ -1405,7 +1416,7 @@ class MdToPptx {
                     return
                 }
             }
-            def r2 (new PptxTextRun)
+            def r2 (PptxTextRun.new_())
             tmpl.copyStyleTo(r2)
             r2.color = tmpl.color
             ; a `==mark==` around it (`copyStyleTo` leaves the highlight)
@@ -1572,7 +1583,7 @@ class MdToPptx {
                 def cp (new PptxParagraph)
                 cp.align = cell.align
                 cp.alignSet = true
-                def cr (new PptxTextRun)
+                def cr (PptxTextRun.new_())
                 cr.text = cell.text
                 cr.fontFamily = layout.style.bodyFamily
                 cr.fontSizePt = layout.style.bodySize
@@ -2020,6 +2031,38 @@ class MdToPptx {
         return none
     }
 
+    ; The run the layout drew first for `node` on `page`, a link's too: the
+    ; top line's leftmost. Where the text starts, which `runBoxOf` cannot
+    ; say when the text starts with a link. Kind -1 when nothing was drawn.
+    fn firstRunOf:MdBox (node:MdNode page:int) {
+        def none (MdBox.new_())
+        none.kind = -1
+        def pass:int 0
+        while (pass < 2) {
+            def best:MdBox none
+            def i:int 0
+            while (i < (array_length layout.boxes)) {
+                def b:MdBox (itemAt layout.boxes i)
+                if ((b.page == page) && (b.kind == 0)) {
+                    def at:int (? (pass == 0) b.segSrc b.srcStart)
+                    if ((MdToPptx.inSpan(node at)) && ((strlen (trim b.text)) > 0)) {
+                        if (best.kind < 0) {
+                            best = b
+                        } {
+                            if ((b.y < (best.y - 1.0)) || (((fabs (b.y - best.y)) <= 1.0) && (b.x < best.x))) {
+                                best = b
+                            }
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+            if (best.kind >= 0) { return best }
+            pass = (pass + 1)
+        }
+        return none
+    }
+
     ; The marker the layout drew in front of the line `text` starts: a box
     ; of the list's with no run of its own, on the same line, to the left.
     ; The nearest one: in a list set in columns the items of one row share a
@@ -2041,6 +2084,19 @@ class MdToPptx {
             i = (i + 1)
         }
         return best
+    }
+
+    ; A run in the size and face of the box the layout drew, not its colour
+    ; (the box is a link's, and its colour is the link's).
+    sfn faceOf:void (r:PptxTextRun b:MdBox) {
+        if (b.kind < 0) { return }
+        if (b.size > 0.0) {
+            r.fontSizePt = b.size
+            r.sizeSet = true
+        }
+        if ((strlen b.family) > 0) {
+            r.fontFamily = b.family
+        }
     }
 
     ; A run in the size, face and colour of the box the layout drew.
